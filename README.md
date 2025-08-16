@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.0.7
+Version 0.0.8
 
 Introduction
 ------------
@@ -26,9 +26,23 @@ but I've tried to make the platform generic enough to add additional capabilitie
 Currently the first version supports MKV files, but the plan is to use mediainfo
 to add support for other files.
 
+Examples
+--------
+
+Set default language to English:
+
+```
+./fml.sh --set lang --default English --file video.mkv
+```
+
+Get default language:
+
+```
+./fml.sh --get lang --lang default --file video.mkv
+```
+
 Help
 ----
-
 
 When the --help, or --usage switch is used.
 

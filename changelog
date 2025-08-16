@@ -12,3 +12,5 @@
 # First working version of default audio track change based on language
 # 0.0.7: Sat 16 Aug 2025 14:04:51 AEST
 # Updated documentation
+# 0.0.8: Sat 16 Aug 2025 14:35:30 AEST
+# Added code to get default language and updated documentation

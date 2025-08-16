@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.0.7
+# Version:      0.0.8
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -505,7 +505,11 @@ get_info () {
   check_environment
   if [[ "${options['filetype']}" =~ Matroska ]]; then
     if [ "${options['get']}" = "lang" ]; then
-      execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.id == 1) | { language: .properties.language } | .language'"
+      if [ "${options['lang']}" = "default" ]; then
+        execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.properties.default_track == true) | .properties.language'"
+      else
+        execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.id == 1) | { language: .properties.language } | .language'"
+      fi
     else
       format=$( echo "${options['format']}" | tr '[:upper:]' '[:lower:]' )
       if [ "${options['format']}" = "json" ]; then
