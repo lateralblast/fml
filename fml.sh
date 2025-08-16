@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.1.0
+# Version:      0.1.2
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -24,8 +24,9 @@
 declare -A os
 declare -A script
 declare -A options 
-declare -a options_list
+declare -a file_list
 declare -a actions_list
+declare -a options_list
 
 # Grab script information and put it into an associative array
 
@@ -42,13 +43,14 @@ script['bin']=$( basename "${script['file']}" )
 # Set defaults
 
 set_defaults () {
-  options['verbose']="false"  # option - Verbose mode
-  options['strict']="false"   # option - Strict mode
-  options['dryrun']="false"   # option - Dryrun mode
-  options['debug']="false"    # option - Debug mode
-  options['force']="false"    # option - Force actions
-  options['yes']="false"      # option - Answer yes to questions
-  options['format']="JSON"    # option - Information format
+  options['recursive']="false"  # option - Recursively process directory
+  options['verbose']="false"    # option - Verbose mode
+  options['strict']="false"     # option - Strict mode
+  options['dryrun']="false"     # option - Dryrun mode
+  options['debug']="false"      # option - Debug mode
+  options['force']="false"      # option - Force actions
+  options['yes']="false"        # option - Answer yes to questions
+  options['format']="JSON"      # option - Information format
   os['name']=$( uname -s )
   if [ "${os['name']}" = "Linux" ]; then
     os['distro']=$( lsb_release -i -s 2> /dev/null )
@@ -415,7 +417,7 @@ check_environment () {
   for test_file in jq mkvinfo mediainfo; do
     bin_test=$( command -v "${test_file}" | grep -c "${test_file}" )
     if [ "$bin_test" = "0" ]; then
-      warning_message "Command ${test_file} not found"
+      warning_message "Command \"${test_file}\" not found"
       if [ "${options['install']}" = "true" ]; then
         check_package "${test_file}"
       else
@@ -435,7 +437,7 @@ check_file () {
     do_exit
   else
     if [ ! -f "${options['file']}" ]; then
-      warning_message "File ${options['file']} does not exist"
+      warning_message "File \"${options['file']}\" does not exist"
       do_exit
     else
       options['filetype']=$( file "${options['file']}" )
@@ -443,11 +445,32 @@ check_file () {
   fi
 }
 
-# Function: set_info
+# Function: get_file_list
 #
-# Ser file info
+# Get file list from directory
 
-set_info () {
+get_file_list () {
+  if [ -d "${options['dir']}" ]; then
+    if [ "${options['recursive']}" = "true" ]; then
+      while IFS= read -r -u3 -d $'\0' file; do
+        file_list+=( "$file" )
+      done 3< <( find "${options['dir']}" -type f -print0 )
+    else
+      while IFS= read -r -u3 -d $'\0' file; do
+        file_list+=( "$file" )
+      done 3< <( find "${options['dir']}" -type f -maxdepth 1 -print0 )
+    fi
+  else
+    warning_message "Directory \"${options['dir']}\" does not exist"
+    do_exit
+  fi
+}
+
+# Function: set_file_info
+#
+# Set file information
+
+set_file_info () {
   check_file 
   check_environment
   if [ "${options['default']}" = "" ]; then
@@ -466,7 +489,8 @@ set_info () {
           lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
           other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
           sub_command=""
-          for track_no in "${other_track[@]}"; do
+          IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+          for track_no in "${track_nos[@]}"; do
             if [ "${sub_command}" = "" ]; then
               sub_command="--edit track:a${track_no} --set flag-default=0"
             else
@@ -475,18 +499,34 @@ set_info () {
           done
           execute_command "mkvpropedit \"${options['file']}\" ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
         else
-          verbose_message "Default language is already ${options['default']}"
+          verbose_message "Default language for file \"${options['file']}\" is already ${options['default']}"
         fi
       fi
     fi
   fi
 }
 
-# Function: swap_info
+# Function: set_info
 #
-# Swap info
+# Set information for file(s)
 
-swap_info () {
+set_info () {
+  if [ "${options['dir']}" = "" ]; then
+    set_file_info
+  else
+    get_file_list
+    for file in "${file_list[@]}"; do
+      options['file']="${file}"
+      set_file_info
+    done
+  fi
+}
+
+# Function: swap_file_info
+#
+# Swap information for file
+
+swap_file_info () {
   check_file 
   check_environment
   if [ "${options['swap']}" = "lang" ]; then
@@ -496,11 +536,27 @@ swap_info () {
   fi
 }
 
-# Function: get_info
+# Function: swap_info
 #
-# Get file info
+# Swap information for file(s)
 
-get_info () {
+swap_info () {
+  if [ "${options['dir']}" = "" ]; then
+    swap_file_info
+  else
+    get_file_list
+    for file in "${file_list[@]}"; do
+      options['file']="${file}"
+      swap_file_info
+    done
+  fi
+}
+
+# Function: get_file_info
+#
+# Get file information
+
+get_file_info () {
   check_file 
   check_environment
   if [[ "${options['filetype']}" =~ Matroska ]]; then
@@ -531,6 +587,23 @@ get_info () {
         fi
       fi
     fi
+  fi
+}
+
+# Function: get_info
+#
+# Get information from file(s)
+
+get_info () {
+  if [ "${options['dir']}" = "" ]; then
+    get_file_info
+  else
+    get_file_list
+    echo "${file_list[@]}"
+    for file in "${file_list[@]}"; do
+      options['file']="${file}"
+      get_file_info
+    done
   fi
 }
 
@@ -593,6 +666,11 @@ while test $# -gt 0; do
     --default*)           # switch - Set output format
       check_value "$1" "$2"
       options['default']="$2"
+      shift 2
+      ;;
+    --dir*)               # switch - File to process
+      check_value "$1" "$2"
+      options['dir']="$2"
       shift 2
       ;;
     --dryrun)             # switch - Enable debug mode
