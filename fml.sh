@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.1.2
+# Version:      0.1.4
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -485,21 +485,25 @@ set_file_info () {
       if [ "${options['set']}" = "lang" ]; then
         set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
         get_value=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .properties.default_track" )
-        if [ "${get_value}" = "false" ]; then
-          lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
-          other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
-          sub_command=""
-          IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
-          for track_no in "${track_nos[@]}"; do
-            if [ "${sub_command}" = "" ]; then
-              sub_command="--edit track:a${track_no} --set flag-default=0"
-            else
-              sub_command="${sub_command} --edit track:a${track_no} --set flag-default=0"
-            fi
-          done
-          execute_command "mkvpropedit \"${options['file']}\" ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
+        if [ "${get_value}" = "" ]; then
+          warning_message "File \"${options['file']}\" does not have a track with language \"${options['default']}\""
         else
-          verbose_message "Default language for file \"${options['file']}\" is already ${options['default']}"
+          if [ "${get_value}" = "false" ]; then
+            lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
+            other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
+            sub_command=""
+            IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+            for track_no in "${track_nos[@]}"; do
+              if [ "${sub_command}" = "" ]; then
+                sub_command="--edit track:a${track_no} --set flag-default=0"
+              else
+                sub_command="${sub_command} --edit track:a${track_no} --set flag-default=0"
+              fi
+            done
+            execute_command "mkvpropedit \"${options['file']}\" ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
+          else
+            verbose_message "Default language for file \"${options['file']}\" is already ${options['default']}"
+          fi
         fi
       fi
     fi
@@ -564,7 +568,17 @@ get_file_info () {
       if [ "${options['lang']}" = "default" ]; then
         execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.properties.default_track == true) | .properties.language'"
       else
-        execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.id == 1) | { language: .properties.language } | .language'"
+        if [ "${options['lang']}" = "" ]; then
+          execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.id == 1) | { language: .properties.language } | .language'"
+        else
+          lang=$( echo "${options['lang']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
+          get_value=$( mkvmerge -F json -i "${options['file']}" | jq -r ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${lang}\") | .properties.language" )
+          if [ ! "${get_value}" = "${lang}" ]; then
+            warning_message "File \"${options['file']}\" does not have a track with language \"${options['lang']}\""
+          else
+            execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.properties.language == \"${lang}\")'"
+          fi
+        fi
       fi
     else
       format=$( echo "${options['format']}" | tr '[:upper:]' '[:lower:]' )
