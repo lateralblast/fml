@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.0.8
+# Version:      0.1.0
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -376,7 +376,7 @@ print_defaults () {
 #
 # Install package
 
-install_package (){
+install_package () {
   package="$1"
   case ${os['name']} in
     "Linux")
@@ -395,7 +395,7 @@ install_package (){
 #
 # Check package
 
-install_package () {
+check_package () {
   package="$1"
   case ${package} in
     *mkv*)
@@ -466,7 +466,7 @@ set_info () {
           lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
           other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
           sub_command=""
-          for track_no in ${other_track[@]}; do
+          for track_no in "${other_track[@]}"; do
             if [ "${sub_command}" = "" ]; then
               sub_command="--edit track:a${track_no} --set flag-default=0"
             else
@@ -643,6 +643,10 @@ while test $# -gt 0; do
       options['set']="$2"
       actions_list+=("set")
       shift 2
+      ;;
+    --shellcheck)         # switch - Get information about file
+      actions_list+=("shellcheck")
+      shift
       ;;
     --strict)             # switch - Enable strict mode
       options['strict']="true"
