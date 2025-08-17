@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.1.8
+# Version:      0.2.0
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -640,7 +640,7 @@ delete_file_info () {
       for track_no in "${track_nos[@]}"; do
         temp_file="${options['file']}-${track_no}"
         execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
-        if [ -f "${test_file}" ]; then
+        if [ -f "${temp_file}" ]; then
           execute_command "rm \"${options['file']}\""
           execute_command "mv \"${temp_file}\" \"${options['file']}\""
         else
@@ -682,7 +682,7 @@ preserve_file_info () {
       for track_no in "${track_nos[@]}"; do
         temp_file="${options['file']}-${track_no}"
         execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
-        if [ -f "${test_file}" ]; then
+        if [ -f "${temp_file}" ]; then
           execute_command "rm \"${options['file']}\""
           execute_command "mv \"${temp_file}\" \"${options['file']}\""
         else

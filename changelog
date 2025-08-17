@@ -36,3 +36,5 @@
 # Added file check for preserve/delete function
 # 0.1.9: Sun 17 Aug 2025 11:32:38 AEST
 # Fixed escaping on file name
+# 1.2.0: Sun 17 Aug 2025 11:46:07 AEST
+# Fixed typo
