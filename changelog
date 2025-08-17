@@ -50,3 +50,5 @@
 # Added code to delete specific audio track from AVI file
 # 1.2.6: Sun 17 Aug 2025 20:16:17 AEST
 # Improved processing of multiple tracks
+# 1.2.7: Sun 17 Aug 2025 20:57:51 AEST
+# Improvements and bug fixes
