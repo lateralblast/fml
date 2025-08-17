@@ -32,3 +32,5 @@
 # Added preserve and delete functions
 # 0.1.7: Sun 17 Aug 2025 10:12:01 AEST
 # Updated documentation
+# 0.1.8: Sun 17 Aug 2025 10:27:19 AEST
+# Added file check for preserve/delete function
