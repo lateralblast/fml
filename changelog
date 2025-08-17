@@ -34,3 +34,5 @@
 # Updated documentation
 # 0.1.8: Sun 17 Aug 2025 10:27:19 AEST
 # Added file check for preserve/delete function
+# 0.1.9: Sun 17 Aug 2025 11:32:38 AEST
+# Fixed escaping on file name

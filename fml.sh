@@ -639,7 +639,7 @@ delete_file_info () {
       IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
       for track_no in "${track_nos[@]}"; do
         temp_file="${options['file']}-${track_no}"
-        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} ${options['file']}"
+        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
         if [ -f "${test_file}" ]; then
           execute_command "rm \"${options['file']}\""
           execute_command "mv \"${temp_file}\" \"${options['file']}\""
@@ -681,7 +681,7 @@ preserve_file_info () {
       IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
       for track_no in "${track_nos[@]}"; do
         temp_file="${options['file']}-${track_no}"
-        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} ${options['file']}"
+        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
         if [ -f "${test_file}" ]; then
           execute_command "rm \"${options['file']}\""
           execute_command "mv \"${temp_file}\" \"${options['file']}\""
