@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.2.7
+# Version:      0.2.8
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -666,18 +666,24 @@ delete_file_info () {
   if [[ "${options['filetype']}" =~ Matroska ]]; then
     if [ "${options['delete']}" = "lang" ]; then
       set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
-      other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" | sed 's/\r$//' )
-      IFS=$'\n' read -r -d '' -a track_nos <<< "${other_track[*]}"
-      for track_no in "${track_nos[@]}"; do
-        temp_file="${options['file']}-${track_no}"
-        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
-        if [ -f "${temp_file}" ]; then
-          execute_command "rm \"${options['file']}\""
-          execute_command "mv \"${temp_file}\" \"${options['file']}\""
-        else
-          warning_message "Failed to process file \"${options['file']}\""
-        fi
-      done
+      no_tracks=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" | wc -l | sed 's/ //g' )
+      if [ "${no_tracks}" -gt 0 ]; then
+        counter=0
+        while [[ "${counter}" -ne "${no_tracks}" ]]; do
+          track_no=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | head -1 | sed 's/ //g' )
+          if [ -n "${track_no}" ]; then
+            temp_file="${options['file']}-${track_no}"
+            execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
+            if [ -f "${temp_file}" ]; then
+              execute_command "rm \"${options['file']}\""
+              execute_command "mv \"${temp_file}\" \"${options['file']}\""
+            else
+              warning_message "Failed to process file \"${options['file']}\""
+            fi
+          fi
+          let counter++
+        done
+      fi
     fi
   else
     if [[ "${options['filetype']}" =~ AVI ]]; then
@@ -728,18 +734,24 @@ preserve_file_info () {
   if [[ "${options['filetype']}" =~ Matroska ]]; then
     if [ "${options['preserve']}" = "lang" ]; then
       set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
-      other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | sed 's/\r$//' )
-      IFS=$'\n' read -r -d '' -a track_nos <<< "${other_track[*]}"
-      for track_no in "${track_nos[@]}"; do
-        temp_file="${options['file']}-${track_no}"
-        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
-        if [ -f "${temp_file}" ]; then
-          execute_command "rm \"${options['file']}\""
-          execute_command "mv \"${temp_file}\" \"${options['file']}\""
-        else
-          warning_message "Failed to process file \"${options['file']}\""
-        fi
-      done
+      no_tracks=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | wc -l | sed 's/ //g' )
+      if [ "${no_tracks}" -gt 0 ]; then
+        counter=0
+        while [[ "${counter}" -ne "${no_tracks}" ]]; do
+          track_no=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | head -1 | sed 's/ //g' )
+          if [ -n "${track_no}" ]; then
+            temp_file="${options['file']}-${track_no}"
+            execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
+            if [ -f "${temp_file}" ]; then
+              execute_command "rm \"${options['file']}\""
+              execute_command "mv \"${temp_file}\" \"${options['file']}\""
+            else
+              warning_message "Failed to process file \"${options['file']}\""
+            fi
+          fi
+          let counter++
+        done
+      fi
     fi
   fi
 }

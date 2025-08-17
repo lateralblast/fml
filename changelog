@@ -36,19 +36,21 @@
 # Added file check for preserve/delete function
 # 0.1.9: Sun 17 Aug 2025 11:32:38 AEST
 # Fixed escaping on file name
-# 1.2.0: Sun 17 Aug 2025 11:46:07 AEST
+# 0.2.0: Sun 17 Aug 2025 11:46:07 AEST
 # Fixed typo
-# 1.2.1: Sun 17 Aug 2025 12:30:41 AEST
+# 0.2.1: Sun 17 Aug 2025 12:30:41 AEST
 # Added additional check for other tracks set to default
-# 1.2.2: Sun 17 Aug 2025 17:20:54 AEST
+# 0.2.2: Sun 17 Aug 2025 17:20:54 AEST
 # Added code for swapping audio tracks on AVI files
-# 1.2.3: Sun 17 Aug 2025 18:02:55 AEST
+# 0.2.3: Sun 17 Aug 2025 18:02:55 AEST
 # Added check for ffmpeg package
-# 1.2.4: Sun 17 Aug 2025 18:04:00 AEST
+# 0.2.4: Sun 17 Aug 2025 18:04:00 AEST
 # Added code to delete last audio track from AVI file
-# 1.2.5: Sun 17 Aug 2025 18:11:34 AEST
+# 0.2.5: Sun 17 Aug 2025 18:11:34 AEST
 # Added code to delete specific audio track from AVI file
-# 1.2.6: Sun 17 Aug 2025 20:16:17 AEST
+# 0.2.6: Sun 17 Aug 2025 20:16:17 AEST
 # Improved processing of multiple tracks
-# 1.2.7: Sun 17 Aug 2025 20:57:51 AEST
+# 0.2.7: Sun 17 Aug 2025 20:57:51 AEST
 # Improvements and bug fixes
+# 0.2.8: Sun 17 Aug 2025 21:26:18 AEST
+# Improved handling of deletion
