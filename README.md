@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.2.1
+Version 0.2.2
 
 Introduction
 ------------
@@ -26,8 +26,10 @@ but I've tried to make the platform generic enough to add additional capabilitie
 Currently the first version supports MKV files, but the plan is to use mediainfo
 to add support for other files.
 
-Examples
---------
+MKV Examples
+------------
+
+As MKV is a container, you can generally just update the metadata to alter a file if you are not altering the content.
 
 Set default language to English:
 
@@ -41,6 +43,8 @@ Get default language:
 ./fml.sh --get lang --lang default --file video.mkv
 ```
 
+If you need to delete a track, this can also be done.
+
 Delete all non English tracks:
 
 ```
@@ -51,6 +55,21 @@ Delete all English tracks:
 
 ```
 ./fml.sh --delete lang --lang eng --file video.mkv
+```
+
+If the metadata is poor quality, e.g. the language information is incorrect or not present,
+you can use the swap option to swap the first two tracks.
+
+AVI Examples
+------------
+
+With AVI files, you generally need to rewrite the file, so this will obviously take longer
+than altering just the metadata.
+
+Swap first two audio tracks:
+
+```
+./fml.sh --swap lang --file video.avi --options verbose
 ```
 
 Help

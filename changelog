@@ -40,3 +40,5 @@
 # Fixed typo
 # 1.2.1: Sun 17 Aug 2025 12:30:41 AEST
 # Added additional check for other tracks set to default
+# 1.2.2: Sun 17 Aug 2025 17:20:54 AEST
+# Added code for swapping audio tracks on AVI files

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.2.1
+# Version:      0.2.2
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -556,6 +556,18 @@ swap_file_info () {
   if [ "${options['swap']}" = "lang" ]; then
     if [[ "${options['filetype']}" =~ Matroska ]]; then
       execute_command "mkvpropedit \"${options['file']}\" --edit track:a1 --set flag-default=0 --edit track:a2 --set flag-default=1"
+    else
+      if [[ "${options['filetype']}" =~ AVI ]]; then
+        temp_base="${options['file']}"
+        temp_file="${temp_base%.*}-temp.avi"
+        execute_command "ffmpeg -i \"${options['file']}\" -map 0:0 -map 0:2 -map 0:1 -disposition:a:0 default -disposition:a:1 none -c copy \"${temp_file}\""
+        if [ -f "${temp_file}" ]; then
+          execute_command "rm \"${options['file']}\""
+          execute_command "mv \"${temp_file}\" \"${options['file']}\""
+        else
+          warning_message "Failed to process file \"${options['file']}\""
+        fi
+      fi
     fi
   fi
 }
