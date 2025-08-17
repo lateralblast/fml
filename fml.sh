@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.2.2
+# Version:      0.2.5
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -407,6 +407,9 @@ check_package () {
     *mkv*)
       install_package "mkvtoolnix"
       ;;
+    ff*)
+      install_package "ffmpeg"
+      ;;
     *)
       install_package "${package}"
       ;;
@@ -418,7 +421,7 @@ check_package () {
 # Check environment
 
 check_environment () {
-  for test_file in jq mkvinfo mediainfo; do
+  for test_file in jq mkvinfo mediainfo ffprobe; do
     bin_test=$( command -v "${test_file}" | grep -c "${test_file}" )
     if [ "$bin_test" = "0" ]; then
       warning_message "Command \"${test_file}\" not found"
@@ -675,6 +678,26 @@ delete_file_info () {
           warning_message "Failed to process file \"${options['file']}\""
         fi
       done
+    fi
+  else
+    if [[ "${options['filetype']}" =~ AVI ]]; then
+      temp_base="${options['file']}"
+      temp_file="${temp_base%.*}-temp.avi"
+      if [ "${options['delete']}" = "track" ]; then
+        if [ "${options['track']}" = "last" ]; then
+          track_no=$( ffprobe "${options['file']}" 2>&1 |grep "Audio:" |tail -1 |cut -d: -f2 )
+          track_no=$( expr ${track_no} - 1 )
+        else
+          track_no="${options['track']}"
+        fi
+        execute_command "ffmpeg -i \"${options['file']}\" -map 0 -map -0:a:${track_no} -c copy \"${temp_file}\""
+        if [ -f "${temp_file}" ]; then
+          execute_command "rm \"${options['file']}\""
+          execute_command "mv \"${temp_file}\" \"${options['file']}\""
+        else
+          warning_message "Failed to process file \"${options['file']}\""
+        fi
+      fi
     fi
   fi
 }

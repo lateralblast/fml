@@ -1,14 +1,21 @@
 ![FML](fml.jpg)
 
 FML
----
+===
 
 Fix Media Language (etc)
 
 Version
 -------
 
-Version 0.2.2
+Version 0.2.5
+
+License
+-------
+
+CC BY-SA: https://creativecommons.org/licenses/by-sa/4.0/
+
+Fund me here: https://ko-fi.com/richardatlateralblast
 
 Introduction
 ------------
@@ -31,13 +38,13 @@ MKV Examples
 
 As MKV is a container, you can generally just update the metadata to alter a file if you are not altering the content.
 
-Set default language to English:
+Set default language to English for a MKV file:
 
 ```
 ./fml.sh --set lang --default English --file video.mkv
 ```
 
-Get default language:
+Get default language from a MKV file:
 
 ```
 ./fml.sh --get lang --lang default --file video.mkv
@@ -45,13 +52,13 @@ Get default language:
 
 If you need to delete a track, this can also be done.
 
-Delete all non English tracks:
+Delete all non English tracks from a MKV file:
 
 ```
 ./fml.sh --preserve lang --lang eng --file video.mkv
 ```
 
-Delete all English tracks:
+Delete all English tracks from a MKV file:
 
 ```
 ./fml.sh --delete lang --lang eng --file video.mkv
@@ -66,10 +73,16 @@ AVI Examples
 With AVI files, you generally need to rewrite the file, so this will obviously take longer
 than altering just the metadata.
 
-Swap first two audio tracks:
+Swap first two audio tracks of an AVI file:
 
 ```
 ./fml.sh --swap lang --file video.avi --options verbose
+```
+
+Delete last audio track from AVI file:
+
+```
+./fml.sh --delete track --track last --file video.avi --options verbose
 ```
 
 Help

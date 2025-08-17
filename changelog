@@ -42,3 +42,9 @@
 # Added additional check for other tracks set to default
 # 1.2.2: Sun 17 Aug 2025 17:20:54 AEST
 # Added code for swapping audio tracks on AVI files
+# 1.2.3: Sun 17 Aug 2025 18:02:55 AEST
+# Added check for ffmpeg package
+# 1.2.4: Sun 17 Aug 2025 18:04:00 AEST
+# Added code to delete last audio track from AVI file
+# 1.2.5: Sun 17 Aug 2025 18:11:34 AEST
+# Added code to delete specific audio track from AVI file
