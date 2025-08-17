@@ -38,3 +38,5 @@
 # Fixed escaping on file name
 # 1.2.0: Sun 17 Aug 2025 11:46:07 AEST
 # Fixed typo
+# 1.2.1: Sun 17 Aug 2025 12:30:41 AEST
+# Added additional check for other tracks set to default
