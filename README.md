@@ -110,7 +110,7 @@ switch(es):
 --usage)
     Display usage
 --verbose)
-    Enable verbos e mode
+    Enable verbose mode
 --version|-V)
     Print version information
 ```

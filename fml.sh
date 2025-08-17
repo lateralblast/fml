@@ -864,7 +864,7 @@ while test $# -gt 0; do
       shift 2
       exit
       ;;
-    --verbose)            # switch - Enable verbos e mode
+    --verbose)            # switch - Enable verbose mode
       options['verbose']="true"
       shift
       ;;
