@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.2.5
+Version 0.2.6
 
 License
 -------

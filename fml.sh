@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.2.5
+# Version:      0.2.6
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -499,7 +499,7 @@ set_file_info () {
             lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
             other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
             sub_command=""
-            IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+            IFS=$'\n' read -r -a track_nos -d '' <<< "${other_track[*]}"
             for track_no in "${track_nos[@]}"; do
               if [ "${sub_command}" = "" ]; then
                 sub_command="--edit track:a${track_no} --set flag-default=0"
@@ -511,12 +511,12 @@ set_file_info () {
           else
             verbose_message "Default language for file \"${options['file']}\" is already ${options['default']}"
             verbose_message "Checking for non \"${options['default']}\" tracks that are set to default"
-            get_value=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .properties.default_track" )
+            get_value=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .properties.default_track" | grep "true" |uniq )
             if [ "${get_value}" = "true" ]; then
               lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
               other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
               sub_command=""
-              IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+              IFS=$'\n' read -r -a track_nos -d '' <<< "${other_track[*]}"
               for track_no in "${track_nos[@]}"; do
                 if [ "${sub_command}" = "" ]; then
                   sub_command="--edit track:a${track_no} --set flag-default=0"
@@ -524,7 +524,7 @@ set_file_info () {
                   sub_command="${sub_command} --edit track:a${track_no} --set flag-default=0"
                 fi
               done
-              execute_command "mkvpropedit \"${options['file']}\" ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
+              #execute_command "mkvpropedit \"${options['file']}\" ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
             fi
           fi
         fi
@@ -667,7 +667,7 @@ delete_file_info () {
     if [ "${options['delete']}" = "lang" ]; then
       set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
       other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
-      IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+      IFS=$'\n' read -r -a track_nos -d '' <<< "${other_track[*]}"
       for track_no in "${track_nos[@]}"; do
         temp_file="${options['file']}-${track_no}"
         execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
@@ -686,10 +686,10 @@ delete_file_info () {
       if [ "${options['delete']}" = "track" ]; then
         if [ "${options['track']}" = "last" ]; then
           track_no=$( ffprobe "${options['file']}" 2>&1 |grep "Audio:" |tail -1 |cut -d: -f2 )
-          track_no=$( expr ${track_no} - 1 )
         else
           track_no="${options['track']}"
         fi
+        track_no=$( expr ${track_no} - 1 )
         execute_command "ffmpeg -i \"${options['file']}\" -map 0 -map -0:a:${track_no} -c copy \"${temp_file}\""
         if [ -f "${temp_file}" ]; then
           execute_command "rm \"${options['file']}\""
@@ -729,7 +729,7 @@ preserve_file_info () {
     if [ "${options['preserve']}" = "lang" ]; then
       set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
       other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
-      IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+      IFS=$'\n' read -r -a track_nos -d '' <<< "${other_track[*]}"
       for track_no in "${track_nos[@]}"; do
         temp_file="${options['file']}-${track_no}"
         execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
