@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.1.4
+Version 0.1.7
 
 Introduction
 ------------
@@ -41,26 +41,42 @@ Get default language:
 ./fml.sh --get lang --lang default --file video.mkv
 ```
 
+Delete all non English tracks:
+
+```
+./fml.sh --preserve lang --lang eng --file video.mkv
+```
+
+Delete all English tracks:
+
+```
+./fml.sh --delete lang --lang eng --file video.mkv
+```
+
 Help
 ----
 
 When the --help, or --usage switch is used.
 
 ```
- ./fml.sh --help
+./fml.sh --help
 
 Usage: fml.sh --action(s) [action(,action)] --option(s) [option(,option)]
 
-switch(s):
+switch(es):
 ---------
 --action*)
     Action to perform
 --debug)
     Enable debug mode
 --default*)
-    Set output format
+    Set default
+--delete)
+    Delete item from file (e.g. track)
+--dir*)
+    Directory to process
 --dryrun)
-    Enable debug mode
+    Enable dryrun mode
 --file)
     File to process
 --force)
@@ -76,15 +92,23 @@ switch(s):
 --lang*)
     Set language
 --option*)
-    Action to perform
+    Options to set
+--preserve*|--leave*)
+    Preserve item from file (e.g. track)
+--recursive)
+    Enable recursive mode
 --set)
-    Get information about file
+    Set information about file
+--shellcheck)
+    Run shellcheck against script
 --strict)
     Enable strict mode
 --swap)
-    Get information about file
+    Swap information about file
+--track)
+    Track to perform operation on
 --usage)
-    Action to perform
+    Display usage
 --verbose)
     Enable verbos e mode
 --version|-V)
@@ -100,6 +124,8 @@ Usage: fml.sh --action(s) [action(,action)] --option(s) [option(,option)]
 
 option(s):
 ---------
+recursive (default = false)
+   Recursively process directory
 verbose (default = false)
    Verbose mode
 strict (default = false)
@@ -129,8 +155,12 @@ get|info)
     Get file information
 help)
     Print actions help
+delete*)
+    Delete file information
 version)
     Print version
+pres*|leave*)
+    Preserve/leave file information
 printenv*)
     Print environment
 printdefaults)
@@ -140,5 +170,5 @@ set)
 shellcheck)
     Shellcheck script
 swap)
-    Set file information
+    Swap file information
 ```

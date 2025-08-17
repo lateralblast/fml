@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.1.4
+# Version:      0.1.7
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -229,7 +229,11 @@ print_info () {
   echo ""
   echo "Usage: ${script['bin']} --action(s) [action(,action)] --option(s) [option(,option)]"
   echo ""
-  echo "${info}(s):"
+  if [ "${info}" = "switch" ]; then
+    echo "${info}(es):"
+  else
+    echo "${info}(s):"
+  fi
   echo "---------"
   while read -r line; do
     if [[ "${line}" =~ .*"# ${info}".* ]]; then
@@ -621,6 +625,82 @@ get_info () {
   fi
 }
 
+# Function: delete_file_info
+#
+# Delete file information
+
+delete_file_info () {
+  check_file 
+  check_environment
+  if [[ "${options['filetype']}" =~ Matroska ]]; then
+    if [ "${options['delete']}" = "lang" ]; then
+      set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
+      other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" )
+      IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+      for track_no in "${track_nos[@]}"; do
+        temp_file="${options['file']}-${track_no}"
+        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} ${options['file']}"
+        execute_command "rm \"${options['file']}\""
+        execute_command "mv \"${temp_file}\" \"${options['file']}\""
+      done
+    fi
+  fi
+}
+
+# Function: delete_info
+#
+# Delete information from file(s)
+
+delete_info () {
+  if [ "${options['dir']}" = "" ]; then
+    delete_file_info
+  else
+    get_file_list
+    for file in "${file_list[@]}"; do
+      options['file']="${file}"
+      delete_file_info
+    done
+  fi
+}
+
+# Function: preserve_file_info
+#
+# Preserve file information
+
+preserve_file_info () {
+  check_file 
+  check_environment
+  if [[ "${options['filetype']}" =~ Matroska ]]; then
+    if [ "${options['preserve']}" = "lang" ]; then
+      set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
+      other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" )
+      IFS=$'\n' read -r -a track_nos <<< "${other_track[*]}"
+      for track_no in "${track_nos[@]}"; do
+        temp_file="${options['file']}-${track_no}"
+        execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} ${options['file']}"
+        execute_command "rm \"${options['file']}\""
+        execute_command "mv \"${temp_file}\" \"${options['file']}\""
+      done
+    fi
+  fi
+}
+
+# Function: preserve_info
+#
+# Preserve information from file(s)
+
+preserve_info () {
+  if [ "${options['dir']}" = "" ]; then
+    preserve_file_info
+  else
+    get_file_list
+    for file in "${file_list[@]}"; do
+      options['file']="${file}"
+      preserve_file_info
+    done
+  fi
+}
+
 # Function: process_actions
 #
 # Handle actions
@@ -635,9 +715,15 @@ process_actions () {
       print_actions
       do_exit
       ;;
+    delete*)              # action - Delete file information
+      delete_info 
+      ;;
     version)              # action - Print version
       print_version
       do_exit
+      ;;
+    pres*|leave*)         # action - Preserve/leave file information
+      preserve_info 
       ;;
     printenv*)            # action - Print environment
       print_environment
@@ -654,7 +740,7 @@ process_actions () {
       check_shellcheck
       do_exit
       ;;
-    swap)                 # action - Set file information
+    swap)                 # action - Swap file information
       swap_info 
       ;;
     *)
@@ -677,17 +763,23 @@ while test $# -gt 0; do
       options['debug']="true"
       shift
       ;;
-    --default*)           # switch - Set output format
+    --default*)           # switch - Set default
       check_value "$1" "$2"
       options['default']="$2"
       shift 2
       ;;
-    --dir*)               # switch - File to process
+    --delete)             # switch - Delete item from file (e.g. track)
+      check_value "$1" "$2"
+      options['delete']="$2"
+      actions_list+=("delete")
+      shift 2
+      ;;
+    --dir*)               # switch - Directory to process
       check_value "$1" "$2"
       options['dir']="$2"
       shift 2
       ;;
-    --dryrun)             # switch - Enable debug mode
+    --dryrun)             # switch - Enable dryrun mode
       options['dryrun']="true"
       shift
       ;;
@@ -725,18 +817,28 @@ while test $# -gt 0; do
       options['lang']="$2"
       shift 2
       ;;
-    --option*)            # switch - Action to perform
+    --option*)            # switch - Options to set
       check_value "$1" "$2"
       options_list+=("$2")
       shift 2
       ;;
-    --set)                # switch - Get information about file
+    --preserve*|--leave*)   # switch - Preserve item from file (e.g. track)
+      check_value "$1" "$2"
+      options['preserve']="$2"
+      actions_list+=("preserve")
+      shift 2
+      ;;
+    --recursive)          # switch - Enable recursive mode
+      options['recursive']="true"
+      shift
+      ;;
+    --set)                # switch - Set information about file
       check_value "$1" "$2"
       options['set']="$2"
       actions_list+=("set")
       shift 2
       ;;
-    --shellcheck)         # switch - Get information about file
+    --shellcheck)         # switch - Run shellcheck against script
       actions_list+=("shellcheck")
       shift
       ;;
@@ -744,13 +846,18 @@ while test $# -gt 0; do
       options['strict']="true"
       shift
       ;;
-    --swap)               # switch - Get information about file
+    --swap)               # switch - Swap information about file
       check_value "$1" "$2"
       options['swap']="$2"
       actions_list+=("swap")
       shift 2
       ;;
-    --usage)              # switch - Action to perform
+    --track)              # switch - Track to perform operation on
+      check_value "$1" "$2"
+      options['track']="$2"
+      shift 2
+      ;;
+    --usage)              # switch - Display usage
       check_value "$1" "$2"
       usage="$2"
       print_usage "${usage}"

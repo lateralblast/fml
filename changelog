@@ -26,3 +26,9 @@
 # Improved get function
 # 0.1.4: Sat 16 Aug 2025 18:16:30 AEST
 # Improved handling of files without a requested language
+# 0.1.5: Sat 16 Aug 2025 21:36:56 AEST
+# Fixed documendation for switches
+# 0.1.6: Sun 17 Aug 2025 10:03:55 AEST
+# Added preserve and delete functions
+# 0.1.7: Sun 17 Aug 2025 10:12:01 AEST
+# Updated documentation
