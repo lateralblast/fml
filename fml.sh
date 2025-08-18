@@ -7,7 +7,7 @@
 #               http://creativecommons.org/licenses/by/4.0/legalcode
 # Group:        System
 # Source:       N/A
-# URL:          https://github.com/lateralblast/just
+# URL:          https://github.com/lateralblast/fml
 # Distribution: UNIX
 # Vendor:       UNIX
 # Packager:     Richard Spindler <richard@lateralblast.com.au>
