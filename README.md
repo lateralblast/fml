@@ -97,51 +97,51 @@ Usage: fml.sh --action(s) [action(,action)] --option(s) [option(,option)]
 
 switch(es):
 ---------
---action*)
+--action*|-a)
     Action to perform
---debug)
+--debug|-Z)
     Enable debug mode
---default*)
+--default*|-D)
     Set default
---delete)
+--delete|-z)
     Delete item from file (e.g. track)
---dir*)
+--dir*|-d)
     Directory to process
---dryrun)
+--dryrun|-T)
     Enable dryrun mode
---file)
+--file|-i)
     File to process
---force)
+--force|-f)
     Enable force mode
---format*)
+--format*|-o)
     Set output format
---get)
+--get|-g)
     Get information about file
 --help|-h)
     Print help information
---info)
+--info|-I)
     Get information about file
---lang*)
+--lang*|-l)
     Set language
---option*)
+--opt*|-o)
     Options to set
---preserve*|--leave*)
+--preserve*|--leave*|-p)
     Preserve item from file (e.g. track)
---recursive)
+--recursive|-r)
     Enable recursive mode
---set)
+--set|-c)
     Set information about file
---shellcheck)
+--shellcheck|-S)
     Run shellcheck against script
---strict)
+--strict|-m)
     Enable strict mode
---swap)
+--swap|-s)
     Swap information about file
---track)
+--track|-t)
     Track to perform operation on
---usage)
+--usage|-U)
     Display usage
---verbose)
+--verbose|-v)
     Enable verbose mode
 --version|-V)
     Print version information
