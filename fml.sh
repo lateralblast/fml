@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.2.8
+# Version:      0.2.9
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -178,7 +178,7 @@ do_exit () {
 check_value () {
   param="$1"
   value="$2"
-  if [[ "${value}" =~ "--" ]]; then
+  if [[ "${value}" =~ "-" ]]; then
     print_message "Value '$value' for parameter '$param' looks like a parameter" "verbose"
     echo ""
     if [ "${options['force']}" = "false" ]; then
@@ -252,6 +252,7 @@ print_info () {
         IFS='#' read -r param desc <<< "${line}"
         desc="${desc/${info} -/}"
       fi
+      param="${param//\"/}"
       echo "${param}"
       echo "  ${desc}"
     fi
@@ -825,121 +826,121 @@ process_actions () {
 
 while test $# -gt 0; do
   case $1 in
-    --action*)            # switch - Action to perform
+    --action*|"-a")             # switch - Action to perform
       check_value "$1" "$2"
       actions_list+=("$2")
       shift 2
       ;;
-    --debug)              # switch - Enable debug mode
+    --debug|"-Z")               # switch - Enable debug mode
       options['debug']="true"
       shift
       ;;
-    --default*)           # switch - Set default
+    --default*|"-D")            # switch - Set default
       check_value "$1" "$2"
       options['default']="$2"
       shift 2
       ;;
-    --delete)             # switch - Delete item from file (e.g. track)
+    --delete|"-z")              # switch - Delete item from file (e.g. track)
       check_value "$1" "$2"
       options['delete']="$2"
       actions_list+=("delete")
       shift 2
       ;;
-    --dir*)               # switch - Directory to process
+    --dir*|"-d")                # switch - Directory to process
       check_value "$1" "$2"
       options['dir']="$2"
       shift 2
       ;;
-    --dryrun)             # switch - Enable dryrun mode
+    --dryrun|"-T")              # switch - Enable dryrun mode
       options['dryrun']="true"
       shift
       ;;
-    --file)               # switch - File to process
+    --file|"-i")                # switch - File to process
       check_value "$1" "$2"
       options['file']="$2"
       shift 2
       ;;
-    --force)              # switch - Enable force mode
+    --force|"-f")               # switch - Enable force mode
       options['force']="true"
       shift
       ;;
-    --format*)            # switch - Set output format
+    --format*|"-o")             # switch - Set output format
       check_value "$1" "$2"
       options['format']="$2"
       shift 2
       ;;
-    --get)                # switch - Get information about file
+    --get|"-g")                 # switch - Get information about file
       check_value "$1" "$2"
       options['get']="$2"
       actions_list+=("get")
       shift 2
       ;;
-    --help|-h)            # switch - Print help information
+    --help|"-h")                # switch - Print help information
       print_help
       shift
       exit
       ;;
-    --info)               # switch - Get information about file
+    --info|"-I")                # switch - Get information about file
       actions_list+=("info")
       shift
       ;;
-    --lang*)              # switch - Set language
+    --lang*|"-l")               # switch - Set language
       check_value "$1" "$2"
       options['lang']="$2"
       shift 2
       ;;
-    --option*)            # switch - Options to set
+    --opt*|"-o")                # switch - Options to set
       check_value "$1" "$2"
       options_list+=("$2")
       shift 2
       ;;
-    --preserve*|--leave*)   # switch - Preserve item from file (e.g. track)
+    --preserve*|--leave*|"-p")  # switch - Preserve item from file (e.g. track)
       check_value "$1" "$2"
       options['preserve']="$2"
       actions_list+=("preserve")
       shift 2
       ;;
-    --recursive)          # switch - Enable recursive mode
+    --recursive|"-r")           # switch - Enable recursive mode
       options['recursive']="true"
       shift
       ;;
-    --set)                # switch - Set information about file
+    --set|"-c")                 # switch - Set information about file
       check_value "$1" "$2"
       options['set']="$2"
       actions_list+=("set")
       shift 2
       ;;
-    --shellcheck)         # switch - Run shellcheck against script
+    --shellcheck|"-S")          # switch - Run shellcheck against script
       actions_list+=("shellcheck")
       shift
       ;;
-    --strict)             # switch - Enable strict mode
+    --strict|"-m")              # switch - Enable strict mode
       options['strict']="true"
       shift
       ;;
-    --swap)               # switch - Swap information about file
+    --swap|"-s")                # switch - Swap information about file
       check_value "$1" "$2"
       options['swap']="$2"
       actions_list+=("swap")
       shift 2
       ;;
-    --track)              # switch - Track to perform operation on
+    --track|"-t")               # switch - Track to perform operation on
       check_value "$1" "$2"
       options['track']="$2"
       shift 2
       ;;
-    --usage)              # switch - Display usage
+    --usage|"-U")               # switch - Display usage
       check_value "$1" "$2"
       usage="$2"
       print_usage "${usage}"
       shift 2
       exit
       ;;
-    --verbose)            # switch - Enable verbose mode
+    --verbose|"-v")             # switch - Enable verbose mode
       options['verbose']="true"
       shift
       ;;
-    --version|-V)         # switch - Print version information
+    --version|"-V")             # switch - Print version information
       print_version
       exit
       ;;

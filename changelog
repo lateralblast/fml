@@ -53,4 +53,6 @@
 # 0.2.7: Sun 17 Aug 2025 20:57:51 AEST
 # Improvements and bug fixes
 # 0.2.8: Sun 17 Aug 2025 21:26:18 AEST
-# Improved handling of deletion
+# Improved handling of deletion of multiple audio tracks
+# 0.2.9: Fri  5 Sep 2025 08:15:51 AEST
+# Added support for short command line options
