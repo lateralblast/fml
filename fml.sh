@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.2.9
+# Version:      0.3.0
 # Release:      1
 # License:      CC-BA (Creative Commons By Attribution)
 #               http://creativecommons.org/licenses/by/4.0/legalcode
@@ -178,7 +178,7 @@ do_exit () {
 check_value () {
   param="$1"
   value="$2"
-  if [[ "${value}" =~ "-" ]]; then
+  if [[ ${value} =~ ^-- ]]; then
     print_message "Value '$value' for parameter '$param' looks like a parameter" "verbose"
     echo ""
     if [ "${options['force']}" = "false" ]; then
