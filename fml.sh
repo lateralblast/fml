@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.3.0
+# Version:      0.4.2
 # Release:      1
-# License:      CC-BA (Creative Commons By Attribution)
-#               http://creativecommons.org/licenses/by/4.0/legalcode
+# License:      CC BY-NC-SA (Creative Commons Attribution-NonCommercial-ShareAlike)
+#               https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
 # Group:        System
 # Source:       N/A
 # URL:          https://github.com/lateralblast/fml
@@ -32,7 +32,7 @@ declare -a options_list
 
 script['args']="$*"
 script['file']="$0"
-script['name']="just"
+script['name']="fml"
 script['file']=$( realpath "${script['file']}" )
 script['path']=$( dirname "${script['file']}" )
 script['modulepath']="${script['path']}/modules"
@@ -51,6 +51,18 @@ set_defaults () {
   options['force']="false"      # option - Force actions
   options['yes']="false"        # option - Answer yes to questions
   options['format']="JSON"      # option - Information format
+  options['file']=""
+  options['dir']=""
+  options['default']=""
+  options['lang']=""
+  options['track']=""
+  options['get']=""
+  options['set']=""
+  options['swap']=""
+  options['delete']=""
+  options['preserve']=""
+  options['install']=""
+  options['filetype']=""
   os['name']=$( uname -s )
   if [ "${os['name']}" = "Linux" ]; then
     os['distro']=$( lsb_release -i -s 2> /dev/null )
@@ -182,7 +194,7 @@ check_value () {
     print_message "Value '$value' for parameter '$param' looks like a parameter" "verbose"
     echo ""
     if [ "${options['force']}" = "false" ]; then
-      do_exit
+      exit 1
     fi
   else
     if [ "${value}" = "" ]; then
@@ -200,6 +212,32 @@ check_value () {
       exit
     fi
   fi
+}
+
+# Function: get_lang_code
+#
+# Convert a language name to the ISO 639-2 code used in MKV metadata
+# Names not listed fall back to the first 3 letters (lower case)
+
+get_lang_code () {
+  lang_name=$( echo "$1" | tr '[:upper:]' '[:lower:]' )
+  case ${lang_name} in
+    chinese)    echo "chi" ;;
+    dutch)      echo "dut" ;;
+    french)     echo "fre" ;;
+    german)     echo "ger" ;;
+    greek)      echo "gre" ;;
+    japanese)   echo "jpn" ;;
+    *)          echo "${lang_name}" | cut -c1-3 ;;
+  esac
+}
+
+# Function: quote_string
+#
+# Shell escape a string so it survives eval in execute_command
+
+quote_string () {
+  printf '%q' "$1"
 }
 
 # Function: execute_command
@@ -351,7 +389,7 @@ process_options () {
   else
     value="true"
   fi
-  options["${option}"]="true"
+  options["${option}"]="${value}"
   print_message "${option} to ${value}" "set"
 }
 
@@ -422,14 +460,14 @@ check_package () {
 # Check environment
 
 check_environment () {
-  for test_file in jq mkvinfo mediainfo ffprobe; do
+  for test_file in jq mkvinfo mediainfo ffprobe ffmpeg; do
     bin_test=$( command -v "${test_file}" | grep -c "${test_file}" )
     if [ "$bin_test" = "0" ]; then
       warning_message "Command \"${test_file}\" not found"
       if [ "${options['install']}" = "true" ]; then
         check_package "${test_file}"
       else
-        do_exit
+        exit 1
       fi
     fi
   done
@@ -442,11 +480,11 @@ check_environment () {
 check_file () {
   if [ "${options['file']}" = "" ]; then
     warning_message "No file specified"
-    do_exit
+    exit 1
   else
     if [ ! -f "${options['file']}" ]; then
       warning_message "File \"${options['file']}\" does not exist"
-      do_exit
+      exit 1
     else
       options['filetype']=$( file "${options['file']}" )
     fi
@@ -466,11 +504,11 @@ get_file_list () {
     else
       while IFS= read -r -u3 -d $'\0' file; do
         file_list+=( "$file" )
-      done 3< <( find "${options['dir']}" -type f -maxdepth 1 -print0 )
+      done 3< <( find "${options['dir']}" -maxdepth 1 -type f -print0 )
     fi
   else
     warning_message "Directory \"${options['dir']}\" does not exist"
-    do_exit
+    exit 1
   fi
 }
 
@@ -484,21 +522,21 @@ set_file_info () {
   if [ "${options['default']}" = "" ]; then
     if [[ "${options['filetype']}" =~ Matroska ]]; then
       if [ ! "${options['lang']}" = "" ]; then
-        set_lang=$( echo "${options['lang']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
-        execute_command "mkvpropedit \"${options['file']}\" --edit track:a1 --set language=${set_lang}"
+        set_lang=$( get_lang_code "${options['lang']}" )
+        execute_command "mkvpropedit $( quote_string "${options['file']}" ) --edit track:a1 --set language=${set_lang}"
       fi
     fi
   else
     if [[ "${options['filetype']}" =~ Matroska ]]; then
       if [ "${options['set']}" = "lang" ]; then
-        set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
+        set_lang=$( get_lang_code "${options['default']}" )
         get_value=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .properties.default_track" | grep "false" | uniq )
         if [ "${get_value}" = "" ]; then
           warning_message "File \"${options['file']}\" does not have a track with language \"${options['default']}\""
         else
           if [ "${get_value}" = "false" ]; then
-            lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" | head -1 )
-            other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | sed 's/\r$//' )
+            lang_track=$( mkvmerge -F json -i "${options['file']}" | jq "[.tracks[] | select(.type == \"audio\")] | to_entries[] | select (.value.properties.language == \"${set_lang}\") | .key + 1" | head -1 )
+            other_track=$( mkvmerge -F json -i "${options['file']}" | jq "[.tracks[] | select(.type == \"audio\")] | to_entries[] | select (.value.properties.language != \"${set_lang}\") | .key + 1" | sed 's/\r$//' )
             sub_command=""
             IFS=$'\n' read -r -d '' -a track_nos <<< "${other_track[*]}"
             for track_no in "${track_nos[@]}"; do
@@ -508,16 +546,16 @@ set_file_info () {
                 sub_command="${sub_command} --edit track:a${track_no} --set flag-default=0"
               fi
             done
-            execute_command "mkvpropedit \"${options['file']}\" ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
+            execute_command "mkvpropedit $( quote_string "${options['file']}" ) ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
           else
             verbose_message "Default language for file \"${options['file']}\" is already ${options['default']}"
             verbose_message "Checking for non \"${options['default']}\" tracks that are set to default"
             get_value=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .properties.default_track" | grep "true" |uniq )
             if [ "${get_value}" = "true" ]; then
-              lang_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" | head -1 )
-              other_track=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | sed 's/\r$//' )
+              lang_track=$( mkvmerge -F json -i "${options['file']}" | jq "[.tracks[] | select(.type == \"audio\")] | to_entries[] | select (.value.properties.language == \"${set_lang}\") | .key + 1" | head -1 )
+              other_track=$( mkvmerge -F json -i "${options['file']}" | jq "[.tracks[] | select(.type == \"audio\")] | to_entries[] | select (.value.properties.language != \"${set_lang}\") | .key + 1" | sed 's/\r$//' )
               sub_command=""
-              IFS='\n' read -r -d '' -a track_nos <<< "${other_track[*]}"
+              IFS=$'\n' read -r -d '' -a track_nos <<< "${other_track[*]}"
               for track_no in "${track_nos[@]}"; do
                 if [ "${sub_command}" = "" ]; then
                   sub_command="--edit track:a${track_no} --set flag-default=0"
@@ -525,7 +563,7 @@ set_file_info () {
                   sub_command="${sub_command} --edit track:a${track_no} --set flag-default=0"
                 fi
               done
-              execute_command "mkvpropedit \"${options['file']}\" ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
+              execute_command "mkvpropedit $( quote_string "${options['file']}" ) ${sub_command} --edit track:a${lang_track} --set flag-default=1" 
             fi
           fi
         fi
@@ -559,15 +597,15 @@ swap_file_info () {
   check_environment
   if [ "${options['swap']}" = "lang" ]; then
     if [[ "${options['filetype']}" =~ Matroska ]]; then
-      execute_command "mkvpropedit \"${options['file']}\" --edit track:a1 --set flag-default=0 --edit track:a2 --set flag-default=1"
+      execute_command "mkvpropedit $( quote_string "${options['file']}" ) --edit track:a1 --set flag-default=0 --edit track:a2 --set flag-default=1"
     else
       if [[ "${options['filetype']}" =~ AVI ]]; then
         temp_base="${options['file']}"
         temp_file="${temp_base%.*}-temp.avi"
-        execute_command "ffmpeg -i \"${options['file']}\" -map 0:0 -map 0:2 -map 0:1 -disposition:a:0 default -disposition:a:1 none -c copy \"${temp_file}\""
+        execute_command "ffmpeg -i $( quote_string "${options['file']}" ) -map 0:v? -map 0:a:1 -map 0:a:0 -map 0:a:2? -map 0:s? -disposition:a:0 default -disposition:a:1 none -c copy $( quote_string "${temp_file}" )"
         if [ -f "${temp_file}" ]; then
-          execute_command "rm \"${options['file']}\""
-          execute_command "mv \"${temp_file}\" \"${options['file']}\""
+          execute_command "rm $( quote_string "${options['file']}" )"
+          execute_command "mv $( quote_string "${temp_file}" ) $( quote_string "${options['file']}" )"
         else
           warning_message "Failed to process file \"${options['file']}\""
         fi
@@ -602,38 +640,40 @@ get_file_info () {
   if [[ "${options['filetype']}" =~ Matroska ]]; then
     if [ "${options['get']}" = "lang" ]; then
       if [ "${options['lang']}" = "default" ]; then
-        execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.properties.default_track == true) | .properties.language'"
+        execute_command "mkvmerge -F json -i $( quote_string "${options['file']}" ) | jq '.tracks[] | select(.type == \"audio\") | select (.properties.default_track == true) | .properties.language'"
       else
         if [ "${options['lang']}" = "" ]; then
-          execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.id == 1) | { language: .properties.language } | .language'"
+          execute_command "mkvmerge -F json -i $( quote_string "${options['file']}" ) | jq '.tracks[] | select(.type == \"audio\") | select (.id == 1) | { language: .properties.language } | .language'"
         else
-          lang=$( echo "${options['lang']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
+          lang=$( get_lang_code "${options['lang']}" )
           get_value=$( mkvmerge -F json -i "${options['file']}" | jq -r ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${lang}\") | .properties.language" )
           if [ ! "${get_value}" = "${lang}" ]; then
             warning_message "File \"${options['file']}\" does not have a track with language \"${options['lang']}\""
           else
-            execute_command "mkvmerge -F json -i \"${options['file']}\" | jq '.tracks[] | select(.type == \"audio\") | select (.properties.language == \"${lang}\")'"
+            execute_command "mkvmerge -F json -i $( quote_string "${options['file']}" ) | jq '.tracks[] | select(.type == \"audio\") | select (.properties.language == \"${lang}\")'"
           fi
         fi
       fi
     else
       format=$( echo "${options['format']}" | tr '[:upper:]' '[:lower:]' )
-      if [ "${options['format']}" = "json" ]; then
-        execute_command "mkvmerge -F ${format} -i \"${option['file']}j\" | jq"
+      if [ "${options['format']}" = "JSON" ]; then
+        execute_command "mkvmerge -F ${format} -i $( quote_string "${options['file']}" ) | jq"
+      else
+        execute_command "mkvmerge -i $( quote_string "${options['file']}" )"
       fi
     fi
   else
-    if [ "${options['format']}" = "" ]; then
-      execute_command "mediainfo ${options['file']}"
+    if [ "${options['format']}" = "" ] || [ "${options['format']}" = "TEXT" ]; then
+      execute_command "mediainfo $( quote_string "${options['file']}" )"
     else
       format=$( echo "${options['format']}" | tr '[:lower:]' '[:upper:]' )
       if [ "${options['get']}" = "lang" ]; then
-          execute_command "mediainfo --Output=${format} \"${options['file']}\" | jq '.media.track[] | select (.\"@type\"==\"Audio\") | select (.\"@typeorder\"==\"1\")' |jq '.Language'"
+          execute_command "mediainfo --Output=${format} $( quote_string "${options['file']}" ) | jq '.media.track[] | select (.\"@type\"==\"Audio\") | select (.\"@typeorder\"==\"1\")' |jq '.Language'"
       else
         if [ "${options['format']}" = "JSON" ]; then
-          execute_command "mediainfo --Output=${format} \"${options['file']}\" | jq"
+          execute_command "mediainfo --Output=${format} $( quote_string "${options['file']}" ) | jq"
         else
-          execute_command "mediainfo --Output=${format} \"${options['file']}\""
+          execute_command "mediainfo --Output=${format} $( quote_string "${options['file']}" )"
         fi
       fi
     fi
@@ -649,7 +689,6 @@ get_info () {
     get_file_info
   else
     get_file_list
-    echo "${file_list[@]}"
     for file in "${file_list[@]}"; do
       options['file']="${file}"
       get_file_info
@@ -666,23 +705,27 @@ delete_file_info () {
   check_environment
   if [[ "${options['filetype']}" =~ Matroska ]]; then
     if [ "${options['delete']}" = "lang" ]; then
-      set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
+      set_lang=$( get_lang_code "${options['lang']:-${options['default']}}" )
+      if [ "${set_lang}" = "" ]; then
+        warning_message "No language specified (use --lang)"
+        exit 1
+      fi
       no_tracks=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" | wc -l | sed 's/ //g' )
       if [ "${no_tracks}" -gt 0 ]; then
         counter=0
         while [[ "${counter}" -ne "${no_tracks}" ]]; do
-          track_no=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | head -1 | sed 's/ //g' )
+          track_no=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language == \"${set_lang}\") | .id" | head -1 | sed 's/ //g' )
           if [ -n "${track_no}" ]; then
             temp_file="${options['file']}-${track_no}"
-            execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
+            execute_command "mkvmerge -o $( quote_string "${temp_file}" ) --audio-tracks \!${track_no} $( quote_string "${options['file']}" )"
             if [ -f "${temp_file}" ]; then
-              execute_command "rm \"${options['file']}\""
-              execute_command "mv \"${temp_file}\" \"${options['file']}\""
+              execute_command "rm $( quote_string "${options['file']}" )"
+              execute_command "mv $( quote_string "${temp_file}" ) $( quote_string "${options['file']}" )"
             else
               warning_message "Failed to process file \"${options['file']}\""
             fi
           fi
-          let counter++
+          (( counter++ ))
         done
       fi
     fi
@@ -692,15 +735,15 @@ delete_file_info () {
       temp_file="${temp_base%.*}-temp.avi"
       if [ "${options['delete']}" = "track" ]; then
         if [ "${options['track']}" = "last" ]; then
-          track_no=$( ffprobe "${options['file']}" 2>&1 |grep "Audio:" |tail -1 |cut -d: -f2 )
+          track_no=$( ffprobe "${options['file']}" 2>&1 | grep -c "Audio:" )
         else
           track_no="${options['track']}"
         fi
-        track_no=$( expr ${track_no} - 1 )
-        execute_command "ffmpeg -i \"${options['file']}\" -map 0 -map -0:a:${track_no} -c copy \"${temp_file}\""
+        track_no=$(( track_no - 1 ))
+        execute_command "ffmpeg -i $( quote_string "${options['file']}" ) -map 0 -map -0:a:${track_no} -c copy $( quote_string "${temp_file}" )"
         if [ -f "${temp_file}" ]; then
-          execute_command "rm \"${options['file']}\""
-          execute_command "mv \"${temp_file}\" \"${options['file']}\""
+          execute_command "rm $( quote_string "${options['file']}" )"
+          execute_command "mv $( quote_string "${temp_file}" ) $( quote_string "${options['file']}" )"
         else
           warning_message "Failed to process file \"${options['file']}\""
         fi
@@ -734,7 +777,11 @@ preserve_file_info () {
   check_environment
   if [[ "${options['filetype']}" =~ Matroska ]]; then
     if [ "${options['preserve']}" = "lang" ]; then
-      set_lang=$( echo "${options['default']}" | tr '[:upper:]' '[:lower:]' | cut -c1-3 )
+      set_lang=$( get_lang_code "${options['lang']:-${options['default']}}" )
+      if [ "${set_lang}" = "" ]; then
+        warning_message "No language specified (use --lang)"
+        exit 1
+      fi
       no_tracks=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | wc -l | sed 's/ //g' )
       if [ "${no_tracks}" -gt 0 ]; then
         counter=0
@@ -742,15 +789,15 @@ preserve_file_info () {
           track_no=$( mkvmerge -F json -i "${options['file']}" | jq ".tracks[] | select(.type == \"audio\") | select (.properties.language != \"${set_lang}\") | .id" | head -1 | sed 's/ //g' )
           if [ -n "${track_no}" ]; then
             temp_file="${options['file']}-${track_no}"
-            execute_command "mkvmerge -o \"${temp_file}\" --audio-tracks \!${track_no} \"${options['file']}\""
+            execute_command "mkvmerge -o $( quote_string "${temp_file}" ) --audio-tracks \!${track_no} $( quote_string "${options['file']}" )"
             if [ -f "${temp_file}" ]; then
-              execute_command "rm \"${options['file']}\""
-              execute_command "mv \"${temp_file}\" \"${options['file']}\""
+              execute_command "rm $( quote_string "${options['file']}" )"
+              execute_command "mv $( quote_string "${temp_file}" ) $( quote_string "${options['file']}" )"
             else
               warning_message "Failed to process file \"${options['file']}\""
             fi
           fi
-          let counter++
+          (( counter++ ))
         done
       fi
     fi
@@ -864,9 +911,9 @@ while test $# -gt 0; do
       options['force']="true"
       shift
       ;;
-    --format*|"-o")             # switch - Set output format
+    --format*|"-F")             # switch - Set output format
       check_value "$1" "$2"
-      options['format']="$2"
+      options['format']="${2^^}"
       shift 2
       ;;
     --get|"-g")                 # switch - Get information about file

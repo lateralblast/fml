@@ -8,12 +8,12 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.3.0
+Version 0.4.2
 
 License
 -------
 
-CC BY-SA: https://creativecommons.org/licenses/by-sa/4.0/
+CC BY-NC-SA: https://creativecommons.org/licenses/by-nc-sa/4.0/
 
 Fund me here: https://ko-fi.com/richardatlateralblast
 
@@ -113,7 +113,7 @@ switch(es):
     File to process
 --force|-f)
     Enable force mode
---format*|-o)
+--format*|-F)
     Set output format
 --get|-g)
     Get information about file

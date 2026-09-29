@@ -1,0 +1,15 @@
+# fml.sh has no Python dependencies. It needs the following system tools.
+# pip cannot install these, so this file is a list for reference only
+# (`pip install -r requirements.txt` will fail on the entries below).
+#
+# Ubuntu/Debian: sudo apt install jq mkvtoolnix mediainfo ffmpeg file shellcheck
+# macOS:         brew install jq mkvtoolnix mediainfo ffmpeg shellcheck
+#
+# Tool                Provided by      Used for
+# jq                  jq               parsing mkvmerge/mediainfo JSON
+# mkvmerge, mkvinfo,  mkvtoolnix       MKV inspection and track editing
+#   mkvpropedit
+# mediainfo           mediainfo        non-MKV file information
+# ffmpeg, ffprobe     ffmpeg           AVI track swap/delete
+# file                file             file type detection
+# shellcheck          shellcheck       optional, for --shellcheck
