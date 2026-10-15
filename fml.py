@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # Name:         fml (Fix Media Language etc)
-# Version:      0.5.3
+# Version:      0.5.8
 # Release:      1
 # License:      CC BY-NC-SA (Creative Commons Attribution-NonCommercial-ShareAlike)
 #               https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
@@ -13,11 +13,12 @@
 # Packager:     Richard Spindler <richard@lateralblast.com.au>
 # Description:  Fix media language (default audio track) etc for media files
 
-"""Fix Media Language: change the default audio track, language and tracks of media files.
+"""Fix Media Language: change the default audio and subtitle tracks and languages of media files.
 
 MKV files are edited in place with mkvpropedit where possible (only the metadata
-changes) and rewritten with mkvmerge when tracks are removed. AVI files have no
-track metadata to edit, so they are rewritten with ffmpeg.
+changes) and rewritten with mkvmerge when tracks are removed. MP4 files are
+rewritten with ffmpeg (a copy of the streams, so nothing is re-encoded). AVI files have
+no track metadata to edit, so they are only rewritten, to swap or remove audio tracks.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
 
-__version__ = "0.5.3"
+__version__ = "0.5.8"
 
 # Commands the script runs and the package that provides each
 REQUIRED_TOOLS = {
@@ -46,15 +47,26 @@ REQUIRED_TOOLS = {
 }
 
 # Tools needed to read, or to change, a file of each kind
-READ_TOOLS = {"mkv": ("mkvmerge",), "avi": ("mediainfo",)}
-WRITE_TOOLS = {"mkv": ("mkvmerge", "mkvpropedit"), "avi": ("mediainfo", "ffmpeg")}
+READ_TOOLS = {"mkv": ("mkvmerge",), "avi": ("mediainfo",), "mp4": ("mediainfo",)}
+WRITE_TOOLS = {"mkv": ("mkvmerge", "mkvpropedit"), "avi": ("mediainfo", "ffmpeg"),
+               "mp4": ("mediainfo", "ffmpeg")}
+
+CONTAINERS = {"mkv": "Matroska", "avi": "AVI", "mp4": "MP4"}
+
+# The kinds of track the actions work on, as they can be named on the command line
+KINDS = {"audio": "audio", "sub": "subtitles", "subs": "subtitles",
+         "subtitle": "subtitles", "subtitles": "subtitles"}
+SELECTORS = {"audio": "a", "subtitles": "s"}  # as in mkvpropedit track:a1 and ffmpeg -map 0:a:0
+MKVMERGE_SELECT = {"audio": "--audio-tracks", "subtitles": "--subtitle-tracks"}
+
+FFMPEG_QUIET = ("-hide_banner", "-loglevel", "error", "-y")
 
 # What mkvmerge exit codes mean: 0 success, 1 success with warnings, 2 error
 MKVMERGE_OK = (0, 1)
 
 TASK_CHOICES = {
     "get": ("lang",),
-    "set": ("lang",),
+    "set": ("lang", "default"),
     "swap": ("lang",),
     "delete": ("lang", "track"),
     "preserve": ("lang",),
@@ -208,12 +220,17 @@ class Track:
 
     @property
     def label(self) -> str:
-        return f"{self.kind} track {self.number}"
+        return f"{kind_word(self.kind)} track {self.number}"
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "type": self.kind, "number": self.number, "codec": self.codec,
                 "language": self.language, "default": self.default, "forced": self.forced,
                 "name": self.name}
+
+
+def kind_word(kind: str) -> str:
+    """How a kind of track is named in messages."""
+    return "subtitle" if kind == "subtitles" else kind
 
 
 def parse_mkv_tracks(data: dict[str, Any]) -> list[Track]:
@@ -319,8 +336,11 @@ class Config:
     dir: str = ""
     recursive: bool = False
     lang: str = ""
-    default: str = ""
+    default: str = ""  # a language, or "none" for no default subtitle track
+    prefer: list[str] = field(default_factory=list)
     track: str = ""
+    kind: str = "audio"  # the kind of track the actions work on: audio or subtitles
+    forced: bool = False
     verbose: bool = False
     dryrun: bool = False
     install: bool = False
@@ -334,12 +354,12 @@ class Media:
     """A media file and the kind of container it is."""
 
     path: str
-    kind: str  # mkv or avi
+    kind: str  # mkv, mp4 or avi
     tracks: list[Track] | None = None
 
 
 def detect_kind(path: str) -> str:
-    """Return 'mkv' (Matroska or WebM), 'avi' or '' from the file's header."""
+    """Return 'mkv' (Matroska or WebM), 'mp4' (MP4, M4V, MOV), 'avi' or '' from the header."""
     try:
         with open(path, "rb") as handle:
             head = handle.read(64)
@@ -349,6 +369,8 @@ def detect_kind(path: str) -> str:
         return "mkv"
     if head[:4] == b"RIFF" and head[8:12] == b"AVI ":
         return "avi"
+    if head[4:8] == b"ftyp":
+        return "mp4"
     return ""
 
 
@@ -371,6 +393,24 @@ def detect_distro() -> str:
 
 # Application -----------------------------------------------------------------
 
+@dataclass
+class Edit:
+    """A change to the default flag and/or the language of a track."""
+
+    track: Track
+    default: bool | None = None
+    language: str | None = None
+
+    def describe(self) -> str:
+        parts = []
+        if self.default is not None:
+            parts.append(f"default {yes_no(self.track.default)} -> {yes_no(self.default)}")
+        if self.language is not None:
+            parts.append(f"language {self.track.language} -> {self.language}")
+        name = self.track.label + (f" ({self.track.language})" if self.default is not None else "")
+        return f"{name}: {', '.join(parts)}"
+
+
 class Fml:
     """Runs the requested actions against media files."""
 
@@ -379,6 +419,15 @@ class Fml:
         self.results: list[Result] = []
         self.os_name = platform.system()
         self.distro = detect_distro() if self.os_name == "Linux" else ""
+
+    @property
+    def kind(self) -> str:
+        """The kind of track the actions work on (audio or subtitles)."""
+        return self.config.kind
+
+    @property
+    def word(self) -> str:
+        return kind_word(self.config.kind)
 
     # Messages and commands --------------------------------------------------
 
@@ -487,25 +536,31 @@ class Fml:
         paths = base.rglob("*") if self.config.recursive else base.glob("*")
         yield from sorted(str(path) for path in paths if path.is_file())
 
+    def read_tracks(self, media: Media) -> list[Track]:
+        """Read the tracks of a file."""
+        if media.kind == "mkv":
+            done = self.query(["mkvmerge", "-F", "json", "-i", media.path])
+            parse = parse_mkv_tracks
+        else:
+            done = self.query(["mediainfo", "--Output=JSON", media.path])
+            parse = parse_mediainfo_tracks
+        if done is None:
+            return []
+        try:
+            return parse(json.loads(done.stdout))
+        except (ValueError, AttributeError, TypeError):
+            self.warn(f"could not read the tracks of {media.path}")
+            return []
+
     def tracks(self, media: Media) -> list[Track]:
         """The tracks of a file (read once, then remembered)."""
         if media.tracks is None:
-            media.tracks = []
-            if media.kind == "mkv":
-                done = self.query(["mkvmerge", "-F", "json", "-i", media.path])
-                parse = parse_mkv_tracks
-            else:
-                done = self.query(["mediainfo", "--Output=JSON", media.path])
-                parse = parse_mediainfo_tracks
-            if done is not None:
-                try:
-                    media.tracks = parse(json.loads(done.stdout))
-                except (ValueError, AttributeError, TypeError):
-                    self.warn(f"could not read the tracks of {media.path}")
+            media.tracks = self.read_tracks(media)
         return media.tracks
 
-    def audio(self, media: Media) -> list[Track]:
-        return [track for track in self.tracks(media) if track.kind == "audio"]
+    def selected(self, media: Media) -> list[Track]:
+        """The tracks of the kind being worked on."""
+        return [track for track in self.tracks(media) if track.kind == self.kind]
 
     def result(self, media: Media, action: str) -> Result:
         return Result(media.path, action, dry_run=self.config.dryrun)
@@ -516,20 +571,33 @@ class Fml:
         return result
 
     def resolve_track(self, media: Media, result: Result) -> Track | None:
-        """The audio track chosen with --track (the first if none was)."""
-        audio = self.audio(media)
+        """The track chosen with --track (the first if none was)."""
+        tracks = self.selected(media)
         wanted = self.config.track or "1"
-        number = len(audio) if wanted == "last" else int(wanted)
-        if not 1 <= number <= len(audio):
-            self.skip(result, f"has no audio track {wanted} ({len(audio)} audio tracks)")
+        number = len(tracks) if wanted == "last" else int(wanted)
+        if not 1 <= number <= len(tracks):
+            self.skip(result, f"has no {self.word} track {wanted} "
+                              f"({len(tracks)} {self.word} tracks)")
             return None
-        return audio[number - 1]
+        return tracks[number - 1]
 
     def finish(self, result: Result) -> Result:
         """Mark a result that made changes as changed, unless it failed."""
         if result.status == "ok" and result.changes:
             result.status = "changed"
         return result
+
+    @staticmethod
+    def temp_path(path: str) -> str:
+        """Where ffmpeg writes a rewritten file (it needs the real extension)."""
+        return f"{Path(path).with_suffix('')}.fml-tmp{Path(path).suffix}"
+
+    @staticmethod
+    def ffmpeg_output(media: Media, temp_file: str) -> list[str]:
+        """The output options of an ffmpeg rewrite."""
+        if media.kind == "mp4":
+            return ["-movflags", "+faststart", temp_file]
+        return [temp_file]
 
     def replace_file(self, result: Result, temp_file: str, path: str) -> None:
         """Replace a file with its rewritten copy, keeping its permissions and times."""
@@ -541,120 +609,196 @@ class Fml:
         shutil.copystat(path, temp_file)
         os.replace(temp_file, path)
 
-    # Operations -------------------------------------------------------------
+    # Choosing tracks --------------------------------------------------------
 
-    def do_info(self, media: Media) -> Result:
-        result = self.result(media, "info")
-        tracks = self.tracks(media)
-        result.data = {"container": "Matroska" if media.kind == "mkv" else "AVI",
-                       "tracks": [track.to_dict() for track in tracks]}
-        return result
+    def pick_track(self, tracks: Sequence[Track], lang: str) -> Track | None:
+        """The track to use for a language: with --forced the first forced track,
+        otherwise the first one (preferring a track that is not forced, for subtitles)."""
+        candidates = [track for track in tracks if track.language == lang]
+        if self.config.forced:
+            candidates = [track for track in candidates if track.forced]
+        elif self.kind == "subtitles":
+            candidates = [track for track in candidates if not track.forced] or candidates
+        return candidates[0] if candidates else None
 
-    def do_get(self, media: Media) -> Result:
-        result = self.result(media, "get")
-        audio = self.audio(media)
-        if self.config.lang:
-            matches = [track for track in audio if track.language == self.config.lang]
-            if not matches:
-                return self.skip(result, f'has no audio track with language "{self.config.lang}"')
-            result.data = {"tracks": [track.to_dict() for track in matches]}
-        else:
-            # AVI has no default flag, so fall back to the first audio track
-            chosen = [track for track in audio if track.default] or audio[:1]
-            result.data = {"default_audio": [track.language for track in chosen]}
-        return result
+    def languages(self, single: str) -> list[str]:
+        """The languages to look for, in order: --prefer, or the single language."""
+        return self.config.prefer or ([single] if single else [])
 
-    def do_set(self, media: Media) -> Result:
-        result = self.result(media, "set")
-        if media.kind != "mkv":
-            return self.skip(result, "set is only supported for MKV files")
-        if self.config.default:
-            return self.set_default_audio(media, result)
-        track = self.resolve_track(media, result)
-        if track is None:
+    def choose(self, tracks: Sequence[Track], languages: Sequence[str]) -> tuple[str, Track] | None:
+        """The first language that has a track, with that track."""
+        for lang in languages:
+            track = self.pick_track(tracks, lang)
+            if track is not None:
+                return lang, track
+        return None
+
+    def missing_message(self, languages: Sequence[str]) -> str:
+        if len(languages) == 1:
+            return f'has no {self.word} track with language "{languages[0]}"'
+        return f"has no {self.word} track in any of: {', '.join(languages)}"
+
+    # Editing tracks ---------------------------------------------------------
+
+    @staticmethod
+    def default_edits(tracks: Sequence[Track], chosen: Track | None,
+                      language: str) -> list[Edit]:
+        """The edits that make one track the only default (none if chosen is None),
+        and give it a language if one is given. Tracks that are right are left alone."""
+        edits = []
+        for track in tracks:
+            is_chosen = chosen is not None and track.number == chosen.number
+            default = None if track.default == is_chosen else is_chosen
+            new_language = language if is_chosen and language != track.language else None
+            if default is not None or new_language:
+                edits.append(Edit(track, default, new_language or None))
+        return edits
+
+    def edit_tracks(self, media: Media, result: Result, edits: list[Edit],
+                    unchanged: str) -> Result:
+        """Apply edits to a file: mkvpropedit edits an MKV in place, an MP4 is rewritten."""
+        if not edits:
+            result.status, result.message = "unchanged", unchanged
             return result
-        if track.language == self.config.lang:
-            result.status = "unchanged"
-            result.message = f"{track.label} is already {track.language}"
-            return result
-        result.changes.append(f"{track.label}: language {track.language} -> {self.config.lang}")
-        self.apply(result, ["mkvpropedit", media.path, "--edit", f"track:a{track.number}",
-                            "--set", f"language={self.config.lang}"])
-        return self.finish(result)
-
-    def set_default_audio(self, media: Media, result: Result) -> Result:
-        """Make the first audio track in the language the only default audio track."""
-        lang = self.config.default
-        audio = self.audio(media)
-        chosen = next((track for track in audio if track.language == lang), None)
-        if chosen is None:
-            return self.skip(result, f'has no audio track with language "{lang}"')
-        cmd = ["mkvpropedit", media.path]
-        for track in audio:
-            want = track.number == chosen.number
-            if track.default != want:
-                result.changes.append(
-                    f"{track.label} ({track.language}): default "
-                    f"{yes_no(track.default)} -> {yes_no(want)}")
-                cmd += ["--edit", f"track:a{track.number}", "--set", f"flag-default={int(want)}"]
-        if not result.changes:
-            result.status = "unchanged"
-            result.message = f"{chosen.label} ({lang}) is already the default"
-            return result
-        self.apply(result, cmd)
-        return self.finish(result)
-
-    def do_swap(self, media: Media) -> Result:
-        result = self.result(media, "swap")
-        audio = self.audio(media)
-        if len(audio) < 2:
-            return self.skip(result, "needs at least two audio tracks to swap")
+        result.changes.extend(edit.describe() for edit in edits)
+        selector = SELECTORS[self.kind]
         if media.kind == "mkv":
             cmd = ["mkvpropedit", media.path]
-            for track, want in ((audio[0], False), (audio[1], True)):
-                if track.default != want:
-                    result.changes.append(
-                        f"{track.label} ({track.language}): default "
-                        f"{yes_no(track.default)} -> {yes_no(want)}")
-                    cmd += ["--edit", f"track:a{track.number}", "--set",
-                            f"flag-default={int(want)}"]
-            if not result.changes:
-                result.status = "unchanged"
-                result.message = f"{audio[1].label} ({audio[1].language}) is already the default"
-                return result
+            for edit in edits:
+                cmd += ["--edit", f"track:{selector}{edit.track.number}"]
+                if edit.default is not None:
+                    cmd += ["--set", f"flag-default={int(edit.default)}"]
+                if edit.language is not None:
+                    cmd += ["--set", f"language={edit.language}"]
             self.apply(result, cmd)
             return self.finish(result)
-        temp_file = f"{Path(media.path).with_suffix('')}.fml-tmp.avi"
-        result.changes.append("audio tracks 1 and 2 swapped")
-        self.apply(result, [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", media.path,
-            "-map", "0:v?", "-map", "0:a:1", "-map", "0:a:0", "-map", "0:a:2?", "-map", "0:s?",
-            "-disposition:a:0", "default", "-disposition:a:1", "none", "-c", "copy", temp_file])
+        temp_file = self.temp_path(media.path)
+        cmd = ["ffmpeg", *FFMPEG_QUIET, "-i", media.path, "-map", "0", "-c", "copy"]
+        for edit in edits:
+            index = edit.track.number - 1
+            if edit.default is not None:
+                cmd += [f"-disposition:{selector}:{index}",
+                        "+default" if edit.default else "-default"]
+            if edit.language is not None:
+                cmd += [f"-metadata:s:{selector}:{index}", f"language={edit.language}"]
+        if self.apply(result, cmd + self.ffmpeg_output(media, temp_file)) \
+                and not self.config.dryrun:
+            self.verify_edits(result, Media(temp_file, media.kind), edits)
         self.replace_file(result, temp_file, media.path)
         return self.finish(result)
 
-    def remove_audio(self, media: Media, result: Result, remove: list[Track]) -> Result:
-        """Rewrite a file without the given audio tracks."""
-        audio = self.audio(media)
+    def verify_edits(self, result: Result, rewritten: Media, edits: Sequence[Edit]) -> None:
+        """Check a rewritten file has the changes, as ffmpeg can silently ignore a flag."""
+        found = {(track.kind, track.number): track for track in self.read_tracks(rewritten)}
+        for edit in edits:
+            track = found.get((edit.track.kind, edit.track.number))
+            if (track is None
+                    or (edit.default is not None and track.default != edit.default)
+                    or (edit.language is not None and track.language != edit.language)):
+                result.status = "error"
+                result.message = f"ffmpeg did not apply the change to {edit.track.label}"
+                return
+
+    def remove_tracks(self, media: Media, result: Result, remove: list[Track]) -> Result:
+        """Rewrite a file without the given tracks."""
+        tracks = self.selected(media)
         if not remove:
-            return self.skip(result, "has no matching audio tracks to remove")
-        if len(remove) == len(audio) and not self.config.force:
+            return self.skip(result, f"has no matching {self.word} tracks to remove")
+        if self.kind == "audio" and len(remove) == len(tracks) and not self.config.force:
             return self.skip(result, "this would remove every audio track (use --force to allow)")
         for track in remove:
             result.changes.append(f"removed {track.label} ({track.language})")
         if media.kind == "mkv":
             ids = ",".join(str(track.id) for track in remove)
             temp_file = f"{media.path}.fml-tmp"
-            self.apply(result, ["mkvmerge", "-o", temp_file, "--audio-tracks", f"!{ids}",
-                                media.path], MKVMERGE_OK)
+            self.apply(result, ["mkvmerge", "-o", temp_file, MKVMERGE_SELECT[self.kind],
+                                f"!{ids}", media.path], MKVMERGE_OK)
         else:
-            numbers = [track.number for track in remove]
-            temp_file = f"{Path(media.path).with_suffix('')}.fml-tmp.avi"
-            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", media.path,
-                   "-map", "0"]
-            for number in numbers:
-                cmd += ["-map", f"-0:a:{number - 1}"]
-            self.apply(result, cmd + ["-c", "copy", temp_file])
+            temp_file = self.temp_path(media.path)
+            cmd = ["ffmpeg", *FFMPEG_QUIET, "-i", media.path, "-map", "0"]
+            for track in remove:
+                cmd += ["-map", f"-0:{SELECTORS[self.kind]}:{track.number - 1}"]
+            self.apply(result, cmd + ["-c", "copy"] + self.ffmpeg_output(media, temp_file))
+        self.replace_file(result, temp_file, media.path)
+        return self.finish(result)
+
+    # Operations -------------------------------------------------------------
+
+    def do_info(self, media: Media) -> Result:
+        result = self.result(media, "info")
+        result.data = {"container": CONTAINERS[media.kind],
+                       "tracks": [track.to_dict() for track in self.tracks(media)]}
+        return result
+
+    def do_get(self, media: Media) -> Result:
+        result = self.result(media, "get")
+        tracks = self.selected(media)
+        if self.config.lang:
+            matches = [track for track in tracks if track.language == self.config.lang]
+            if not matches:
+                return self.skip(result, self.missing_message([self.config.lang]))
+            result.data = {"tracks": [track.to_dict() for track in matches]}
+        else:
+            chosen = [track for track in tracks if track.default]
+            if not chosen and self.kind == "audio":
+                chosen = tracks[:1]  # AVI has no default flag, so use the first audio track
+            result.data = {f"default_{self.kind}": [track.language for track in chosen]}
+        return result
+
+    def do_set(self, media: Media, what: str) -> Result:
+        result = self.result(media, "set")
+        if media.kind == "avi":
+            return self.skip(result, "set is only supported for MKV and MP4 files")
+        tracks = self.selected(media)
+        if what == "default":
+            track = self.resolve_track(media, result)
+            if track is None:
+                return result
+            lang = self.config.lang
+            return self.edit_tracks(
+                media, result, self.default_edits(tracks, track, lang),
+                f"{track.label} is already the default" + (f" and {lang}" if lang else ""))
+        if self.config.default or self.config.prefer:
+            return self.set_default_language(media, result, tracks)
+        track = self.resolve_track(media, result)
+        if track is None:
+            return result
+        edits = [Edit(track, language=self.config.lang)] \
+            if track.language != self.config.lang else []
+        return self.edit_tracks(media, result, edits,
+                                f"{track.label} is already {track.language}")
+
+    def set_default_language(self, media: Media, result: Result,
+                             tracks: Sequence[Track]) -> Result:
+        """Make the first track in the (preferred) language the only default track."""
+        if self.config.default == "none":
+            if media.kind == "mp4":
+                return self.skip(result, "MP4 files always have a default subtitle track")
+            return self.edit_tracks(media, result, self.default_edits(tracks, None, ""),
+                                    f"there is already no default {self.word} track")
+        languages = self.languages(self.config.default)
+        choice = self.choose(tracks, languages)
+        if choice is None:
+            return self.skip(result, self.missing_message(languages))
+        lang, track = choice
+        return self.edit_tracks(media, result, self.default_edits(tracks, track, ""),
+                                f"{track.label} ({lang}) is already the default")
+
+    def do_swap(self, media: Media) -> Result:
+        result = self.result(media, "swap")
+        audio = self.selected(media)
+        if len(audio) < 2:
+            return self.skip(result, "needs at least two audio tracks to swap")
+        if media.kind in ("mkv", "mp4"):
+            return self.edit_tracks(
+                media, result, self.default_edits(audio, audio[1], ""),
+                f"{audio[1].label} ({audio[1].language}) is already the default")
+        temp_file = self.temp_path(media.path)
+        result.changes.append("audio tracks 1 and 2 swapped")
+        self.apply(result, [
+            "ffmpeg", *FFMPEG_QUIET, "-i", media.path,
+            "-map", "0:v?", "-map", "0:a:1", "-map", "0:a:0", "-map", "0:a:2?", "-map", "0:s?",
+            "-disposition:a:0", "default", "-disposition:a:1", "none", "-c", "copy", temp_file])
         self.replace_file(result, temp_file, media.path)
         return self.finish(result)
 
@@ -664,26 +808,34 @@ class Fml:
             track = self.resolve_track(media, result)
             if track is None:
                 return result
-            return self.remove_audio(media, result, [track])
-        if media.kind != "mkv":
-            return self.skip(result, "deleting by language is only supported for MKV files")
-        remove = [track for track in self.audio(media) if track.language == self.config.lang]
-        return self.remove_audio(media, result, remove)
+            return self.remove_tracks(media, result, [track])
+        if media.kind == "avi":
+            return self.skip(result, "deleting by language is only supported for MKV and "
+                                     "MP4 files")
+        remove = [track for track in self.selected(media) if track.language == self.config.lang]
+        return self.remove_tracks(media, result, remove)
 
     def do_preserve(self, media: Media) -> Result:
         result = self.result(media, "preserve")
-        if media.kind != "mkv":
-            return self.skip(result, "preserving by language is only supported for MKV files")
-        audio = self.audio(media)
-        if not any(track.language == self.config.lang for track in audio):
-            return self.skip(result, f'has no audio track with language "{self.config.lang}", '
-                             "so nothing would be left")
-        remove = [track for track in audio if track.language != self.config.lang]
-        return self.remove_audio(media, result, remove)
+        if media.kind == "avi":
+            return self.skip(result, "preserving by language is only supported for MKV and "
+                                     "MP4 files")
+        tracks = self.selected(media)
+        languages = self.languages(self.config.lang)
+        keep = next((lang for lang in languages
+                     if any(track.language == lang for track in tracks)), None)
+        if keep is None:
+            if not self.config.force:
+                return self.skip(result, f"{self.missing_message(languages)}, so nothing "
+                                         "would be left (use --force to remove them all)")
+            return self.remove_tracks(media, result, tracks)
+        return self.remove_tracks(media, result,
+                                  [track for track in tracks if track.language != keep])
 
     # Dispatch ---------------------------------------------------------------
 
-    def tools_for(self, task: Task, kind: str) -> Sequence[str]:
+    @staticmethod
+    def tools_for(task: Task, kind: str) -> Sequence[str]:
         if task.name in ("info", "get"):
             return READ_TOOLS[kind]
         return WRITE_TOOLS[kind]
@@ -705,7 +857,7 @@ class Fml:
         if task.name == "get":
             return self.do_get(media)
         if task.name == "set":
-            return self.do_set(media)
+            return self.do_set(media, task.what)
         if task.name == "swap":
             return self.do_swap(media)
         if task.name == "delete":
@@ -748,7 +900,8 @@ class Fml:
             print(result.file)
             print(format_tracks(tracks_from_dicts(result.data["tracks"])))
             return
-        for language in result.data["default_audio"]:
+        languages = next(value for key, value in result.data.items() if key.startswith("default_"))
+        for language in languages or ["none"]:
             print(f"{result.file}: {language}" if self.config.dir else language)
 
     def run(self) -> int:
@@ -798,8 +951,29 @@ def language_arg(text: str) -> str:
         raise argparse.ArgumentTypeError(str(error)) from None
 
 
+def default_arg(text: str) -> str:
+    """argparse type: a language, or ``none`` (no default subtitle track)."""
+    return "none" if text.strip().lower() == "none" else language_arg(text)
+
+
+def prefer_arg(text: str) -> list[str]:
+    """argparse type: a comma separated list of languages."""
+    languages = [language_arg(item) for item in text.split(",") if item.strip()]
+    if not languages:
+        raise argparse.ArgumentTypeError("give at least one language")
+    return list(dict.fromkeys(languages))
+
+
+def kind_arg(text: str) -> str:
+    """argparse type: the kind of track, audio or subtitles (sub works too)."""
+    kind = KINDS.get(text.strip().lower())
+    if kind is None:
+        raise argparse.ArgumentTypeError(f'"{text}" is not audio or sub (subtitles)')
+    return kind
+
+
 def track_arg(text: str) -> str:
-    """argparse type: an audio track number (from 1) or ``last``."""
+    """argparse type: a track number (from 1) or ``last``."""
     if text == "last" or (text.isdigit() and int(text) >= 1):
         return text
     raise argparse.ArgumentTypeError(f'"{text}" is not a track number (from 1) or "last"')
@@ -808,19 +982,23 @@ def track_arg(text: str) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fml",
-        description="Fix the default audio language, and the tracks, of media files.",
+        description="Fix the default audio and subtitle languages, and the tracks, of media files.",
         epilog="""examples:
-  fml --set lang --default English --file video.mkv    make English the default audio
-  fml --set lang --lang Italian --track 2 -i video.mkv  mark audio track 2 as Italian
+  fml --set lang --default English --file video.mkv     make English the default audio
+  fml --set lang --prefer eng,jpn,fre --dir films       the best of those languages in each file
+  fml --set default --track 2 --lang English -i a.mkv   make audio track 2 the default and English
+  fml --set lang --default English --kind sub -i a.mkv  make English the default subtitles
+  fml --set lang --default English --kind sub --forced  ... using the forced subtitle track
+  fml --set lang --default none --kind sub -i a.mkv     turn the default subtitles off
   fml --get lang --dir /media/films --recursive         default audio language of each film
   fml --preserve lang --lang eng --file video.mkv       remove the audio that isn't English
-  fml --delete track --track last --file video.avi      remove the last audio track
+  fml --delete track --track last --file video.mp4      remove the last audio track
   fml --set lang --default French --dir films --dryrun  show what would change
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
 
-    target = parser.add_argument_group("files")
+    target = parser.add_argument_group("files", "MKV (and WebM), MP4 (M4V, MOV) and AVI files")
     exclusive = target.add_mutually_exclusive_group()
     exclusive.add_argument("-i", "--file", metavar="FILE", help="file to process")
     exclusive.add_argument("-d", "--dir", metavar="DIR", help="directory to process")
@@ -833,24 +1011,35 @@ def build_parser() -> argparse.ArgumentParser:
     actions.add_argument("-I", "--info", action=QueueAction, task="info", dest="tasks",
                          nargs=0, help="list the tracks of the file")
     for flag, short, name, help_text in (
-            ("--get", "-g", "get", "get the default audio language, or with --lang the "
-                                   "audio tracks in a language"),
-            ("--set", "-c", "set", "make --default the default audio language, or with "
-                                   "--lang set the language of audio track --track (1)"),
+            ("--get", "-g", "get", "get the default language, or with --lang the tracks "
+                                   "in a language"),
+            ("--set", "-c", "set", "lang: make --default (or the first of --prefer) the "
+                                   "default, or with --lang set the language of track "
+                                   "--track (1); default: make track --track the default, "
+                                   "and with --lang set its language"),
             ("--swap", "-s", "swap", "make the second audio track the default"),
-            ("--delete", "-z", "delete", "remove the audio in --lang, or audio track --track"),
-            ("--preserve", "-p", "preserve", "remove all audio that is not in --lang")):
+            ("--delete", "-z", "delete", "remove the tracks in --lang, or track --track"),
+            ("--preserve", "-p", "preserve", "remove all tracks that are not in --lang "
+                                             "(or the first of --prefer that is present)")):
         actions.add_argument(short, flag, action=QueueAction, task=name, dest="tasks",
                              choices=TASK_CHOICES[name], metavar="{" + ",".join(
                                  TASK_CHOICES[name]) + "}", help=help_text)
 
     options = parser.add_argument_group("settings")
+    options.add_argument("-k", "--kind", type=kind_arg, default="audio", metavar="{audio,sub}",
+                         help="the kind of track the actions work on (default audio)")
     options.add_argument("-l", "--lang", type=language_arg, metavar="LANG",
                          help="language, by name or ISO 639 code (English, en, eng)")
-    options.add_argument("-D", "--default", type=language_arg, metavar="LANG",
-                         help="language to make the default audio")
+    options.add_argument("-D", "--default", type=default_arg, metavar="LANG",
+                         help="language to make the default (none turns the default "
+                              "subtitles off)")
+    options.add_argument("--prefer", type=prefer_arg, metavar="LANGS",
+                         help="languages in order of preference, e.g. eng,jpn,fre: the first "
+                              "that a file has is used, so one command suits a mixed library")
+    options.add_argument("--forced", action="store_true",
+                         help="with --kind sub, pick the forced subtitle track")
     options.add_argument("-t", "--track", type=track_arg, metavar="N",
-                         help="audio track number from 1, or last")
+                         help="track number from 1 (among tracks of the kind), or last")
     options.add_argument("-f", "--force", action="store_true",
                          help="allow removing every audio track")
     options.add_argument("-T", "--dryrun", action="store_true",
@@ -872,15 +1061,35 @@ def check_arguments(parser: argparse.ArgumentParser, args: argparse.Namespace) -
                      "or --preserve)")
     if any(task.name != "check" for task in tasks) and not (args.file or args.dir):
         parser.error("no file given (use --file or --dir)")
+    if args.forced and args.kind != "subtitles":
+        parser.error("--forced only applies to subtitles (use --kind sub)")
     for task in tasks:
-        if task.name == "set" and args.default and args.lang:
-            parser.error("--set lang takes --default or --lang, not both")
-        if task.name == "set" and not (args.default or args.lang):
-            parser.error("--set lang needs --default (to choose the default audio) "
-                         "or --lang (to set the language of a track)")
+        if task.name == "set" and task.what == "lang":
+            given = [name for name, value in (("--default", args.default),
+                                              ("--prefer", args.prefer),
+                                              ("--lang", args.lang)) if value]
+            if len(given) != 1:
+                parser.error("--set lang needs one of --default (a language), --prefer "
+                             "(languages in order) or --lang (to set the language of a track)"
+                             + (f", not {' and '.join(given)}" if given else ""))
+        if task.name == "set" and task.what == "default":
+            if not args.track:
+                parser.error("--set default needs --track")
+            if args.default or args.prefer:
+                parser.error("--set default takes --track (and --lang to set its language), "
+                             "not --default or --prefer")
+        if args.default == "none" and not (
+                task.name == "set" and task.what == "lang" and args.kind == "subtitles"):
+            parser.error("--default none only works with --set lang --kind sub")
+        if args.prefer and not (task.name == "preserve" or (
+                task.name == "set" and task.what == "lang")):
+            parser.error("--prefer only works with --set lang and --preserve")
+        if task.name == "swap" and args.kind != "audio":
+            parser.error("--swap only works on audio")
         needs_lang = task.name == "preserve" or (task.name == "delete" and task.what == "lang")
-        if needs_lang and not args.lang:
-            parser.error(f"--{task.name} {task.what} needs --lang")
+        if needs_lang and not (args.lang or (task.name == "preserve" and args.prefer)):
+            parser.error(f"--{task.name} {task.what} needs --lang"
+                         + (" or --prefer" if task.name == "preserve" else ""))
         if task.name == "delete" and task.what == "track" and not args.track:
             parser.error("--delete track needs --track")
 
@@ -897,6 +1106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = Config(
         file=args.file or "", dir=args.dir or "", recursive=args.recursive,
         lang=args.lang or "", default=args.default or "", track=args.track or "",
+        kind=args.kind, forced=args.forced, prefer=args.prefer or [],
         verbose=args.verbose, dryrun=args.dryrun, install=args.install, force=args.force,
         format=args.format, tasks=args.tasks)
     return Fml(config).run()

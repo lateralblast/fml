@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-10-15
+
+### Fixed
+- `--swap` makes the second audio track the only default, so it also clears the flag on a third track that was default; before, two tracks could end up default
+
+## [0.5.7] - 2026-10-15
+
+### Added
+- MP4 (and M4V, MOV) files are supported. They are rewritten with `ffmpeg`, copying the streams (nothing is re-encoded), and the result is read back and checked before it replaces the original. The index is moved to the front of the file (`faststart`), and permissions and timestamps are kept
+- `--set`, `--swap`, `--delete`, `--preserve`, `--get` and `--info` work on MP4. `--default none` does not, as MP4 always has a default subtitle track
+
+## [0.5.6] - 2026-10-15
+
+### Added
+- `--prefer eng,jpn,fre` with `--set lang` makes the first of those languages that a file has the default, so one command suits a mixed library; with `--preserve` it keeps only that language. Files with none of them are skipped
+
+## [0.5.5] - 2026-10-15
+
+### Added
+- `--set default --track N` makes track N the only default, and with `--lang` also sets its language in the same edit, for files whose tracks are untagged (`und`)
+
+## [0.5.4] - 2026-10-15
+
+### Added
+- `--kind sub` (`-k`) makes the actions work on subtitle tracks: `--get`, `--set lang` (`--default`, `--lang` and `--track`), `--delete` and `--preserve`
+- `--forced` chooses the forced subtitle track, and without it a track that is not forced is preferred
+- `--set lang --default none --kind sub` turns the default subtitles off
+- Removing subtitle tracks does not need `--force`; `--preserve` with a language the file lacks still does
+
+### Changed
+- `--preserve` with a language the file lacks now says to use `--force` to remove all the tracks, and `--force` allows it
+
 ## [0.5.3] - 2026-10-15
 
 ### Added
