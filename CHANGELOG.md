@@ -5,6 +5,90 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-10-16
+
+### Added
+- `--jobs N` (`-j`) processes N files at once, for `--dir`. The output is in the same order, and the same, as a sequential run; the free space each job needs is set aside while it runs, so jobs can't use it up between them; and an interrupt waits for the files already running, removes their temporary copies and starts no more
+
+## [0.7.1] - 2026-10-16
+
+### Added
+- `--include PATTERN` and `--exclude PATTERN` choose which files `--dir` processes, and can be given more than once. A pattern with no `/` matches a file name, or the name of any folder above it (`Extras` skips every folder of that name); a pattern with a `/` matches the whole path below the directory (`Season 1/*`). Matching ignores case
+
+## [0.7.0] - 2026-10-16
+
+### Added
+- `--log FILE` records each change in a file, one JSON line per changed file, with the tracks before and after
+- `--undo FILE` (`-u`) reverses the changes in a log, newest first, for the files that are still exactly as the change left them (`--file` or `--dir` limits it to some files). Flags, languages, names and the order of tracks are put back by editing the file; a removal can only be undone from a `--backup` copy, which is checked against the log first. `--dryrun` shows what would be undone
+
+## [0.6.9] - 2026-10-16
+
+### Added
+- `--backup` keeps the original beside the changed file as `NAME.fml-bak` (`NAME.fml-bak.1` and so on if that is taken). It is a hard link to the original made just before it is replaced, so it costs no space, and a real copy where links are not possible or with `--in-place`. If the backup can't be made, nothing is replaced. `--dir` ignores backups, and the JSON result has a `backup` field
+
+## [0.6.8] - 2026-10-16
+
+### Added
+- `--set name --track N --name TEXT` sets the name of a track (an empty name removes it), for MKV and MP4. A name that starts with `-` is written `--name=-TEXT`
+- `--set forced` and `--set unforced` set and clear the forced flag of a track, for MKV (an MP4's forced flag can't be read back to check the change)
+
+### Changed
+- The check made on a changed file now also covers track names and, for MKV, forced flags, and it is made for removals and the AVI swap as well, with the message `<tool> did not make the change to the file`
+
+## [0.6.7] - 2026-10-16
+
+### Changed
+- After `--delete` or `--preserve` removes the default track, the first track left becomes the default (always for audio; for subtitles in an MP4, which insists on one), so a file isn't left without a default audio track. An MKV may still have no default subtitle track
+
+## [0.6.6] - 2026-10-16
+
+### Fixed
+- Track names are kept when an MP4 is rewritten. `ffmpeg` dropped the names it can't read back (the ones `mediainfo` shows as the title), including the video track's; each is now written again at the track's place in the new file, and checked
+
+## [0.6.5] - 2026-10-16
+
+### Changed
+- `fml.py` is now checked on Python 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14: the whole test suite passes on each, and `mypy --strict` passes on 3.10 to 3.14 (current `mypy` no longer supports 3.9, which `ruff` and the tests cover). No code change was needed
+
+## [0.6.4] - 2026-10-16
+
+### Added
+- `pyproject.toml`, so `pip install .` (or `pipx install .`) installs an `fml` command. The version is read from `fml.__version__`, there are no Python dependencies, and the `dev` extra (`pip install -e ".[dev]"`) adds `pytest`, `ruff` and `mypy`. The settings for `ruff`, `mypy` and `pytest` are in the same file
+
+## [0.6.3] - 2026-10-16
+
+### Added
+- A `pytest` suite in `tests/` (278 tests) covering the language handling, track parsing and edit logic, every command line rule and message, the failure and safety paths with stub tools (a tool that fails or does nothing, no free space, Ctrl-C and `kill`, missing commands), and real MKV, MP4 and AVI files made with `ffmpeg` and checked with `mkvmerge`, `mediainfo` and `ffprobe`. The tests that need those tools are skipped if they are missing
+- Tests that the version in `fml.py`, the README and the changelog agree, and that every switch is in the README help
+
+## [0.6.2] - 2026-10-16
+
+### Added
+- `--move` with `--set lang --default` (or `--prefer`) or `--set default --track` also moves the chosen track to be the first track of its kind, for players that play the first track whatever its default flag. An MKV is rewritten once with `mkvmerge`, which reorders the tracks and sets the flags and languages together, keeping the chapters, attachments and track names; an MP4 is rewritten with `ffmpeg`. If the track is already first, only the flags are edited. The result is checked, including the order, before it replaces the original
+
+### Changed
+- The check made on a changed copy now covers the order of the tracks as well as their flags and languages, and its message is `<tool> did not make the change to the file`
+
+## [0.6.1] - 2026-10-16
+
+### Fixed
+- Stopping `fml.py` part way (Ctrl-C or `kill`) removes the temporary copy it was working on and exits 130; before, a large `.fml-tmp` file was left beside the original
+- `--dir` ignores leftover `.fml-tmp` files from an earlier crashed run, instead of processing them as media files
+
+## [0.6.0] - 2026-10-16
+
+### Added
+- Every rewrite is checked before it replaces the original: `--delete`, `--preserve` and the AVI `--swap` re-read the new file and confirm it has exactly the expected tracks, and if not the original is left alone and the file is reported as an error
+- Before copying or rewriting a file, `fml.py` checks there is enough free space beside it for a second copy, and reports an error instead of failing part way
+
+## [0.5.9] - 2026-10-16
+
+### Changed
+- `--set` and `--swap` on an MKV file now copy the file, change the copy with `mkvpropedit`, check the copy has the changes, and then replace the original with it, so a failure or interruption can't damage the original. The file's permissions and timestamps are kept
+
+### Added
+- `--in-place` edits an MKV file directly, as before: quicker and needs no free space, but an interruption can leave the file damaged
+
 ## [0.5.8] - 2026-10-15
 
 ### Fixed

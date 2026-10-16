@@ -1,11 +1,13 @@
 # fml.py has no Python dependencies: it only uses the standard library (Python 3.9 or newer).
 # Run it directly, with ./fml.py
 #
-# The entries below are the development tools the script is checked with. Install them with
-#   pip install -r requirements.txt
-# and run
-#   ruff check fml.py
-#   mypy --strict fml.py
+# The entries below are the development tools the script is checked and tested with. Install them
+# with `pip install -r requirements.txt` (or `pip install -e ".[dev]"`, which also installs the
+# `fml` command) and run
+#   ruff check
+#   mypy
+#   pytest
+pytest>=7
 ruff>=0.6
 mypy>=1.10
 

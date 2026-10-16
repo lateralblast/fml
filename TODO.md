@@ -4,21 +4,27 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Open
 
-- [ ] Add a `pytest` suite: stub `mkvmerge`/`mkvpropedit`/`mediainfo`/`ffmpeg` tests for the command line and messages, plus tests on real files generated with `ffmpeg` (MKV with audio and subtitles, MP4, AVI) checked with `mkvmerge -J` / `mediainfo`. Then update `CLAUDE.md`, which currently says not to add a test suite.
-- [ ] Add a `pyproject.toml` with an installable `fml` command, and lint (`ruff`, `mypy --strict`) and test config.
-- [ ] Run the checks on Python 3.9 to 3.13. `fml.py` targets 3.9 but has only been run on 3.14 (current `mypy` no longer checks 3.9).
-- [ ] Verify rewrites before replacing the original for MKV (`mkvmerge`) and AVI as well as MP4: re-read the temporary file and check the track count, and check there is enough free disk space first. Only the MP4 flag and language edits are verified now.
-- [ ] Add `--backup` / `--keep` to keep the original beside the result for `--delete`, `--preserve`, the AVI swap and MP4 rewrites.
-- [ ] Add an undo log: `--log changes.json` records each file's previous default flags and languages, and `--undo` puts them back.
-- [ ] Add `--include` / `--exclude` glob patterns for `--dir`.
-- [ ] Add `--jobs N` to process a directory in parallel, without interleaving the output (rewrites are disk bound, so do this last).
-- [ ] Add editing of track names (`--name`) and the forced flag; `--info` already shows both.
-- [ ] Decide whether `--preserve` should set the default flag on the track that is left when it had none, so the file isn't left with no default track.
+- [ ] Run the checks automatically on every push (a CI workflow that runs `ruff`, `mypy` and `pytest` on Python 3.9 to 3.14, with `ffmpeg`, `mkvtoolnix` and `mediainfo` installed).
+- [ ] Let each action in one command have its own settings. `--default`, `--lang` and `--track` are shared by every action on the command line, so `--set lang --default X --delete lang --lang Y` is rejected.
 - [ ] Support `--default none` for MP4 subtitles. The `ffmpeg` mov muxer always enables the first track of the group, so this needs another way to write the flag, or stays unsupported.
 - [ ] Install support for other systems (`winget`/`choco` on Windows, and other Linux distributions) in `--install`; only apt on Ubuntu and brew on macOS now.
 
 ## Done
 
+- [x] Add `--jobs N` to process files in parallel, with ordered output and space set aside per job (0.7.2).
+- [x] Add `--include` and `--exclude` patterns for `--dir` (0.7.1).
+- [x] Add `--log` and `--undo`, to reverse flag, language, name and order changes, and removals from a backup (0.7.0).
+- [x] Add `--backup`, which keeps the original beside the changed file as a hard link (0.6.9).
+- [x] Add `--set name`, `--set forced` and `--set unforced`, and check names and forced flags in the result (0.6.8).
+- [x] Decide what `--preserve` and `--delete` do to the default flag: the first track left becomes the default (0.6.7).
+- [x] Keep track names when an MP4 is rewritten (0.6.6).
+- [x] Check `fml.py` on Python 3.9 to 3.14: the suite passes on each, and `mypy --strict` on 3.10 to 3.14 (0.6.5).
+- [x] Add a `pyproject.toml` with an installable `fml` command, the `dev` extra, and `ruff`, `mypy` and `pytest` settings (0.6.4).
+- [x] Add a `pytest` suite of 278 tests: unit, command line, stub tools and real MKV, MP4 and AVI files (0.6.3).
+- [x] Add `--move`, which also moves the chosen track to be the first of its kind (MKV with `mkvmerge --track-order`, MP4 with `ffmpeg`), and check the order of the result (0.6.2).
+- [x] Remove the temporary copy when stopped with Ctrl-C or `kill`, and skip leftover `.fml-tmp` files in `--dir` (0.6.1).
+- [x] Check every rewrite (`--delete`, `--preserve`, AVI `--swap`) before it replaces the original, and check free disk space before copying or rewriting (0.6.0).
+- [x] Make MKV flag and language edits work on a copy that is checked and then replaces the original, with `--in-place` for the old direct edit (0.5.9).
 - [x] Make `--swap` leave the second audio track as the only default (0.5.8).
 - [x] Add MP4, M4V and MOV support, rewritten with `ffmpeg` (stream copy) and checked before replacing the original (0.5.7).
 - [x] Add `--prefer` language preference lists for `--set lang` and `--preserve` (0.5.6).
