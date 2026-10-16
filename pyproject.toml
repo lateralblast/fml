@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fml"
+dynamic = ["version"]
+description = "Fix the default audio and subtitle languages, and the tracks, of media files (MKV, MP4, AVI)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "CC BY-NC-SA 4.0"}
+authors = [{name = "Richard Spindler", email = "richard@lateralblast.com.au"}]
+keywords = ["mkv", "mp4", "avi", "audio", "subtitles", "language", "default track", "mkvtoolnix"]
+classifiers = [
+    "Environment :: Console",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Video",
+]
+# fml only uses the standard library. It runs mkvmerge, mkvpropedit, mediainfo and ffmpeg, which
+# pip cannot install (see the README, or run `fml --check --install`).
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/lateralblast/fml"
+
+[project.scripts]
+fml = "fml:main"
+
+[tool.setuptools]
+py-modules = ["fml"]
+
+[tool.setuptools.dynamic]
+version = {attr = "fml.__version__"}
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RET", "A"]
+
+[tool.mypy]
+strict = true
+files = ["fml.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = [
+    "real: needs ffmpeg, mkvtoolnix and mediainfo, and is skipped if they are missing",
+]

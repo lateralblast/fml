@@ -1,0 +1,366 @@
+"""Shared test helpers.
+
+Real media files are generated with ffmpeg and inspected with mkvmerge, mediainfo and ffprobe
+directly (not with fml's own parsing), so the tests check what was really written. Tests that
+need those tools are marked ``real`` and are skipped if they are missing. Everything else uses
+stub tools or no tools at all.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, Callable, NamedTuple
+
+import pytest
+
+import fml
+
+REAL_TOOLS = ("ffmpeg", "ffprobe", "mkvmerge", "mkvpropedit", "mediainfo")
+HAVE_REAL_TOOLS = all(shutil.which(tool) for tool in REAL_TOOLS)
+requires_tools = pytest.mark.skipif(
+    not HAVE_REAL_TOOLS, reason="needs ffmpeg, mkvtoolnix and mediainfo")
+
+MKV_HEADER = bytes.fromhex("1a45dfa39f428288") + b"matroska"
+MP4_HEADER = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"
+AVI_HEADER = b"RIFF\x00\x00\x00\x00AVI LIST"
+
+# mediainfo reports two letter codes for MP4 files
+TWO_LETTER = {"it": "ita", "en": "eng", "fr": "fre", "de": "ger", "ja": "jpn", "es": "spa"}
+
+
+class Ran(NamedTuple):
+    """The outcome of running fml in the test process."""
+
+    code: int
+    out: str
+    err: str
+
+
+@pytest.fixture(autouse=True)
+def isolate(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Make runs repeatable: a known OS, and put back the SIGTERM handler fml installs."""
+    monkeypatch.setattr(fml, "detect_distro", lambda: "Ubuntu")
+    monkeypatch.setattr(fml.platform, "system", lambda: "Linux")
+    previous = signal.getsignal(signal.SIGTERM)
+    yield
+    signal.signal(signal.SIGTERM, previous)
+
+
+@pytest.fixture
+def run(capsys: pytest.CaptureFixture[str]) -> Callable[..., Ran]:
+    """Run fml.main with arguments and return its exit status, stdout and stderr."""
+    def runner(*args: object) -> Ran:
+        try:
+            code = fml.main([str(arg) for arg in args])
+        except SystemExit as stop:  # argparse exits for --help, --version and usage errors
+            code = stop.code if isinstance(stop.code, int) else 1
+        out, err = capsys.readouterr()
+        return Ran(code, out, err)
+    return runner
+
+
+# Real media ------------------------------------------------------------------
+
+SRT = "1\n00:00:00,000 --> 00:00:00,900\nHello\n\n"
+
+
+def make_media(out: Path, audio: list[tuple[str, str | None, bool]],
+               subs: list[tuple[str, bool, bool]], chapters: bool = False,
+               video_title: str | None = None) -> None:
+    """Generate a one second file with ffmpeg.
+
+    audio is a list of (language, title, default) and subs of (language, forced, default).
+    Subtitles are only possible for MKV and MP4. chapters adds two chapters, an attachment
+    and a title (MKV only).
+    """
+    kind = out.suffix.lstrip(".")
+    work = out.parent / f".{out.name}.build"
+    work.mkdir(exist_ok=True)
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+           "-f", "lavfi", "-i", "testsrc=d=1:s=160x90:r=10"]
+    for index in range(len(audio)):
+        cmd += ["-f", "lavfi", "-i", f"sine=f={300 + 100 * (index + 1)}:d=1"]
+    for index in range(len(subs)):
+        srt = work / f"sub{index}.srt"
+        srt.write_text(SRT)
+        cmd += ["-i", str(srt)]
+    inputs = 1 + len(audio) + len(subs)
+    if chapters:
+        (work / "meta.txt").write_text(
+            ";FFMETADATA1\ntitle=Test Film\n"
+            "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=500\ntitle=One\n"
+            "[CHAPTER]\nTIMEBASE=1/1000\nSTART=500\nEND=1000\ntitle=Two\n")
+        (work / "attachment.bin").write_text("attachment")
+        cmd += ["-i", str(work / "meta.txt")]
+    for number in range(inputs):
+        cmd += ["-map", str(number)]
+    if video_title:
+        cmd += ["-metadata:s:v:0", f"title={video_title}"]
+    if chapters:
+        cmd += ["-map_metadata", str(inputs), "-map_chapters", str(inputs),
+                "-attach", str(work / "attachment.bin"),
+                "-metadata:s:t", "mimetype=application/octet-stream"]
+    if kind == "avi":
+        cmd += ["-c:v", "mpeg4", "-c:a", "mp3"]
+    else:
+        cmd += ["-c:v", "libx264", "-c:a", "aac", "-c:s", "mov_text" if kind == "mp4" else "srt"]
+    for index, (language, title, default) in enumerate(audio):
+        cmd += [f"-metadata:s:a:{index}", f"language={language}"]
+        if title:
+            cmd += [f"-metadata:s:a:{index}", f"title={title}"]
+        cmd += [f"-disposition:a:{index}", "default" if default else "0"]
+    for index, (language, forced, default) in enumerate(subs):
+        flags = "+".join(name for name, on in (("default", default), ("forced", forced)) if on)
+        cmd += [f"-metadata:s:s:{index}", f"language={language}",
+                f"-disposition:s:{index}", flags or "0"]
+    subprocess.run(cmd + [str(out)], check=True, capture_output=True)
+    shutil.rmtree(work)
+
+
+class MediaCache:
+    """Builds each distinct test file once for the whole run."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.built: dict[str, Path] = {}
+
+    def get(self, name: str, audio: list[tuple[str, str | None, bool]],
+            subs: list[tuple[str, bool, bool]], chapters: bool,
+            video_title: str | None = None) -> Path:
+        key = json.dumps([name, audio, subs, chapters, video_title])
+        if key not in self.built:
+            folder = Path(tempfile.mkdtemp(dir=self.root))
+            make_media(folder / name, audio, subs, chapters, video_title)
+            self.built[key] = folder / name
+        return self.built[key]
+
+
+@pytest.fixture(scope="session")
+def media_cache(tmp_path_factory: pytest.TempPathFactory) -> MediaCache:
+    return MediaCache(tmp_path_factory.mktemp("media"))
+
+
+@pytest.fixture
+def make(tmp_path: Path, media_cache: MediaCache) -> Callable[..., Path]:
+    """Make a file in the test's own directory: ``make("a.mkv", audio, subs)``."""
+    def maker(name: str, audio: list[tuple[str, str | None, bool]],
+              subs: list[tuple[str, bool, bool]] | None = None, chapters: bool = False,
+              where: Path | None = None, video_title: str | None = None) -> Path:
+        source = media_cache.get(name, audio, subs or [], chapters, video_title)
+        target = (where or tmp_path) / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        return target
+    return maker
+
+
+# The files most tests use
+FILM_AUDIO = [("ita", "Italian", True), ("eng", "English", False), ("fre", "French", False)]
+FILM_SUBS = [("eng", False, False), ("eng", True, False), ("ita", False, False)]
+
+
+@pytest.fixture
+def film_mkv(make: Callable[..., Path]) -> Path:
+    """MKV: audio ita (default), eng, fre; subtitles eng, eng forced, ita; chapters."""
+    return make("film.mkv", FILM_AUDIO, FILM_SUBS, chapters=True)
+
+
+@pytest.fixture
+def und_mkv(make: Callable[..., Path]) -> Path:
+    """MKV whose three audio tracks all have no language."""
+    return make("und.mkv", [("und", None, True), ("und", None, False), ("und", None, False)])
+
+
+@pytest.fixture
+def film_mp4(make: Callable[..., Path]) -> Path:
+    """MP4: audio ita (default), eng, fre; subtitles eng (default), ita."""
+    return make("film.mp4", [("ita", None, True), ("eng", None, False), ("fre", None, False)],
+                [("eng", False, True), ("ita", False, False)])
+
+
+@pytest.fixture
+def three_avi(make: Callable[..., Path]) -> Path:
+    """AVI with three audio tracks."""
+    return make("three.avi", [("und", None, False)] * 3)
+
+
+# Inspecting files without fml -----------------------------------------------
+
+def mkv_json(path: Path) -> dict[str, Any]:
+    out = subprocess.run(["mkvmerge", "-J", str(path)], capture_output=True, text=True,
+                         check=True).stdout
+    data: dict[str, Any] = json.loads(out)
+    return data
+
+
+def mkv_layout(path: Path) -> list[str]:
+    """Audio and subtitle tracks of an MKV as ``a:ita*`` (``*`` default, ``F`` forced)."""
+    layout = []
+    for track in mkv_json(path)["tracks"]:
+        if track["type"] == "video":
+            continue
+        props = track["properties"]
+        layout.append(f"{track['type'][0]}:{props.get('language')}"
+                      f"{'*' if props.get('default_track') else ''}"
+                      f"{'F' if props.get('forced_track') else ''}")
+    return layout
+
+
+def mp4_layout(path: Path) -> list[str]:
+    """The same for an MP4, read with mediainfo."""
+    out = subprocess.run(["mediainfo", "--Output=JSON", str(path)], capture_output=True,
+                         text=True, check=True).stdout
+    layout = []
+    for track in json.loads(out)["media"]["track"]:
+        if track["@type"] not in ("Audio", "Text"):
+            continue
+        language = TWO_LETTER.get(track.get("Language", ""), track.get("Language", "und"))
+        layout.append(f"{'a' if track['@type'] == 'Audio' else 's'}:{language}"
+                      f"{'*' if track.get('Default') == 'Yes' else ''}"
+                      f"{'F' if track.get('Forced') == 'Yes' else ''}")
+    return layout
+
+
+def mkv_names(path: Path) -> list[str]:
+    """The names of the audio and subtitle tracks of an MKV ('' for none)."""
+    return [track["properties"].get("track_name", "") for track in mkv_json(path)["tracks"]
+            if track["type"] != "video"]
+
+
+def mp4_titles(path: Path) -> list[str]:
+    """The names mediainfo reports for the video, audio and subtitle tracks of an MP4."""
+    out = subprocess.run(["mediainfo", "--Output=JSON", str(path)], capture_output=True,
+                         text=True, check=True).stdout
+    return [track.get("Title", "") for track in json.loads(out)["media"]["track"]
+            if track["@type"] in ("Video", "Audio", "Text")]
+
+
+def audio_streams(path: Path) -> int:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+         "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True).stdout
+    return len(out.split())
+
+
+def leftovers(folder: Path) -> list[str]:
+    """Temporary files fml should never leave behind."""
+    return [path.name for path in folder.rglob("*") if fml.TEMP_MARK in path.name]
+
+
+def same_file(first: Path, second: Path) -> bool:
+    return first.read_bytes() == second.read_bytes()
+
+
+# Stub tools ------------------------------------------------------------------
+
+STUB_MKVMERGE = """
+import json, os, sys
+folder = os.path.dirname(os.path.abspath(__file__))
+config = json.load(open(os.path.join(folder, "config.json")))
+args = sys.argv[1:]
+if args[:1] == ["-o"]:
+    open(args[1], "wb").write(bytes.fromhex("1a45dfa39f428288") + b"matroska")
+    sys.exit(config.get("mkvmerge_exit", 0))
+changed = args[-1].endswith(".fml-tmp") or open(args[-1], "rb").read().endswith(b"CHANGED")
+key = "mkv_after" if changed else "mkv"
+print(json.dumps({"tracks": config.get(key, config["mkv"])}))
+"""
+
+STUB_MKVPROPEDIT = """
+import json, os, sys
+folder = os.path.dirname(os.path.abspath(__file__))
+config = json.load(open(os.path.join(folder, "config.json")))
+if config.get("mkvpropedit_exit", 0):
+    sys.stderr.write("mkvpropedit: Error: cannot open the file\\n")
+elif config.get("mark"):
+    open(sys.argv[1], "ab").write(b"CHANGED")  # so later reads see the changed tracks
+sys.exit(config.get("mkvpropedit_exit", 0))
+"""
+
+STUB_MEDIAINFO = """
+import json, os, sys
+folder = os.path.dirname(os.path.abspath(__file__))
+config = json.load(open(os.path.join(folder, "config.json")))
+key = "mi_after" if sys.argv[-1].endswith(".fml-tmp.mp4") else "mi"
+print(json.dumps({"media": {"track": config.get(key, config.get("mi", []))}}))
+"""
+
+STUB_FFMPEG = """
+import json, os, sys
+folder = os.path.dirname(os.path.abspath(__file__))
+config = json.load(open(os.path.join(folder, "config.json")))
+open(sys.argv[-1], "wb").write(bytes.fromhex("0000001866747970") + b"mp42" + b"\\0" * 8)
+if config.get("ffmpeg_exit", 0):
+    sys.stderr.write("ffmpeg: Invalid data\\n")
+sys.exit(config.get("ffmpeg_exit", 0))
+"""
+
+
+def mkv_stub_tracks(audio: list[tuple[str, bool]],
+                    subs: Sequence[tuple[str, bool]] = ()) -> list[dict[str, Any]]:
+    """Tracks in the form ``mkvmerge -F json -i`` prints them."""
+    tracks: list[dict[str, Any]] = [
+        {"id": 0, "type": "video", "codec": "AVC", "properties": {"language": "und"}}]
+    for language, default in audio:
+        tracks.append({"id": len(tracks), "type": "audio", "codec": "AAC",
+                       "properties": {"language": language, "default_track": default}})
+    for language, default in subs:
+        tracks.append({"id": len(tracks), "type": "subtitles", "codec": "SubRip/SRT",
+                       "properties": {"language": language, "default_track": default}})
+    return tracks
+
+
+class Stubs:
+    """A directory of stub tools that is the only thing on PATH."""
+
+    def __init__(self, folder: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.folder = folder
+        self.config: dict[str, Any] = {}
+        folder.mkdir()
+        for name, body in (("mkvmerge", STUB_MKVMERGE), ("mkvpropedit", STUB_MKVPROPEDIT),
+                           ("mediainfo", STUB_MEDIAINFO), ("ffmpeg", STUB_FFMPEG)):
+            path = folder / name
+            path.write_text(f"#!{sys.executable}\n{body}")
+            path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        monkeypatch.setenv("PATH", str(folder))
+        self.save()
+
+    def save(self) -> None:
+        (self.folder / "config.json").write_text(json.dumps(self.config))
+
+    def set(self, **config: Any) -> None:
+        self.config.update(config)
+        self.save()
+
+
+@pytest.fixture
+def stubs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Stubs:
+    return Stubs(tmp_path / "stubbin", monkeypatch)
+
+
+@pytest.fixture
+def fake_mkv(tmp_path: Path) -> Path:
+    """A file that looks like a Matroska file (for use with stub tools)."""
+    path = tmp_path / "film.mkv"
+    path.write_bytes(MKV_HEADER)
+    return path
+
+
+@pytest.fixture
+def fake_mp4(tmp_path: Path) -> Path:
+    path = tmp_path / "film.mp4"
+    path.write_bytes(MP4_HEADER)
+    return path
+
+
+def env_without(tool_dir: Path) -> dict[str, str]:
+    return {**os.environ, "PATH": str(tool_dir)}
