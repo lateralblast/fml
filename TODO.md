@@ -4,6 +4,9 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Open
 
+- [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `fml-cli.exe` smoke-tested under Wine with stand-in tools.
+- [ ] Rust port: cover the paths the pytest suite cannot reach through the binary (free-space check, `--install`, `--check` with missing tools) with Rust tests, and add CI that builds it and runs the suite with `FML_BIN`.
+- [ ] Desktop app: per-file progress inside a long rewrite, drag and drop of folders, a macOS and Windows build, and a check of the dark theme on real hardware.
 - [ ] Run the checks automatically on every push (a CI workflow that runs `ruff`, `mypy` and `pytest` on Python 3.9 to 3.14, with `ffmpeg`, `mkvtoolnix` and `mediainfo` installed).
 - [ ] Let each action in one command have its own settings. `--default`, `--lang` and `--track` are shared by every action on the command line, so `--set lang --default X --delete lang --lang Y` is rejected.
 - [ ] Support `--default none` for MP4 subtitles. The `ffmpeg` mov muxer always enables the first track of the group, so this needs another way to write the flag, or stays unsupported.
@@ -11,6 +14,7 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Done
 
+- [x] Port `fml` to Rust (`fml-core`, `fml-cli`) with a Tauri desktop app (`fml-gui`), at the same version, 0.7.2; archive `fml.py`.
 - [x] Add `--jobs N` to process files in parallel, with ordered output and space set aside per job (0.7.2).
 - [x] Add `--include` and `--exclude` patterns for `--dir` (0.7.1).
 - [x] Add `--log` and `--undo`, to reverse flag, language, name and order changes, and removals from a backup (0.7.0).

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from conftest import Ran, Stubs, mkv_stub_tracks
+from conftest import FML_BIN, Ran, Stubs, mkv_stub_tracks
 
 import fml
 
@@ -27,7 +27,9 @@ def test_help(run: Callable[..., Ran], flag: str) -> None:
 @pytest.mark.parametrize("flag", ["--version", "-V"])
 def test_version(run: Callable[..., Ran], flag: str) -> None:
     ran = run(flag)
-    assert ran.code == 0 and ran.out.strip() == f"fml {fml.__version__}"
+    # the Rust command is called fml-cli, the archived Python script fml
+    program = "fml-cli" if FML_BIN else "fml"
+    assert ran.code == 0 and ran.out.strip() == f"{program} {fml.__version__}"
 
 
 def test_usage_errors_exit_2_and_print_nothing_on_stdout(run: Callable[..., Ran]) -> None:

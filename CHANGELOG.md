@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2026-10-23
+
+### Added
+- `./build.sh --target windows` now works on Linux and macOS: it cross-compiles the Windows installer (`fml_<version>_x64-setup.exe`) and `fml-cli.exe` (packaged as `fml-cli-<version>-windows.zip`) in a Docker container (`docker/windows`, MinGW, `x86_64-pc-windows-gnu`) and copies them to `dist/`. Building on Windows itself is unchanged.
+- `docker/windows/smoke.sh` runs the built `fml-cli.exe` under Wine against stand-in tools and checks a real edit, the backup and the log, and that a refused change leaves no temporary file.
+
+### Changed
+- `fml-core` and `fml-cli` now build for Windows: the Unix-only parts (signal numbers, `statvfs`, the execute bit, `exec`, `SIGINT`/`SIGTERM`) have Windows versions (`PATHEXT` lookup, `GetDiskFreeSpaceExW`, `SetConsoleCtrlHandler`, starting `fml.exe` for `--gui`), and `libc` is only used on Unix. A command that is a `.bat` or `.cmd` file is found and started on Windows. The app shows Windows paths relative to the chosen folder, and finds the home folder from `USERPROFILE`.
+- `--undo --dir` compares folders as paths, so it also works with Windows paths.
+
+## [0.7.5] - 2026-10-23
+
+### Changed
+- The desktop app is now the program called `fml` (it was `fml-gui`): `rust/target/release/fml`, `/usr/bin/fml` in the `.deb`. `fml-cli --gui` looks for `fml` beside itself, then on `PATH`, and at the path in `FML_GUI`. It skips any `fml` that is a script (one starting with `#!`), so the archived Python `fml` and the `./fml` wrapper are never started by mistake. The crate and directory are still `rust/fml-gui`. If you installed the app as `fml-gui`, rename it or copy the new binary.
+
+## [0.7.4] - 2026-10-23
+
+### Changed
+- The desktop app uses `fml.png` as its icon: the window and the installer icon sizes (`.png`, `.ico`, `.icns`) are generated from it, and the app's header shows it beside the title. Regenerate the set with `cargo tauri icon icons/source.png -o icons` in `rust/fml-gui`.
+
+## [0.7.3] - 2026-10-23
+
+### Added
+- `build.sh` builds the desktop app's installer (`.deb`, `.rpm`, AppImage, `.dmg` or NSIS `.exe`, one platform at a time) and the command line archive into `dist/`, and `--release` tags the commit, pushes the tag and publishes both to a GitHub release (`--delete-release` undoes it; `--dry-run` shows what would happen)
+
+### Changed
+- The Rust command line tool is now called `fml-cli` (it was `fml`), so it no longer shares a name with the checkout wrapper and the `fml` project: install it as `fml-cli`, and `fml-cli --gui` opens the desktop app. `./fml` in the checkout still works: it runs `fml-cli`, and `./fml --gui` still opens the app. The switches and output are unchanged apart from the program name in `--version`, the usage line and error messages
+
 ## [0.7.2] - 2026-10-16
 
 ### Added

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run fml from a checkout: the command line tool (fml-cli), or the desktop app with --gui.
+# Uses the release build of the Rust version if there is one, else the debug build.
+# Build with: (cd rust && cargo build --release && cargo build -p fml-gui --release)
+# (the app, built from the fml-gui crate, is the program rust/target/release/fml, which fml-cli --gui starts)
+here=$(cd "$(dirname "$0")" && pwd)
+for profile in release debug; do
+  bin="$here/rust/target/$profile/fml-cli"
+  if [ -x "$bin" ]; then
+    exec "$bin" "$@"
+  fi
+done
+echo "fml: not built yet (run: cd rust && cargo build --release)" >&2
+exit 1

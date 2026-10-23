@@ -1,4 +1,4 @@
-![FML](fml.jpg)
+![FML](fml.png)
 
 FML
 ===
@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.7.2
+Version 0.7.6
 
 License
 -------
@@ -49,11 +49,18 @@ Contents
 Introduction
 ------------
 
-> **The shell script, `fml.sh`, is no longer maintained.** It is kept in the repository for
-> reference only and receives no fixes or new features. Use `fml.py`, which replaces it;
+> **The Python script, `archived/fml.py`, is archived.** The maintained version is the Rust one in
+> [`rust/`](rust/README.md): the `fml` command and a desktop app, at the same version (0.7.2), with
+> the same switches and output as this document describes. It is kept in the repository as
+> the reference the Rust version is tested against (`FML_BIN=rust/target/release/fml-cli pytest`) and
+> gets no fixes or new features. The Rust command is `fml-cli`; `./fml` in this directory is a wrapper that runs
+> the Rust build, and `./fml --gui` opens the desktop app.
+
+> **The shell script, `archived/fml.sh`, is no longer maintained.** It is kept in the repository for
+> reference only and receives no fixes or new features. Use the Rust `fml`, which replaces it;
 > see [Moving from fml.sh](#moving-from-fmlsh) for what changed.
 
-`fml.py` was initially designed to change the default (first) language track on media files.
+`fml` was initially designed to change the default (first) language track on media files.
 For example, if the video file has two audio tracks, the first being Italian and the
 second being English, and you want English to be the default. It works on audio and subtitle
 tracks of MKV, MP4 and AVI files.
@@ -65,8 +72,8 @@ have to be removed, are rewritten without re-encoding anything.
 Requirements
 ------------
 
-Python 3.9 or newer (tested on 3.14). There are no Python dependencies.
-It needs these commands:
+`fml` is built with Rust (`cargo` 1.80 or newer; see [Installing](#installing)) and has no other
+dependencies of its own. It needs these commands:
 
 | Command                   | Package    | Used for                      |
 |---------------------------|------------|-------------------------------|
@@ -74,12 +81,11 @@ It needs these commands:
 | `mediainfo`               | mediainfo  | reading MP4 and AVI files     |
 | `ffmpeg`                  | ffmpeg     | rewriting MP4 and AVI files   |
 
-Check they are installed with `./fml.py --check`, and install any that are missing
-(apt on Ubuntu, brew on macOS) with `./fml.py --check --install`.
+Check they are installed with `./fml --check`, and install any that are missing
+(apt on Ubuntu, brew on macOS) with `./fml --check --install`.
 Each action only needs the commands it uses, so an MKV-only setup works without `ffmpeg`.
 
-To work on the script, `pip install -r requirements.txt` installs the linters it is checked with
-(`ruff check fml.py` and `mypy --strict fml.py`). They are not needed to run it.
+The desktop app (`./fml --gui`) is optional and also needs the system webview (see [Installing](#installing)).
 
 MKV examples
 ------------
@@ -87,37 +93,37 @@ MKV examples
 Show the tracks in a file:
 
 ```
-./fml.py --info --file video.mkv
+./fml --info --file video.mkv
 ```
 
 Set the default audio language to English. Only the tracks whose flag has to change are edited:
 
 ```
-./fml.py --set lang --default English --file video.mkv
+./fml --set lang --default English --file video.mkv
 ```
 
 Get the default audio language:
 
 ```
-./fml.py --get lang --file video.mkv
+./fml --get lang --file video.mkv
 ```
 
 Show the audio tracks that are in a language:
 
 ```
-./fml.py --get lang --lang English --file video.mkv
+./fml --get lang --lang English --file video.mkv
 ```
 
 If the metadata is wrong, set the language of an audio track (the first unless `--track` says otherwise):
 
 ```
-./fml.py --set lang --lang Italian --track 2 --file video.mkv
+./fml --set lang --lang Italian --track 2 --file video.mkv
 ```
 
 If the metadata is poor quality, you can use the swap action to make the second audio track the default:
 
 ```
-./fml.py --swap lang --file video.mkv
+./fml --swap lang --file video.mkv
 ```
 
 Tracks can also be removed, which rewrites the file (checked first, with permissions and timestamps kept).
@@ -125,14 +131,14 @@ Tracks can also be removed, which rewrites the file (checked first, with permiss
 Remove all the audio that is not English:
 
 ```
-./fml.py --preserve lang --lang eng --file video.mkv
+./fml --preserve lang --lang eng --file video.mkv
 ```
 
 Remove all the English audio, or one audio track by number (`last` is the last one):
 
 ```
-./fml.py --delete lang --lang eng --file video.mkv
-./fml.py --delete track --track 2 --file video.mkv
+./fml --delete lang --lang eng --file video.mkv
+./fml --delete track --track 2 --file video.mkv
 ```
 
 As a safeguard, `--preserve` and `--delete` refuse to leave a file with no audio at all, and
@@ -149,9 +155,9 @@ Some players ignore the default flag and just play the first track. `--move` mak
 first track of its kind as well as the default, so it works for those players too:
 
 ```
-./fml.py --set lang --default English --move --file video.mkv
-./fml.py --set lang --prefer eng,jpn --move --dir /media/films
-./fml.py --set default --track 3 --lang English --move --file video.mkv
+./fml --set lang --default English --move --file video.mkv
+./fml --set lang --prefer eng,jpn --move --dir /media/films
+./fml --set default --track 3 --lang English --move --file video.mkv
 ```
 
 The tracks of other kinds stay where they are (video first, then the audio, then the subtitles), and the
@@ -170,7 +176,7 @@ the first track. The same four steps work for any folder of MKV files.
 1. Look at the tracks of one episode:
 
    ```
-   $ ./fml.py --info --file Show.1x01.mkv
+   $ ./fml --info --file Show.1x01.mkv
    Show.1x01.mkv (Matroska)
    Track        ID  Codec              Language  Default  Forced  Name
    video:1      0   HEVC/H.265/MPEG-H  und       yes      -       HEVC
@@ -184,7 +190,7 @@ the first track. The same four steps work for any folder of MKV files.
 2. Preview the change for the whole folder. Nothing is changed:
 
    ```
-   $ ./fml.py --set lang --default English --move --dir /media/Show.S01 --dryrun
+   $ ./fml --set lang --default English --move --dir /media/Show.S01 --dryrun
    [dry-run] Show.1x01.mkv: audio track 1 (ita): default yes -> no
    [dry-run] Show.1x01.mkv: audio track 2 (eng): default no -> yes, moved to the first audio track
    ...
@@ -194,13 +200,13 @@ the first track. The same four steps work for any folder of MKV files.
    worked, so a failure on one episode leaves it as it was and the rest are still done:
 
    ```
-   ./fml.py --set lang --default English --move --dir /media/Show.S01
+   ./fml --set lang --default English --move --dir /media/Show.S01
    ```
 
 4. Check the result: English is now the first audio track and the default.
 
    ```
-   $ ./fml.py --get lang --dir /media/Show.S01
+   $ ./fml --get lang --dir /media/Show.S01
    Show.1x01.mkv: eng
    Show.1x02.mkv: eng
    ...
@@ -210,7 +216,7 @@ The forced Italian subtitle track in this example is still the default, so a pla
 over the English audio. Turn the default subtitles off with:
 
 ```
-./fml.py --set lang --default none --kind sub --dir /media/Show.S01
+./fml --set lang --default none --kind sub --dir /media/Show.S01
 ```
 
 Each episode needs free space for a second copy while it is being rewritten, and the files are replaced, so
@@ -226,23 +232,23 @@ Make English the default subtitles. A track that is not forced is preferred, and
 chooses the forced track instead (the one that only subtitles foreign speech):
 
 ```
-./fml.py --set lang --default English --kind sub --file video.mkv
-./fml.py --set lang --default English --kind sub --forced --file video.mkv
+./fml --set lang --default English --kind sub --file video.mkv
+./fml --set lang --default English --kind sub --forced --file video.mkv
 ```
 
 Turn the default subtitles off, so that none show unless a viewer picks them (MKV only):
 
 ```
-./fml.py --set lang --default none --kind sub --file video.mkv
+./fml --set lang --default none --kind sub --file video.mkv
 ```
 
 The other actions work the same way:
 
 ```
-./fml.py --get lang --kind sub --file video.mkv
-./fml.py --delete lang --lang ita --kind sub --file video.mkv
-./fml.py --preserve lang --lang eng --kind sub --file video.mkv
-./fml.py --set lang --lang French --track 3 --kind sub --file video.mkv
+./fml --get lang --kind sub --file video.mkv
+./fml --delete lang --lang ita --kind sub --file video.mkv
+./fml --preserve lang --lang eng --kind sub --file video.mkv
+./fml --set lang --lang French --track 3 --kind sub --file video.mkv
 ```
 
 Removing every subtitle track does not need `--force`.
@@ -254,7 +260,7 @@ Files often have tracks tagged `und` (undetermined), so there is no language to 
 `--set default` makes a track the default by number, and `--lang` also tags it in the same edit:
 
 ```
-./fml.py --set default --track 2 --lang English --file video.mkv
+./fml --set default --track 2 --lang English --file video.mkv
 ```
 
 `--track last` is the last track. This also works with `--kind sub`.
@@ -266,7 +272,7 @@ Language preferences
 suits a library where the files differ:
 
 ```
-./fml.py --set lang --prefer eng,jpn,fre --dir /media/films --recursive
+./fml --set lang --prefer eng,jpn,fre --dir /media/films --recursive
 ```
 
 A file with English audio gets English, a file with only Japanese and French gets Japanese, and a file
@@ -274,7 +280,7 @@ with none of them is skipped with a warning. With `--preserve` it keeps only the
 that a file has, and removes the rest:
 
 ```
-./fml.py --preserve lang --prefer eng,jpn --dir /media/films
+./fml --preserve lang --prefer eng,jpn --dir /media/films
 ```
 
 MP4 examples
@@ -283,9 +289,9 @@ MP4 examples
 MP4 (and M4V and MOV) files work with the same actions, including subtitles:
 
 ```
-./fml.py --set lang --default English --file video.mp4
-./fml.py --set lang --default Italian --kind sub --file video.mp4
-./fml.py --delete track --track last --file video.mp4
+./fml --set lang --default English --file video.mp4
+./fml --set lang --default Italian --kind sub --file video.mp4
+./fml --delete track --track last --file video.mp4
 ```
 
 MP4 has no way to edit the tracks in place, so each change rewrites the file with `ffmpeg`, copying the
@@ -305,13 +311,13 @@ AVI has no track metadata to edit, so these rewrite the file, which takes longer
 Swap the first two audio tracks of an AVI file:
 
 ```
-./fml.py --swap lang --file video.avi
+./fml --swap lang --file video.avi
 ```
 
 Delete the last audio track from an AVI file:
 
 ```
-./fml.py --delete track --track last --file video.avi
+./fml --delete track --track last --file video.avi
 ```
 
 Directories
@@ -322,7 +328,7 @@ subdirectories. Files that are not MKV or AVI are skipped. A failure on one file
 and the rest are still processed.
 
 ```
-./fml.py --set lang --default English --dir /media/films --recursive
+./fml --set lang --default English --dir /media/films --recursive
 ```
 
 Several actions can be given. They run in the order given, each across all the files.
@@ -336,8 +342,8 @@ matching ignores case. A pattern with no `/` matches a file name, or the name of
 directory, as in `Season 1/*`:
 
 ```
-./fml.py --set lang --default English --dir /media/tv -r --include '*.mkv' --exclude Extras
-./fml.py --get lang --dir /media/tv -r --include 'Season 1/*'
+./fml --set lang --default English --dir /media/tv -r --include '*.mkv' --exclude Extras
+./fml --get lang --dir /media/tv -r --include 'Season 1/*'
 ```
 
 Several files at once
@@ -349,7 +355,7 @@ time and 1.4 with `-j 4`). The output is the same, and in the same order, as a r
 space each file needs is set aside while it runs, so jobs can't use it up between them.
 
 ```
-./fml.py --set lang --default English --move --dir /media/tv -r -j 4
+./fml --set lang --default English --move --dir /media/tv -r -j 4
 ```
 
 Track names and the forced flag
@@ -359,10 +365,10 @@ Track names and the forced flag
 and clear the forced flag. They all take the track with `--track`, and `--kind sub` works on subtitles:
 
 ```
-./fml.py --set name --track 2 --name "English 5.1" --file video.mkv
-./fml.py --set name --track 1 --name "" --file video.mkv
-./fml.py --set forced --track 2 --kind sub --file video.mkv
-./fml.py --set unforced --track 2 --kind sub --file video.mkv
+./fml --set name --track 2 --name "English 5.1" --file video.mkv
+./fml --set name --track 1 --name "" --file video.mkv
+./fml --set forced --track 2 --kind sub --file video.mkv
+./fml --set unforced --track 2 --kind sub --file video.mkv
 ```
 
 A name that starts with a dash has to be written with an equals sign, `--name=-text`, or it is taken for an
@@ -385,7 +391,7 @@ Dry runs
 `--dryrun` shows what would change and changes nothing:
 
 ```
-$ ./fml.py --set lang --default English --file video.mkv --dryrun
+$ ./fml --set lang --default English --file video.mkv --dryrun
 [dry-run] video.mkv: audio track 1 (ita): default yes -> no
 [dry-run] video.mkv: audio track 2 (eng): default no -> yes
 ```
@@ -396,7 +402,7 @@ so stdout only has the results.
 Safe changes
 ------------
 
-`fml.py` never changes your file until the new version is known to be good. Whatever it does, it works
+`fml` never changes your file until the new version is known to be good. Whatever it does, it works
 on a separate copy and swaps it in at the end:
 
 | Change                                              | How it is made                                                     |
@@ -411,14 +417,14 @@ or can lose something. If the check or the tool fails, the original is left as i
 the copy is removed, and the file is reported as an error. The new file replaces the original in a single atomic
 step (there is never a moment with no file), and keeps its permissions and timestamps.
 
-This needs free space beside the file for a second copy of it, and `fml.py` checks that first. If you stop it
+This needs free space beside the file for a second copy of it, and `fml` checks that first. If you stop it
 with Ctrl-C or `kill`, the copy is removed.
 
 Copying a large file takes time. For MKV metadata edits only, `--in-place` skips the copy and edits the file
 directly, which is quick and needs no free space, but an interruption part way can leave the file damaged:
 
 ```
-./fml.py --set lang --default English --file video.mkv --in-place
+./fml --set lang --default English --file video.mkv --in-place
 ```
 
 Keeping the original
@@ -428,7 +434,7 @@ Keeping the original
 that name is taken):
 
 ```
-./fml.py --delete lang --lang eng --file video.mkv --backup
+./fml --delete lang --lang eng --file video.mkv --backup
 ```
 
 The backup is a hard link to the original, made just before the new file replaces it, so it costs no space
@@ -443,7 +449,7 @@ Undoing changes
 `--log FILE` records each change, one JSON line per changed file, with the tracks before and after:
 
 ```
-./fml.py --set lang --default English --move --dir /media/tv -r --log changes.jsonl
+./fml --set lang --default English --move --dir /media/tv -r --log changes.jsonl
 ```
 
 `--undo FILE` (`-u`) then reverses them, newest first. A change is only undone if the file is still exactly as
@@ -451,9 +457,9 @@ that change left it, so a file that has been changed since is left alone and rep
 limits it to some of the files, and `--dryrun` shows what would be undone:
 
 ```
-./fml.py --undo changes.jsonl --dryrun
-./fml.py --undo changes.jsonl
-./fml.py --undo changes.jsonl --dir "/media/tv/Season 1"
+./fml --undo changes.jsonl --dryrun
+./fml --undo changes.jsonl
+./fml --undo changes.jsonl --dir "/media/tv/Season 1"
 ```
 
 Changes to flags, languages, names and the order of tracks are undone by editing the file back. A removal
@@ -468,7 +474,7 @@ Output formats
 `--format json` prints a single JSON document instead of text, for use in scripts:
 
 ```
-./fml.py --set lang --default English --dir /media/films --dryrun --format json
+./fml --set lang --default English --dir /media/films --dryrun --format json
 ```
 
 ```json
@@ -507,96 +513,62 @@ Help
 ----
 
 ```
-./fml.py --help
+./fml --help
 ```
 
 ```
-usage: fml [-h] [-V] [-i FILE | -d DIR] [-r] [--include PATTERN]
-           [--exclude PATTERN] [-C] [-I] [-u LOG] [-g {lang}]
-           [-c {lang,default,name,forced,unforced}] [-s {lang}]
-           [-z {lang,track}] [-p {lang}] [-k {audio,sub}] [-l LANG] [-D LANG]
-           [--prefer LANGS] [--forced] [-t N] [-f] [--name TEXT] [--move]
-           [-j N] [--log FILE] [--backup] [--in-place] [-T] [-v]
-           [-F {text,json}] [--install]
+usage: fml-cli [OPTIONS]
 
 Fix the default audio and subtitle languages, and the tracks, of media files.
 
-options:
-  -h, --help            show this help message and exit
-  -V, --version         show program's version number and exit
+Options:
+  -V, --version  print version
+  -h, --help     Print help
 
-files:
-  MKV (and WebM), MP4 (M4V, MOV) and AVI files
+files (MKV (and WebM), MP4 (M4V, MOV) and AVI files):
+  -i, --file <FILE>        file to process
+  -d, --dir <DIR>          directory to process
+  -r, --recursive          include subdirectories of --dir
+      --include <PATTERN>  with --dir, only process files that match PATTERN (a file name or folder name such as '*.mkv', or a path such as 'Season 1/*'); can be given more than once
+      --exclude <PATTERN>  with --dir, skip files that match PATTERN (for example Extras skips every folder of that name); can be given more than once
 
-  -i, --file FILE       file to process
-  -d, --dir DIR         directory to process
-  -r, --recursive       include subdirectories of --dir
-  --include PATTERN     with --dir, only process files that match PATTERN (a
-                        file name or folder name such as '*.mkv', or a path
-                        such as 'Season 1/*'); can be given more than once
-  --exclude PATTERN     with --dir, skip files that match PATTERN (for example
-                        Extras skips every folder of that name); can be given
-                        more than once
-
-actions:
-  may be combined; they run in the order given
-
-  -C, --check           check the required commands are installed
-  -I, --info            list the tracks of the file
-  -u, --undo LOG        undo the changes recorded in a --log file, newest
-                        first, for the files that are still as they were left
-                        (limited to --file or --dir if given)
-  -g, --get {lang}      get the default language, or with --lang the tracks in
-                        a language
-  -c, --set {lang,default,name,forced,unforced}
-                        name: set the name of track --track to --name; forced,
-                        unforced: set or clear its forced flag (MKV); lang:
-                        make --default (or the first of --prefer) the default,
-                        or with --lang set the language of track --track (1);
-                        default: make track --track the default, and with
-                        --lang set its language
-  -s, --swap {lang}     make the second audio track the default (the order is
-                        unchanged: see --move)
-  -z, --delete {lang,track}
-                        remove the tracks in --lang, or track --track
-  -p, --preserve {lang}
-                        remove all tracks that are not in --lang (or the first
-                        of --prefer that is present)
+actions (may be combined; they run in the order given):
+  -C, --check
+          check the required commands are installed
+  -I, --info
+          list the tracks of the file
+  -u, --undo <LOG>
+          undo the changes recorded in a --log file, newest first, for the files that are still as they were left (limited to --file or --dir if given)
+  -g, --get <{lang}>
+          get the default language, or with --lang the tracks in a language
+  -c, --set <{lang,default,name,forced,unforced}>
+          name: set the name of track --track to --name; forced, unforced: set or clear its forced flag (MKV); lang: make --default (or the first of --prefer) the default, or with --lang set the language of track --track (1); default: make track --track the default, and with --lang set its language
+  -s, --swap <{lang}>
+          make the second audio track the default (the order is unchanged: see --move)
+  -z, --delete <{lang,track}>
+          remove the tracks in --lang, or track --track
+  -p, --preserve <{lang}>
+          remove all tracks that are not in --lang (or the first of --prefer that is present)
 
 settings:
-  -k, --kind {audio,sub}
-                        the kind of track the actions work on (default audio)
-  -l, --lang LANG       language, by name or ISO 639 code (English, en, eng)
-  -D, --default LANG    language to make the default (none turns the default
-                        subtitles off)
-  --prefer LANGS        languages in order of preference, e.g. eng,jpn,fre:
-                        the first that a file has is used, so one command
-                        suits a mixed library
-  --forced              with --kind sub, pick the forced subtitle track
-  -t, --track N         track number from 1 (among tracks of the kind), or
-                        last
-  -f, --force           allow removing every audio track
-  --name TEXT           the track name for --set name (an empty name removes
-                        it)
-  --move                with --set, also move the chosen track to be the first
-                        track of its kind, for players that play the first
-                        track whatever its flag; the file is rewritten
-  -j, --jobs N          process N files at once (default 1; rewriting is
-                        limited by the disk, so more than a few rarely helps)
-  --log FILE            record each change in FILE (one JSON line per file),
-                        so that --undo can reverse it
-  --backup              keep the original beside the changed file, as
-                        NAME.fml-bak (a hard link where possible, so it costs
-                        no space)
-  --in-place            edit MKV files directly instead of a copy that
-                        replaces them if it worked: quicker and needs no free
-                        space, but an interruption can leave the file damaged
-  -T, --dryrun          show what would change without changing anything
-  -v, --verbose         show the commands that are run
-  -F, --format {text,json}
-                        output format (default text)
-  --install             install missing commands (apt on Ubuntu, brew on
-                        macOS)
+  -k, --kind <{audio,sub}>  the kind of track the actions work on (default audio) [default: audio]
+  -l, --lang <LANG>         language, by name or ISO 639 code (English, en, eng)
+  -D, --default <LANG>      language to make the default (none turns the default subtitles off)
+      --prefer <LANGS>      languages in order of preference, e.g. eng,jpn,fre: the first that a file has is used, so one command suits a mixed library
+      --forced              with --kind sub, pick the forced subtitle track
+  -t, --track <N>           track number from 1 (among tracks of the kind), or last
+  -f, --force               allow removing every audio track
+      --name <TEXT>         the track name for --set name (an empty name removes it)
+      --move                with --set, also move the chosen track to be the first track of its kind, for players that play the first track whatever its flag; the file is rewritten
+  -j, --jobs <N>            process N files at once (default 1; rewriting is limited by the disk, so more than a few rarely helps) [default: 1]
+      --log <FILE>          record each change in FILE (one JSON line per file), so that --undo can reverse it
+      --backup              keep the original beside the changed file, as NAME.fml-bak (a hard link where possible, so it costs no space)
+      --in-place            edit MKV files directly instead of a copy that replaces them if it worked: quicker and needs no free space, but an interruption can leave the file damaged
+  -T, --dryrun              show what would change without changing anything
+  -v, --verbose             show the commands that are run
+  -F, --format <format>     output format (default text) [default: text]
+      --gui                 open the desktop app (fml) instead; takes no other options
+      --install             install missing commands (apt on Ubuntu, brew on macOS)
 
 examples:
   fml --set lang --default English --file video.mkv     make English the default audio
@@ -615,39 +587,61 @@ examples:
 Installing
 ----------
 
-`fml.py` runs as it is (`./fml.py`). To get an `fml` command on your `PATH` instead:
+Build the command line tool, and the desktop app if you want it (it needs `cargo` 1.80 or newer; the app also
+needs the system webview, on Ubuntu `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`):
 
 ```
-pip install .        # or: pipx install .
-fml --version
+cd rust
+cargo build --release                # the command line tool: rust/target/release/fml-cli
+cargo build -p fml-gui --release     # the desktop app: rust/target/release/fml
 ```
 
-There are no Python dependencies. The commands in [Requirements](#requirements) are still needed, and
-`fml --check --install` installs them.
+`./fml` in this directory runs the release build (or the debug build if there is no release one), and
+`./fml --gui` opens the desktop app. To get an `fml-cli` command on your `PATH` instead, copy the built files
+into a directory on it, the app beside the command (`fml-cli --gui` looks for the app, the program called `fml`, next to itself, then
+on `PATH` (skipping scripts, such as the archived Python `fml`), or at the path in `FML_GUI`):
+
+```
+install -m 755 rust/target/release/fml-cli rust/target/release/fml ~/.local/bin/
+fml-cli --version
+```
+
+For a package of the app, `cd rust/fml-gui && cargo tauri build --bundles deb` leaves a `.deb` in
+`rust/target/release/bundle/deb` (it needs `cargo install tauri-cli` first). The commands in
+[Requirements](#requirements) are still needed, and `fml-cli --check --install` installs them.
+
+`./build.sh --target windows` on Linux or a Mac cross-compiles the Windows installer (`fml_<version>_x64-setup.exe`)
+and `fml-cli-<version>-windows.zip` in a Docker container (MinGW, `x86_64-pc-windows-gnu`; needs `docker`, nothing
+else), and leaves them in `dist/`. `docker/windows/smoke.sh` then runs the built `fml-cli.exe` under Wine against
+stand-in tools as a smoke test. On Windows itself the installer's tools (Rust, tauri-cli) are needed and
+`./build.sh --target windows` builds there. The Windows build has not been run on a real Windows machine yet; the
+`mkvtoolnix`, `mediainfo` and `ffmpeg` commands must be on `PATH` there too.
 
 Development
 -----------
 
 ```
-pip install -e ".[dev]"     # the fml command, pytest, ruff and mypy (or: pip install -r requirements.txt)
-ruff check                  # lint, settings in pyproject.toml
-mypy                        # types, strict
-pytest                      # the tests
+cd rust
+cargo build --release     # the command line tool
+cargo test                # unit tests of the library, the command line and the app backend
+cd ..
+FML_BIN=rust/target/release/fml-cli pytest     # the Python test suite, run against the Rust binary
 ```
 
 The tests in `tests/` need nothing but `pytest` for most of them (they use stand-ins for the media tools).
 The ones marked `real` generate media files with `ffmpeg` and check the results with `mkvmerge`, `mediainfo` and
 `ffprobe`, and are skipped if those are not installed (`pytest -m "not real"` leaves them out). They only
-write to temporary directories. The suite passes on Python 3.9 to 3.14.
+write to temporary directories. With `FML_BIN` set, the tests that call the archived `fml.py`'s own functions
+are skipped (see [`rust/README.md`](rust/README.md)). `rust/README.md` also says what the suite does not cover.
 
 Moving from fml.sh
 ------------------
 
 `fml.sh` is the original bash version. It is archived and **no longer maintained**: it is kept in the repository,
-and still has its own `./fml.sh --help`, but it gets no fixes or new features, and `fml.py` replaces it.
+and still has its own `./fml.sh --help`, but it gets no fixes or new features, and `fml` replaces it.
 The main changes are:
 
-| fml.sh                                         | fml.py                                                  |
+| fml.sh                                         | fml                                                     |
 |------------------------------------------------|---------------------------------------------------------|
 | `--options verbose,dryrun`                     | `--verbose --dryrun`                                    |
 | `--options install`                            | `--install`                                             |
@@ -661,3 +655,8 @@ The main changes are:
 | `--set lang --lang L` (first track only)       | any audio track, with `--track`                         |
 | needs `jq`, `file`, `ffprobe`, `mkvinfo`       | not needed                                              |
 | any failure aborts the run                     | per file errors are reported and the run continues      |
+
+Attributions
+------------
+
+<a href="https://www.flaticon.com/free-icons/cameraman" title="cameraman icons">Cameraman icons created by MEDZ - Flaticon</a>

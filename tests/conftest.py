@@ -8,8 +8,10 @@ stub tools or no tools at all.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
+import re
 import shutil
 import signal
 import stat
@@ -55,9 +57,38 @@ def isolate(monkeypatch: pytest.MonkeyPatch) -> Any:
     signal.signal(signal.SIGTERM, previous)
 
 
+# Set FML_BIN to the path of the Rust build (rust/target/release/fml-cli) to run the tests that
+# go through ``run`` against it instead of fml.py. Tests that reach into fml.py's own functions
+# are skipped then (see pytest_collection_modifyitems).
+FML_BIN = os.environ.get("FML_BIN", "")
+
+
+PYTHON_ONLY = re.compile(
+    r"monkeypatch\.setattr\(\s*fml|fml\.(Fml|main|Task|Result|Config|Media|shutil|subprocess|os|signal)\b"
+    r"|fml\.terminate|signal\.getsignal|stop_during|import fml|SystemExit")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    if not FML_BIN:
+        return
+    skip = pytest.mark.skip(reason="tests fml.py's own functions, not the command line")
+    for item in items:
+        function = getattr(item, "function", None)
+        if item.fspath.basename == "test_unit.py" or (
+                function is not None and PYTHON_ONLY.search(inspect.getsource(function))):
+            item.add_marker(skip)
+
+
 @pytest.fixture
 def run(capsys: pytest.CaptureFixture[str]) -> Callable[..., Ran]:
     """Run fml.main with arguments and return its exit status, stdout and stderr."""
+    if FML_BIN:
+        def external(*args: object) -> Ran:
+            done = subprocess.run([FML_BIN, *[str(arg) for arg in args]],
+                                  capture_output=True, text=True, check=False)
+            return Ran(done.returncode, done.stdout, done.stderr)
+        return external
+
     def runner(*args: object) -> Ran:
         try:
             code = fml.main([str(arg) for arg in args])

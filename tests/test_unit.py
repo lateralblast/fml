@@ -376,7 +376,7 @@ def test_version_is_in_step_with_the_header() -> None:
 
 
 def test_version_matches_the_readme_and_changelog() -> None:
-    root = Path(fml.__file__).parent
+    root = Path(fml.__file__).parent.parent  # fml.py lives in archived/
     readme = (root / "README.md").read_text()
     assert f"\nVersion {fml.__version__}\n" in readme
     changelog = (root / "CHANGELOG.md").read_text()
@@ -384,10 +384,20 @@ def test_version_matches_the_readme_and_changelog() -> None:
     assert first.startswith(f"## [{fml.__version__}]")
 
 
+def test_the_rust_version_is_in_step() -> None:
+    root = Path(fml.__file__).parent.parent
+    cargo = (root / "rust" / "Cargo.toml").read_text()
+    assert f'version = "{fml.__version__}"' in cargo
+    lib = (root / "rust" / "fml-core" / "src" / "lib.rs").read_text()
+    assert f'VERSION: &str = "{fml.__version__}"' in lib
+    tauri = (root / "rust" / "fml-gui" / "tauri.conf.json").read_text()
+    assert f'"version": "{fml.__version__}"' in tauri
+
+
 def test_every_switch_is_documented_in_the_readme() -> None:
     # argparse lays its help out differently on each Python version, so compare the switches,
     # not the text
-    readme = (Path(fml.__file__).parent / "README.md").read_text()
+    readme = (Path(fml.__file__).parent.parent / "README.md").read_text()
     start = readme.index("```\nusage: fml")
     pasted = readme[start:readme.index("```", start + 4)]
     for action in fml.build_parser()._actions:  # noqa: SLF001

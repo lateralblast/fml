@@ -43,6 +43,7 @@ fml = "fml:main"
 
 [tool.setuptools]
 py-modules = ["fml"]
+package-dir = {"" = "archived"}
 
 [tool.setuptools.dynamic]
 version = {attr = "fml.__version__"}
@@ -50,17 +51,18 @@ version = {attr = "fml.__version__"}
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+src = ["archived"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RET", "A"]
 
 [tool.mypy]
 strict = true
-files = ["fml.py"]
+files = ["archived/fml.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["archived"]
 addopts = "-ra"
 markers = [
     "real: needs ffmpeg, mkvtoolnix and mediainfo, and is skipped if they are missing",
