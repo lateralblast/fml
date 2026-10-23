@@ -1,0 +1,26 @@
+//! Fix Media Language: change the default audio and subtitle tracks and languages of
+//! media files.
+//!
+//! MKV files are edited with `mkvpropedit` where possible (only the metadata changes)
+//! and rewritten with `mkvmerge` when tracks are moved or removed. MP4 files are
+//! rewritten with `ffmpeg` (a copy of the streams, so nothing is re-encoded). AVI files
+//! have no track metadata to edit, so they are only rewritten, to swap or remove audio
+//! tracks.
+//!
+//! This crate does the work and prints nothing: a front end (the command line or the
+//! GUI) gives it a [`Config`] and an event sink, and shows what it is told.
+
+mod engine;
+pub mod languages;
+mod language_table;
+pub mod model;
+pub mod track;
+pub mod util;
+mod validate;
+
+pub use engine::{abspath, default_edits, info_text, pattern_hit, reordered, Fml, RunEnd};
+pub use model::*;
+pub use validate::validate;
+pub use track::{format_tracks, human_size, Kind, Track};
+
+pub const VERSION: &str = "0.7.6";

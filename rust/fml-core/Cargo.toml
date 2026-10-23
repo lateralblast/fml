@@ -1,0 +1,15 @@
+[package]
+name = "fml-core"
+description = "Fix Media Language: change default audio and subtitle tracks of media files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

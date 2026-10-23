@@ -1,0 +1,19 @@
+[package]
+name = "fml-cli"
+description = "Command line front end for fml"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "fml-cli"
+path = "src/main.rs"
+
+[dependencies]
+fml-core = { path = "../fml-core" }
+clap.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

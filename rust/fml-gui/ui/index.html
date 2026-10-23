@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fml: Fix Media Language</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1><img src="logo.png" alt="" width="40" height="40"> fml <span class="sub">Fix Media Language</span></h1>
+    <div class="bar-right">
+      <span id="tools" class="chip" title="The commands fml needs"></span>
+      <span id="version" class="muted"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="card" aria-labelledby="files-title">
+      <div class="card-head">
+        <h2 id="files-title">1. Choose files</h2>
+        <div class="row">
+          <button id="add-folder" type="button">Add a folder…</button>
+          <button id="add-files" type="button">Add files…</button>
+        </div>
+      </div>
+      <div class="row filters">
+        <label class="check"><input id="recursive" type="checkbox"> Include subfolders</label>
+        <label>Only <input id="include" type="text" placeholder="*.mkv, Season 1/*" size="20"></label>
+        <label>Skip <input id="exclude" type="text" placeholder="Extras, *.sample.*" size="20"></label>
+        <button id="rescan" type="button" class="quiet">Rescan</button>
+      </div>
+      <p id="source" class="muted">Nothing chosen yet. MKV, MP4 (M4V, MOV) and AVI files are supported.</p>
+      <div id="files-wrap" class="table-wrap" hidden>
+        <table id="files">
+          <thead>
+            <tr>
+              <th class="narrow"><input id="select-all" type="checkbox" aria-label="Select all files" checked></th>
+              <th>File</th><th>Type</th><th>Audio (default marked *)</th><th>Subtitles</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="change-title">
+      <h2 id="change-title">2. Choose the change</h2>
+      <div class="grid">
+        <label>What to do
+          <select id="action">
+            <option value="default-lang">Make a language the default</option>
+            <option value="track-default">Make a track the default</option>
+            <option value="set-lang">Set the language of a track</option>
+            <option value="rename">Rename a track</option>
+            <option value="forced">Set or clear the forced flag of a track (MKV)</option>
+            <option value="swap">Make the second audio track the default</option>
+            <option value="delete-lang">Remove the tracks in a language</option>
+            <option value="delete-track">Remove a track</option>
+            <option value="preserve">Keep only one language</option>
+          </select>
+        </label>
+        <label data-for="kind">Tracks
+          <select id="kind"><option value="audio">Audio</option><option value="sub">Subtitles</option></select>
+        </label>
+        <label data-for="lang"><span id="lang-label">Language</span>
+          <select id="lang"></select>
+        </label>
+        <label data-for="prefer">…or the first of these <span class="muted">(in order)</span>
+          <input id="prefer" type="text" placeholder="eng, jpn, fre">
+        </label>
+        <label data-for="track">Track number <span class="muted">(from 1, or “last”)</span>
+          <input id="track" type="text" value="1" size="6">
+        </label>
+        <label data-for="name">Name
+          <input id="name" type="text" placeholder="empty removes the name">
+        </label>
+        <label data-for="forcedflag">Forced flag
+          <select id="forcedflag"><option value="forced">Set</option><option value="unforced">Clear</option></select>
+        </label>
+      </div>
+      <div class="row options">
+        <label class="check" data-for="forcedtrack"><input id="forced" type="checkbox"> Use the forced track</label>
+        <label class="check" data-for="move"><input id="move" type="checkbox" checked> Also move it to be the first track</label>
+      </div>
+      <details>
+        <summary>Safety and speed</summary>
+        <div class="row options">
+          <label class="check"><input id="backup" type="checkbox"> Keep the original beside the file (.fml-bak)</label>
+          <label class="check"><input id="in-place" type="checkbox"> Edit MKV files in place (quicker, no copy)</label>
+          <label class="check"><input id="force" type="checkbox"> Allow removing every audio track</label>
+          <label>Files at once <input id="jobs" type="number" min="1" max="16" value="1" size="3"></label>
+        </div>
+        <div class="row options">
+          <label class="check"><input id="use-log" type="checkbox" checked> Record a log, so changes can be undone</label>
+          <input id="log" type="text" size="40" aria-label="Log file">
+        </div>
+      </details>
+      <div class="row actions">
+        <button id="preview" type="button" class="primary">Preview</button>
+        <button id="apply" type="button">Apply…</button>
+        <button id="cancel" type="button" class="danger" hidden>Stop</button>
+        <span class="spacer"></span>
+        <button id="undo" type="button" class="quiet">Undo from a log…</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="results-title" id="results-card" hidden>
+      <div class="card-head">
+        <h2 id="results-title">3. Results</h2>
+        <div class="row">
+          <span id="summary" class="muted" role="status"></span>
+          <button id="apply-preview" type="button" hidden>Apply these changes…</button>
+        </div>
+      </div>
+      <progress id="progress" max="1" value="0" hidden></progress>
+      <ul id="results"></ul>
+      <p id="warnings" class="warnings" hidden></p>
+    </section>
+  </main>
+
+  <dialog id="confirm">
+    <form method="dialog">
+      <h3 id="confirm-title">Apply the changes?</h3>
+      <p id="confirm-text"></p>
+      <p class="muted">Each file is changed on a copy, checked, and only then replaces the original.
+        If a torrent client is seeding these files it will see them as changed.</p>
+      <div class="row end">
+        <button value="cancel" type="submit">Cancel</button>
+        <button value="apply" type="submit" class="primary">Apply</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["fml-core", "fml-cli", "fml-gui"]
+# a plain `cargo build` leaves the GUI out: it needs the system webview libraries
+default-members = ["fml-core", "fml-cli"]
+
+[workspace.package]
+version = "0.7.6"
+edition = "2021"
+license = "CC-BY-NC-SA-4.0"
+authors = ["Richard Spindler <richard@lateralblast.com.au>"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
