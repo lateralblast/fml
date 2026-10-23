@@ -871,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "fml-cli"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "clap",
  "fml-core",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "fml-core"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "chrono",
  "libc",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "fml-gui"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "fml-core",
  "serde",

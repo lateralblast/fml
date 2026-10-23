@@ -23,4 +23,4 @@ pub use model::*;
 pub use validate::validate;
 pub use track::{format_tracks, human_size, Kind, Track};
 
-pub const VERSION: &str = "0.7.6";
+pub const VERSION: &str = "0.7.7";

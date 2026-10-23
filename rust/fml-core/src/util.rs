@@ -152,6 +152,45 @@ pub fn which(tool: &str) -> Option<PathBuf> {
         .find(|candidate| is_executable(candidate))
 }
 
+/// On macOS a program started from Finder gets a bare `PATH` (`/usr/bin:/bin:...`) with none of
+/// the folders Homebrew, MacPorts or the MKVToolNix app put commands in. Add the ones that
+/// exist, after what is already there. Call it once, before other threads start; it does
+/// nothing on other systems.
+pub fn add_tool_folders() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let folders: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    let mut extra: Vec<PathBuf> =
+        ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].iter().map(PathBuf::from).collect();
+    // the MKVToolNix .dmg installs its commands inside the app: MKVToolNix*.app/Contents/MacOS
+    if let Ok(entries) = fs::read_dir("/Applications") {
+        let mut apps: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("MKVToolNix") && n.ends_with(".app")))
+            .map(|p| p.join("Contents/MacOS"))
+            .collect();
+        apps.sort();
+        extra.extend(apps);
+    }
+    if let Ok(joined) = std::env::join_paths(append_missing(folders, extra)) {
+        std::env::set_var("PATH", joined);
+    }
+}
+
+/// `folders` followed by each of `extra` that is a folder and not already in it.
+fn append_missing(mut folders: Vec<PathBuf>, extra: Vec<PathBuf>) -> Vec<PathBuf> {
+    for folder in extra {
+        if folder.is_dir() && !folders.contains(&folder) {
+            folders.push(folder);
+        }
+    }
+    folders
+}
+
 /// Copy a file's permissions and times onto another.
 pub fn copy_stat(from: &Path, to: &Path) -> io::Result<()> {
     let meta = fs::metadata(from)?;
@@ -341,5 +380,14 @@ mod tests {
     fn commands_are_quoted_for_a_shell() {
         let cmd: Vec<String> = ["mkvmerge", "-o", "my file's.mkv", ""].map(String::from).to_vec();
         assert_eq!(shell_join(&cmd), "mkvmerge -o 'my file'\"'\"'s.mkv' ''");
+    }
+
+    #[test]
+    fn tool_folders_are_added_once_and_only_if_they_exist() {
+        let here = std::env::temp_dir();
+        let missing = here.join("fml-no-such-folder");
+        let have = vec![PathBuf::from("/usr/bin")];
+        let merged = append_missing(have.clone(), vec![here.clone(), missing, PathBuf::from("/usr/bin"), here.clone()]);
+        assert_eq!(merged, vec![PathBuf::from("/usr/bin"), here]);
     }
 }

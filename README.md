@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.7.6
+Version 0.7.7
 
 License
 -------
@@ -609,6 +609,13 @@ fml-cli --version
 For a package of the app, `cd rust/fml-gui && cargo tauri build --bundles deb` leaves a `.deb` in
 `rust/target/release/bundle/deb` (it needs `cargo install tauri-cli` first). The commands in
 [Requirements](#requirements) are still needed, and `fml-cli --check --install` installs them.
+
+On macOS, `brew install mkvtoolnix mediainfo ffmpeg` installs the commands (or `fml-cli --check --install`), and
+`./build.sh --target mac [--arch arm64|x64|universal]` builds `fml_<version>_<arch>.dmg` and the `fml-cli` archive
+into `dist/` (it needs `cargo install tauri-cli --version '^2'`; the system web view is built in). Drag `fml.app` to
+`/Applications`, and `fml-cli --gui` will find it. The app adds Homebrew's folders (`/opt/homebrew/bin`,
+`/usr/local/bin`) to its `PATH`, so it finds the commands even when opened from Finder. The `.dmg` is not signed or
+notarised, so macOS may ask you to allow it in System Settings, Privacy & Security.
 
 `./build.sh --target windows` on Linux or a Mac cross-compiles the Windows installer (`fml_<version>_x64-setup.exe`)
 and `fml-cli-<version>-windows.zip` in a Docker container (MinGW, `x86_64-pc-windows-gnu`; needs `docker`, nothing

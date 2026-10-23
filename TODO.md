@@ -4,9 +4,10 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Open
 
+- [ ] Run the `.dmg` build (`./build.sh --target mac`) and the app from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed, and sign and notarise it if it is to be shared. The CLI and app build and `cargo test` passes on macOS 27 (Apple silicon), but the real-file tests were not run there.
 - [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `fml-cli.exe` smoke-tested under Wine with stand-in tools.
 - [ ] Rust port: cover the paths the pytest suite cannot reach through the binary (free-space check, `--install`, `--check` with missing tools) with Rust tests, and add CI that builds it and runs the suite with `FML_BIN`.
-- [ ] Desktop app: per-file progress inside a long rewrite, drag and drop of folders, a macOS and Windows build, and a check of the dark theme on real hardware.
+- [ ] Desktop app: per-file progress inside a long rewrite, drag and drop of folders, a Windows build, and a check of the dark theme on real hardware.
 - [ ] Run the checks automatically on every push (a CI workflow that runs `ruff`, `mypy` and `pytest` on Python 3.9 to 3.14, with `ffmpeg`, `mkvtoolnix` and `mediainfo` installed).
 - [ ] Let each action in one command have its own settings. `--default`, `--lang` and `--track` are shared by every action on the command line, so `--set lang --default X --delete lang --lang Y` is rejected.
 - [ ] Support `--default none` for MP4 subtitles. The `ffmpeg` mov muxer always enables the first track of the group, so this needs another way to write the flag, or stays unsupported.

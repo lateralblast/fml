@@ -204,6 +204,8 @@ fn dev_report(text: String) {
 fn dev_report(_text: String) {}
 
 fn main() {
+    // an app started from Finder has a bare PATH on macOS: find Homebrew's commands anyway
+    fml_core::util::add_tool_folders();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

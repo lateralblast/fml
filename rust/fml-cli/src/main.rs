@@ -620,6 +620,22 @@ fn find_gui(own_dir: Option<&Path>, override_path: Option<&str>) -> Option<PathB
     })
 }
 
+/// On macOS the app is installed as `fml.app` (from the .dmg): look beside this program, then in
+/// `~/Applications` and `/Applications`, for the program inside the bundle.
+fn find_app_bundle(own_dir: Option<&Path>) -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications"));
+    own_dir
+        .map(Path::to_path_buf)
+        .into_iter()
+        .chain(home)
+        .chain([PathBuf::from("/Applications")])
+        .map(|dir| dir.join("fml.app/Contents/MacOS/fml"))
+        .find(|p| is_app(p))
+}
+
 /// Start the app: on Unix this program becomes it; on Windows (no `exec`) it is started and
 /// this program ends. Only returns if it could not be started.
 fn start_app(gui: &Path) -> Result<(), std::io::Error> {
@@ -640,10 +656,13 @@ fn open_gui() -> ExitCode {
         usage_error("--gui opens the app and takes no other options");
     }
     let own_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
-    let Some(gui) = find_gui(own_dir.as_deref(), std::env::var("FML_GUI").ok().as_deref()) else {
+    let found = find_gui(own_dir.as_deref(), std::env::var("FML_GUI").ok().as_deref())
+        .or_else(|| find_app_bundle(own_dir.as_deref()));
+    let Some(gui) = found else {
         eprintln!(
-            "fml-cli: the desktop app (fml) was not found beside fml-cli or on PATH \
-             (build it with: cd rust && cargo build -p fml-gui --release)"
+            "fml-cli: the desktop app (fml) was not found beside fml-cli or on PATH{} \
+             (build it with: cd rust && cargo build -p fml-gui --release)",
+            if cfg!(target_os = "macos") { " or as fml.app in /Applications" } else { "" }
         );
         return ExitCode::from(1);
     };

@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.7] - 2026-10-23
+
+### Added
+- macOS support for the desktop app and `fml-cli --gui`. The app adds `/opt/homebrew/bin`, `/usr/local/bin`, `/opt/local/bin` and the `MKVToolNix*.app` folders in `/Applications` to its `PATH` when it starts, because an app opened from Finder gets a bare `PATH` and would report `mkvmerge`, `mediainfo` and `ffmpeg` as missing even when Homebrew has installed them.
+- `fml-cli --gui` finds the app as `fml.app` beside `fml-cli`, in `~/Applications` or in `/Applications` when no `fml` program is found, so it works after installing from the `.dmg`.
+- The app's bundle sets a minimum macOS version (10.15).
+
+### Changed
+- The README says how to build and install on a Mac (`./build.sh --target mac`, Homebrew for the commands).
+
 ## [0.7.6] - 2026-10-23
 
 ### Added
