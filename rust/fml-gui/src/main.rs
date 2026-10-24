@@ -426,6 +426,19 @@ fn main() {
                     let _ = window.set_theme(Some(theme));
                 }
             }
+            // Debug builds only: FML_GUI_SIZE=1120x1000 gives the window that size (in points), so
+            // the page can be captured whole.
+            #[cfg(debug_assertions)]
+            if let Ok(size) = std::env::var("FML_GUI_SIZE") {
+                use tauri::Manager;
+                if let (Some(window), Some((w, h))) = (
+                    app.get_webview_window("main"),
+                    size.split_once('x').and_then(|(w, h)| Some((w.parse::<f64>().ok()?, h.parse::<f64>().ok()?))),
+                ) {
+                    let _ = window.set_size(tauri::LogicalSize::new(w, h));
+                    let _ = window.center();
+                }
+            }
             let _ = app;
             Ok(())
         })

@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-10-24
+
+### Added
+- Screenshots of the desktop app in the README (`docs/images/`): the main window, a preview with the before-and-after tables, the Edit dialog, the Add subtitles dialog, and the dark theme. They were captured from the app itself (its window only) on demo files, with generic names.
+- Debug builds of the app take `FML_GUI_SIZE=1120x1000` to give the window a size, as `FML_GUI_THEME` gives it a theme (see `rust/README.md`).
+
+### Changed
+- The README is reorganised. It now opens with a short description, a screenshot and a contents list with the subsections; "What it does" and a quick start come first; the desktop app has a section of its own (it was spread over Requirements, the ordering section and the subtitle section); the command line is grouped (basics, choosing a track, removing, subtitles, languages, moving and ordering, names and forced flags, adding and extracting subtitles, MP4 and AVI, many files, several actions, a whole season); safety and reference sections are grouped; and `--track`'s forms are with choosing a track, not under removing tracks. Nothing was dropped: every paragraph and example was moved, checked line by line against the old README.
+- The README no longer says the Rust version is "at the same version (0.7.2)" and shows the current version in the JSON example; the notes about the archived scripts are together at the end; "Files that are not MKV or AVI are skipped" now says media files.
+
+### Fixed
+- `fml-cli --gui` on a Mac that has `fml.app` installed started the real app in the tests, whose "app is missing" and "a script called fml is not the app" cases expected it not to be found (so the test run hung until the app was closed). The folders searched for `fml.app` can now be set with `FML_APP_DIRS` (folders separated as in `PATH`, replacing the default ones), the tests use it, and a test covers finding a bundle.
+- Desktop app: long file names in the tables wrap at hyphens and dots where they can, rather than anywhere in a word.
+
 ## [1.0.5] - 2026-10-24
 
 ### Added

@@ -783,19 +783,26 @@ fn find_gui(own_dir: Option<&Path>, override_path: Option<&str>) -> Option<PathB
 }
 
 /// On macOS the app is installed as `fml.app` (from the .dmg): look beside this program, then in
-/// `~/Applications` and `/Applications`, for the program inside the bundle.
+/// `~/Applications` and `/Applications`, for the program inside the bundle. `FML_APP_DIRS` (folders
+/// separated as in `PATH`) is searched instead of those, which is how the tests keep a real
+/// installation out of the way.
 fn find_app_bundle(own_dir: Option<&Path>) -> Option<PathBuf> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications"));
-    own_dir
-        .map(Path::to_path_buf)
-        .into_iter()
-        .chain(home)
-        .chain([PathBuf::from("/Applications")])
-        .map(|dir| dir.join("fml.app/Contents/MacOS/fml"))
-        .find(|p| is_app(p))
+    let folders: Vec<PathBuf> = match std::env::var_os("FML_APP_DIRS") {
+        Some(dirs) => std::env::split_paths(&dirs).collect(),
+        None => {
+            let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications"));
+            own_dir
+                .map(Path::to_path_buf)
+                .into_iter()
+                .chain(home)
+                .chain([PathBuf::from("/Applications")])
+                .collect()
+        }
+    };
+    folders.into_iter().map(|dir| dir.join("fml.app/Contents/MacOS/fml")).find(|p| is_app(p))
 }
 
 /// Start the app: on Unix this program becomes it; on Windows (no `exec`) it is started and

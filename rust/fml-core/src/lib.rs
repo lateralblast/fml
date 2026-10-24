@@ -30,4 +30,4 @@ pub use install::{detect_installer, linux_installer, Installer};
 pub use validate::{parse_order, validate};
 pub use track::{format_tracks, human_size, Kind, Track, TrackSpec};
 
-pub const VERSION: &str = "1.0.5";
+pub const VERSION: &str = "1.0.6";
