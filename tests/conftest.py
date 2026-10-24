@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
@@ -263,8 +264,9 @@ def mp4_layout(path: Path) -> list[str]:
 
 def mkv_names(path: Path) -> list[str]:
     """The names of the audio and subtitle tracks of an MKV ('' for none)."""
-    return [track["properties"].get("track_name", "") for track in mkv_json(path)["tracks"]
-            if track["type"] != "video"]
+    # mkvtoolnix on macOS stores accents in decomposed form: compare the composed form
+    return [unicodedata.normalize("NFC", track["properties"].get("track_name", ""))
+            for track in mkv_json(path)["tracks"] if track["type"] != "video"]
 
 
 def mp4_titles(path: Path) -> list[str]:

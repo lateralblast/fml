@@ -5,6 +5,172 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-10-24
+
+### Added
+- `--install` knows more systems: the Debian family (`apt`, now by `ID`/`ID_LIKE` instead of only Ubuntu, so Debian, Mint, Pop!_OS and the like work), the Fedora and RHEL family (`dnf`, with `ffmpeg-free`), the Arch family (`pacman`, with `mkvtoolnix-cli`), macOS (`brew`) and Windows (`winget` with `MoritzBunkus.MKVToolNix`, `MediaArea.MediaInfo` and `Gyan.FFmpeg`, else `choco` with `mediainfo-cli`). The package names were checked against the package repositories. Only the commands built are tested: the installs on Fedora, Arch and Windows have not been run there. `fml-core` has `Installer` for it.
+- On Windows, after an install the folders the installers use (`MKVToolNix` in Program Files, winget's `Links`, Chocolatey's `bin`) are added to this run's `PATH`, so the commands that were just installed are found.
+
+### Changed
+- The `--install` help says which package managers it uses, and the "don't know how to install" warning on Windows says to install winget or Chocolatey.
+
+## [1.0.1] - 2026-10-24
+
+### Added
+- `--set lang --default none --kind sub` now works on MP4 files, which refused it because `ffmpeg`'s MP4 muxer always enables the first track of each kind. The default flag of an MP4 track is the "enabled" bit of its track header (`tkhd`), which `mediainfo` and `ffprobe` both read, so fml changes that one bit in a copy of the file (nothing is rewritten or re-encoded, and the size is the same) and reads the copy back before it replaces the original. Dry runs, `--log`, `--undo` and the before-and-after table work as for the other changes.
+- `fml-core` has `mp4` (`read_track_flags`, `set_enabled`), a small reader of the track headers of an MP4.
+
+## [1.0.0] - 2026-10-24
+
+### Added
+- Each action on the command line has its own settings. The settings that follow an action (`--lang`, `--default`, `--prefer`, `--track`, `--kind`, `--forced`, `--move`, `--name`, `--order`, `--order-lang`, `--default-first`, `--forced-flag`, `--sub-file`, `--output`) belong to it, and the ones given before the first action are shared by every action, with an action's own added on top. So `--set lang --default English --delete lang --lang ita` now works, where it was refused because `--default` and `--lang` were shared. Each action is checked with its own settings.
+
+### Changed
+- A setting that used to be shared by actions written before it (for example `--set lang --default X --kind sub` meant subtitles for the `--set`, and for every other action too) now belongs only to the action it follows; put it before the first action to share it. Commands with one action, or with the settings first, are unchanged. A setting can be given more than once for an action (the last wins); it was an error before.
+- The archived Python version still shares its settings, as before.
+- This is 1.0.0 because a patch or minor number may not go past 9 (0.9.9 + one change).
+
+## [0.9.9] - 2026-10-24
+
+### Fixed
+- Desktop app, dark theme: the placeholder text in the text boxes ("*.mkv, Season 1/*", "eng, jpn, fre", "empty removes the name") was as bright as typed text, so it looked like a value; it is now muted in both themes.
+
+### Changed
+- The dark theme was checked on a Mac (Apple silicon, macOS 27) by capturing the app window in both themes: the main page, the Edit dialog with its track editor, keep-only preview and tables, and the Add subtitles dialog. Apart from the placeholders, contrast, buttons, status colours and tables were fine.
+- Debug builds of the app take `FML_GUI_THEME=dark|light` to show the window in a theme whatever the system uses (see `rust/README.md`).
+
+## [0.9.8] - 2026-10-24
+
+### Added
+- Desktop app: a folder, or files, can be dropped on the window instead of using **Add a folder…** and **Add files…**. One folder on its own is listed as a folder (with the subfolder and filter settings, and Rescan); anything else becomes a list of the media files among the files dropped and inside the folders dropped, each once, skipping `.fml-tmp` and `.fml-bak` files. Dropped files that are not media files are counted in the message. The window shows a dashed outline while something is dragged over it, and a drop is ignored while a run is going or a dialog is open.
+- The app has a `classify_dropped` command behind it (see `rust/README.md`).
+
+## [0.9.7] - 2026-10-24
+
+### Added
+- Desktop app: while a file is being copied or rewritten, the results show a progress bar for it with a percentage (one per file when several are processed at once), so a long rewrite of a big file no longer looks stuck. It follows the size of the new file against the size of the original, so it is approximate (a removal ends below 100%), and it goes when the file's result arrives.
+- `fml-core` sends `Event::Progress` (file, stage, bytes done, bytes total) when `Config::progress` is set. The command line does not set it, so it pays nothing for it.
+
+## [0.9.6] - 2026-10-24
+
+### Fixed
+- Renaming a file from the Edit dialog broke `--undo` for changes made before, because the log names the file by its path. The app now rewrites the entries about that file in the log the form is using (when "Record a log" is ticked) to the new name, through a temporary file so the log is never half written, and says how many it changed. Entries in other logs are not found, and the dialog says so. A kept original (`--backup`) is still found, as the log records its path.
+
+### Added
+- `fml-core` has `rename_in_log`, which does the rewrite, and the app's `rename_file` command takes the log as an optional argument and returns the new path with `log_entries` and `log_error`.
+
+## [0.9.5] - 2026-10-24
+
+### Added
+- `--extract subtitle --track T [--output FILE|FOLDER]` writes a subtitle track to a file and leaves the media file alone. MKV uses `mkvextract` and writes `.srt`, `.ass`, `.vtt` or `.sup` to match the track; a text subtitle in an MP4 is written as `.srt` with `ffmpeg`. It is written under a temporary name and only given its real one if the tool made something, never replaces a file that exists unless `--force` is given with a file name, and works with `--dryrun`. VobSub and other multi-file formats, and AVI files, are refused. The result's `data.output` is the file written.
+- Desktop app: a subtitle track picked in the Edit dialog has an **Extract…** button that asks where to save it (the name is suggested from the media file and the track).
+
+## [0.9.4] - 2026-10-24
+
+### Added
+- Desktop app: a changed file in the results (the preview, and after a run) has a **Before and after** table with its audio and subtitle tracks side by side by place, language, `*` for default, forced and name, with what changes highlighted. A preview shows it open.
+- `--format json`: a result that changes the tracks of a file (`--set`, `--delete`, `--preserve`, `--add`, `--swap`) has `data.layout` with `before` and `after`, the tracks as `--info` gives them. In a dry run `after` is what the file is expected to be. Results with nothing to show still have `data` null.
+
+## [0.9.3] - 2026-10-24
+
+### Added
+- Desktop app: the audio and subtitle sections of the Edit dialog have a **Keep only** language chooser. Choosing a language marks in the track table which tracks would be removed (struck through, with an "After" column) and says how many would go and which track becomes the default, before anything is changed. **Remove the others…** makes the change after asking (the same as `--preserve --lang`), and **Preview for all ticked files…** shows it for the other ticked files in the results.
+
+## [0.9.2] - 2026-10-24
+
+### Added
+- `--add subtitle` (and the app's single and bulk **Add subtitles**) now works on MP4 files as well as MKV: the subtitle is converted to `mov_text` with `ffmpeg` in one rewrite, every existing track name is written back (as for every MP4 rewrite), and the result is read back before it replaces the original. `.srt`, `.ass`, `.ssa` and `.vtt` can be added; a `.sup` picture subtitle and the forced flag are refused for an MP4. The MP4 muxer makes the first subtitle track default when there is none, so the first subtitle added to an MP4 without any is default.
+
+### Changed
+- AVI files are refused with "only supported for MKV and MP4 files" (it said MKV only).
+
+## [0.9.1] - 2026-10-24
+
+### Added
+- `--set track --track T [--lang L] [--name TEXT] [--forced-flag yes|no]` changes the language, name and forced flag of one track in a single edit of the file (one copy and one `mkvpropedit` for an MKV, instead of one per property). Only what is given is changed, and it says so when the track is already as asked. The forced flag is MKV only, as with `--set forced`. `--undo` reverses it.
+- Desktop app: picking an audio or subtitle track in the Edit dialog shows an editor above the table with its language, name and forced flag (MKV only), and **Save changes…** makes the change after asking. It is off while a new order is waiting to be applied or reset.
+
+## [0.9.0] - 2026-10-24
+
+### Added
+- Desktop app: **Add subtitles…** adds subtitle files to many MKV files at once. Each chosen file is matched to a ticked MKV file by name (`Show.S01E03.ita.srt` goes with `Show.S01E03.mkv`; failing that, the same season and episode such as `S01E03` or `1x03`, if only one file has it), and the language, a track name (`SDH`, `CC`, `Forced`) and the forced flag are guessed from the words after the media name, using known languages only. The table can be edited, files that match nothing are listed, and the change can be previewed first. A file with several subtitles is rewritten once.
+- `fml-core` has `subtitles::match_subtitles`, which does the matching, and `add subtitle` takes a list of subtitles each with its own language, name and forced flag (the command line still adds one at a time).
+
+### Changed
+- The desktop app can run a list of requests as one run (preview, apply and the stop button work on the whole list).
+
+## [0.8.9] - 2026-10-24
+
+### Added
+- `--set order --order-lang ita,eng` puts the tracks in the order of a list of languages: the tracks in the first language first, then the second, then the rest in their old order. Unlike `--order` (track numbers) it suits files whose tracks differ, so one command fixes a season (`--dir`). It works with `--default-first`, `--log` and `--undo`, and `--order` and `--order-lang` can't be given together.
+- Desktop app: in the Edit dialog, **Preview this order…** and **Preview removing this language…** apply the arrangement (as languages) or the removal of the picked track's language to all the ticked files. They show the usual preview in the results, from where **Apply these changes…** makes them.
+
+## [0.8.8] - 2026-10-24
+
+### Added
+- `--set order ... --default-first` also makes the track that ends up first the only default track of its kind, so players that follow the flag and players that play the first track agree. It is done in the same rewrite, undone by `--undo`, and also fixes the flag when the order is already right. Before, the default flag stayed on the old first track.
+- Desktop app: the audio and subtitle sections of the Edit dialog have a **Make the first track the default** checkbox, used by **Apply this order…** (which can now be pressed with the order unchanged, to fix only the flag).
+
+## [0.8.7] - 2026-10-24
+
+### Added
+- `--add subtitle --sub-file FILE --lang L [--name TEXT]` adds a subtitle file (`.srt`, `.ass`, `.ssa`, `.vtt` or `.sup`) to an MKV as a new subtitle track, last among the subtitles, not default and not forced. It is written with `mkvmerge` on a copy and read back before it replaces the original, so chapters, attachments and the other tracks are kept. It is refused for MP4 and AVI files, with `--in-place`, and when the subtitle file or the language is missing or is not a subtitle file. `--undo` needs `--backup` to undo it, since the number of tracks changed.
+- Desktop app: the Edit dialog of an MKV has an **Add a subtitle file** section with a file picker, a language (guessed from the file name where it holds one, such as `Film.ita.srt`) and an optional name.
+
+## [0.8.6] - 2026-10-24
+
+### Added
+- Desktop app: the Edit dialog has a **Delete…** button beside **Move up** and **Move down**. It removes the picked audio or subtitle track after asking, in one rewrite of the file (with the `Keep the original`, log and `Allow removing every audio track` settings of the main form), then shows the new track list. The next audio track becomes the default if the default one was removed, and the last audio track is refused unless removing every audio track is allowed. **Delete…** is off while a new order is waiting to be applied or reset. A track with one track of a kind now shows the buttons too.
+
+## [0.8.5] - 2026-10-24
+
+### Added
+- Desktop app: the Edit dialog has a **File name** field and a **Rename** button (Enter works too). The file is renamed in its own folder; a name with `/` or `\`, an empty name, or one that is already taken is refused, so nothing is ever overwritten, and it is refused while a run is going. The list, the ticked files and the dialog follow the new name. The dialog warns that a torrent client seeding the file will lose it, and that an older `--log` can no longer undo changes to it.
+- The app has a `rename_file` command behind it (see `rust/README.md`).
+
+## [0.8.4] - 2026-10-24
+
+### Added
+- Desktop app: a **Clear selected** button in "1. Choose files" takes the ticked files off the list, so later changes leave them alone. The files on disk are not touched. **Rescan** of the same folder or files keeps them off the list; choosing a folder or files again brings everything back.
+
+## [0.8.3] - 2026-10-24
+
+### Changed
+- Desktop app: the per-file **Info** button is now called **Edit** and has an accent-coloured border (filled on hover), so it is easy to see. The dialog it opens is unchanged.
+
+## [0.8.2] - 2026-10-24
+
+### Changed
+- Desktop app: the second step is now titled "2. Choose a bulk change", since a single file's tracks can be reordered from its Info dialog.
+
+## [0.8.1] - 2026-10-24
+
+### Added
+- `--set order --order N,N,...` puts the audio or subtitle tracks (`--kind`) in any order in one rewrite of an MKV or MP4: each number is the current number of a track, listed in the new order (`--order 3,1,2`). Flags, languages and names travel with their tracks. It is refused if a track is missing or named twice, and with `--in-place`. `--log` records the reorder and `--undo` puts the old order back. Before this only one track could be moved (`--move`, to be the first).
+- Desktop app: in a file's Info dialog the audio and subtitle tracks can be picked and moved up and down, and **Apply this order…** rewrites the file (with the `Keep the original`, log and `Allow removing…` settings of the main form) and shows the new track list.
+
+### Changed
+- `fml-core` has `reordered_by`, which puts several tracks at their places at once (`reordered` still moves one); the log has an `order` field for a reorder of several tracks.
+
+## [0.8.0] - 2026-10-24
+
+### Added
+- Desktop app: each file in the list has an **Info** button that opens a dialog with the file's path, container, track counts, size and modified date, the full track table (now with the track ID, which `--delete track --track id:N` uses) and, under "Full technical report", everything `mediainfo` knows about it (duration, bitrate, resolution, each track's properties). The report says why it is missing if `mediainfo` is not installed. The expanded track list under a row also shows the ID now.
+- The app has a `file_details` command behind the dialog (see `rust/README.md`).
+
+## [0.7.9] - 2026-10-23
+
+### Fixed
+- Setting a track name with an accent (`--set name --name Français`) failed on macOS with "mkvpropedit did not make the change to the file", because MKVToolNix there stores text in decomposed form (`c` plus a combining cedilla) and the check compared the names byte for byte. Names are now compared after Unicode normalisation, here and wherever fml compares names to see if a file is as it left it (`--undo`, "already has this name"). On macOS the stored name still shows as the decomposed form in `mkvmerge -J`, which looks the same.
+
+## [0.7.8] - 2026-10-23
+
+### Added
+- `--track` accepts a track of any kind by its place in the `--info` table (`subtitles:18`, `sub:last`, `audio:2`), its ID (`id:20`) or its name (`name:Forced`, ignoring case). `--delete track` removes that track whatever `--kind` is, so a subtitle track no longer needs `--kind sub` with its position among subtitles. A name that matches more than one track is refused and the IDs are listed.
+
+### Fixed
+- `--delete track --track 20` on a file with two audio tracks looked only at audio tracks, and `--track subtitles:18` was refused as "not a track number". Both ways to name a subtitle track by what `--info` shows now work.
+
 ## [0.7.7] - 2026-10-23
 
 ### Added

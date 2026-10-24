@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pytest
-from conftest import MP4_HEADER, Ran, Stubs, leftovers, mkv_stub_tracks
+from conftest import FML_BIN, MP4_HEADER, Ran, Stubs, leftovers, mkv_stub_tracks
 
 import fml
 
@@ -425,8 +425,9 @@ def test_install_dry_run_installs_each_package_once(run: Callable[..., Ran],
     ran = run("--check", "--install", "-T", "-v")
     assert ran.code == 0
     commands = [line.split("\t")[1] for line in ran.err.splitlines()]
-    assert commands == ["sudo apt install -y mkvtoolnix", "sudo apt install -y mediainfo",
-                        "sudo apt install -y ffmpeg"]
+    # the Python tests pretend to be Ubuntu; the Rust binary installs the way the real system does
+    install = "brew install" if FML_BIN and sys.platform == "darwin" else "sudo apt install -y"
+    assert commands == [f"{install} mkvtoolnix", f"{install} mediainfo", f"{install} ffmpeg"]
 
 
 def test_install_on_macos_uses_brew(run: Callable[..., Ran], no_tools: Path,

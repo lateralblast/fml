@@ -154,17 +154,31 @@ pub fn which(tool: &str) -> Option<PathBuf> {
 
 /// On macOS a program started from Finder gets a bare `PATH` (`/usr/bin:/bin:...`) with none of
 /// the folders Homebrew, MacPorts or the MKVToolNix app put commands in. Add the ones that
-/// exist, after what is already there. Call it once, before other threads start; it does
-/// nothing on other systems.
+/// exist, after what is already there. On Windows it adds the folders the installers use. Call it
+/// once, before other threads start; it does nothing on other systems.
 pub fn add_tool_folders() {
-    if !cfg!(target_os = "macos") {
-        return;
-    }
     let folders: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
-    let mut extra: Vec<PathBuf> =
-        ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].iter().map(PathBuf::from).collect();
+    let mut extra: Vec<PathBuf> = if cfg!(target_os = "macos") {
+        ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].iter().map(PathBuf::from).collect()
+    } else if cfg!(windows) {
+        // where the MKVToolNix installer, winget and Chocolatey put commands; a program that was
+        // started before an install does not see the change to PATH that they make
+        let under = |variable: &str, rest: &str| {
+            std::env::var_os(variable).map(|base| PathBuf::from(base).join(rest))
+        };
+        [
+            under("ProgramFiles", "MKVToolNix"),
+            under("LOCALAPPDATA", "Microsoft\\WinGet\\Links"),
+            under("ProgramData", "chocolatey\\bin"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    } else {
+        return;
+    };
     // the MKVToolNix .dmg installs its commands inside the app: MKVToolNix*.app/Contents/MacOS
     if let Ok(entries) = fs::read_dir("/Applications") {
         let mut apps: Vec<PathBuf> = entries

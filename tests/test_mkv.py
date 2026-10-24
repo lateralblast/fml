@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 from conftest import (
+    FML_BIN,
     Ran,
     leftovers,
     mkv_json,
@@ -300,6 +303,32 @@ def test_delete_a_track_by_number(run: Callable[..., Ran], film_mkv: Path) -> No
     assert mkv_layout(film_mkv) == ["a:ita*", "a:eng", "s:eng", "s:ita"]
 
 
+@pytest.mark.skipif(not FML_BIN, reason="--track kind:N, id:N and name:TEXT are Rust only")
+@pytest.mark.parametrize("spec, expected", [
+    ("subtitles:2", ["a:ita*", "a:eng", "a:fre", "s:eng", "s:ita"]),
+    ("sub:last", ["a:ita*", "a:eng", "a:fre", "s:eng", "s:engF"]),
+    ("id:5", ["a:ita*", "a:eng", "a:fre", "s:eng", "s:ita"]),
+    ("audio:3", ["a:ita*", "a:eng", "s:eng", "s:engF", "s:ita"]),
+    ("name:french", ["a:ita*", "a:eng", "s:eng", "s:engF", "s:ita"]),
+])
+def test_delete_a_track_of_any_kind_by_place_id_or_name(
+    run: Callable[..., Ran], film_mkv: Path, spec: str, expected: list[str]
+) -> None:
+    ran = run("--delete", "track", "--track", spec, "-i", film_mkv)
+    assert ran.code == 0
+    assert mkv_layout(film_mkv) == expected
+    assert leftovers(film_mkv.parent) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--track kind:N, id:N and name:TEXT are Rust only")
+def test_delete_a_track_that_is_not_there_changes_nothing(run: Callable[..., Ran],
+                                                          film_mkv: Path) -> None:
+    before = mkv_layout(film_mkv)
+    ran = run("--delete", "track", "--track", "id:99", "-i", film_mkv)
+    assert "has no track with ID 99" in ran.err
+    assert mkv_layout(film_mkv) == before
+
+
 def test_preserve_keeps_only_one_language(run: Callable[..., Ran], film_mkv: Path) -> None:
     ran = run("--preserve", "lang", "--lang", "fre", "-i", film_mkv)
     assert ran.out.splitlines() == [f"{film_mkv}: removed audio track 1 (ita)",
@@ -376,11 +405,67 @@ def test_several_actions_run_in_order(run: Callable[..., Ran], film_mkv: Path) -
     assert ran.out.splitlines()[-1] == "eng"
 
 
+@pytest.mark.skipif(bool(FML_BIN), reason="the Rust version gives each action its own settings")
 def test_settings_are_shared_by_every_action(run: Callable[..., Ran], film_mkv: Path) -> None:
-    """--lang is one setting for the whole command, so it can't mean two different things."""
+    """In the archived Python version --lang is one setting for the whole command."""
     ran = run("--set", "lang", "--default", "English", "--delete", "lang", "--lang", "ita",
               "-i", film_mkv)
     assert ran.code == 2 and "not --default and --lang" in ran.err
+
+
+# Settings that belong to an action ---------------------------------------------
+
+@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+def test_each_action_has_the_settings_that_follow_it(run: Callable[..., Ran],
+                                                     film_mkv: Path) -> None:
+    ran = run("--set", "lang", "--default", "English", "--delete", "lang", "--lang", "ita",
+              "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    assert mkv_layout(film_mkv)[:2] == ["a:eng*",
+                                        "a:fre"]  # English made default, then Italian removed
+
+
+@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+def test_settings_before_the_first_action_are_shared(run: Callable[..., Ran],
+                                                     film_mkv: Path) -> None:
+    ran = run("--kind", "sub", "--get", "lang", "--info", "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    two = run("--lang", "eng", "--delete", "lang", "--dryrun", "-i", film_mkv)
+    assert "removed audio track 2 (eng)" in two.out
+    both = run("--kind", "sub", "--lang", "ita", "--delete", "lang", "--get", "lang", "--dryrun",
+               "-i", film_mkv)
+    assert "removed subtitle track 3 (ita)" in both.out
+
+
+@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+def test_a_switch_belongs_to_the_action_before_it(run: Callable[..., Ran], film_mkv: Path) -> None:
+    """--move after the first action does not apply to the second one."""
+    ran = run("--set", "lang", "--default", "French", "--move", "--set", "lang", "--default",
+              "Italian",
+              "--dryrun", "--verbose", "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    # the first plan moves French first (an mkvmerge rewrite); the second only edits flags
+    commands = [line for line in ran.err.splitlines() if line.startswith("Executing:")]
+    assert any("mkvmerge" in c and "--track-order" in c for c in commands)
+
+
+@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+def test_the_last_value_of_a_setting_for_an_action_wins(run: Callable[..., Ran],
+                                                        film_mkv: Path) -> None:
+    ran = run("--delete", "lang", "--lang", "fre", "--lang", "eng", "--dryrun", "-i", film_mkv)
+    assert "removed audio track 2 (eng)" in ran.out and "fre" not in ran.out
+
+
+@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+def test_a_conflict_is_reported_for_the_action_it_is_in(run: Callable[..., Ran],
+                                                        film_mkv: Path) -> None:
+    before = film_mkv.read_bytes()
+    first = run("--set", "lang", "--default", "Italian", "--lang", "eng", "--get", "lang", "-i",
+                film_mkv)
+    assert first.code == 2 and "not --default and --lang" in first.err
+    second = run("--set", "lang", "--default", "Italian", "--delete", "lang", "-i", film_mkv)
+    assert second.code == 2 and "--delete lang needs --lang" in second.err
+    assert film_mkv.read_bytes() == before
 
 
 def test_json_output_covers_every_file(run: Callable[..., Ran], tmp_path: Path,
@@ -441,6 +526,11 @@ def test_remove_a_track_name(run: Callable[..., Ran], film_mkv: Path) -> None:
     assert "has no name" in run("--set", "name", "--track", "1", "--name", "", "-i", film_mkv).out
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin" and not FML_BIN,
+    reason="archived fml.py compares names byte for byte; "
+           "mkvtoolnix on macOS stores accents decomposed",
+)
 def test_names_may_hold_any_text(run: Callable[..., Ran], film_mkv: Path) -> None:
     for name in ("Français", "日本語", "A \"quoted\" name", "-leading dash", "with  spaces"):
         # the = form lets a name start with a dash, which argparse would take for an option
@@ -536,6 +626,422 @@ def test_backup_dry_run_and_directory_mode(run: Callable[..., Ran], tmp_path: Pa
     # the backups are not processed as media files on the next run
     ran = run("--get", "lang", "-d", folder)
     assert [line.split(": ")[1] for line in ran.out.splitlines()] == ["eng", "eng"]
+
+
+# Extracting a subtitle track -------------------------------------------------
+
+def subtitle_codec(path: Path) -> str:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0",
+         str(path)], capture_output=True, text=True, check=True).stdout
+    return out.split()[0]
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_extract_a_subtitle_track_to_a_file_named_after_the_media(run: Callable[..., Ran],
+                                                                  film_mkv: Path) -> None:
+    before = film_mkv.read_bytes()
+    ran = run("--extract", "subtitle", "--track", "2", "-i", film_mkv)
+    # the second subtitle track is the forced English one
+    out = film_mkv.with_name("film.eng.forced.srt")
+    assert ran.code == 0, ran.err
+    assert ran.out.strip() == f"{film_mkv}: extracted subtitle track 2 (eng) to {out}"
+    assert out.stat().st_size > 0 and subtitle_codec(out) == "subrip"
+    assert film_mkv.read_bytes() == before  # the media file is not touched
+    assert leftovers(film_mkv.parent) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_extract_to_a_folder_or_a_named_file(run: Callable[..., Ran], film_mkv: Path,
+                                             tmp_path: Path) -> None:
+    folder = tmp_path / "subs"
+    folder.mkdir()
+    assert run("--extract", "subtitle", "--track", "subtitles:3", "--output", folder, "-i",
+               film_mkv).code == 0
+    assert (folder / "film.ita.srt").is_file()
+    named = tmp_path / "mine.srt"
+    assert run("--extract", "subtitle", "--track", "1", "--output", named, "-i", film_mkv).code == 0
+    assert subtitle_codec(named) == "subrip"
+    missing = run("--extract", "subtitle", "--track", "1", "--output", tmp_path / "nope" / "x.srt",
+                  "-i", film_mkv)
+    assert "does not exist" in missing.err and not (tmp_path / "nope").exists()
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_extract_never_replaces_a_file_without_force(run: Callable[..., Ran], film_mkv: Path,
+                                                   tmp_path: Path) -> None:
+    target = tmp_path / "keep.srt"
+    target.write_text("mine")
+    refused = run("--extract", "subtitle", "--track", "1", "--output", target, "-i", film_mkv)
+    assert "already exists" in refused.err and target.read_text() == "mine"
+    replaced = run("--extract", "subtitle", "--track", "1", "--output", target, "--force", "-i",
+                   film_mkv)
+    assert replaced.code == 0 and target.read_text() != "mine"
+    again = run("--extract", "subtitle", "--track", "1", "-i", film_mkv)
+    assert again.code == 0
+    second = run("--extract", "subtitle", "--track", "1", "-i", film_mkv)
+    assert "already exists" in second.err  # the generated name is taken too
+    assert leftovers(film_mkv.parent) == [] and leftovers(tmp_path) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_a_dry_run_extract_writes_nothing(run: Callable[..., Ran], film_mkv: Path) -> None:
+    ran = run("--extract", "subtitle", "--track", "1", "--dryrun", "-i", film_mkv)
+    assert ran.code == 0 and "extracted subtitle track 1 (eng)" in ran.out
+    assert not film_mkv.with_name("film.eng.srt").exists()
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.parametrize("extra, message", [
+    ([], "needs --track"),
+    (["--track", "1", "--lang", "it"], "not --lang"),
+])
+def test_a_bad_extract_is_refused(run: Callable[..., Ran], film_mkv: Path, extra: list[str],
+                                  message: str) -> None:
+    ran = run("--extract", "subtitle", *extra, "-i", film_mkv)
+    assert ran.code == 2 and message in ran.err, ran.err
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_output_needs_extract(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
+    ran = run("--set", "name", "--track", "1", "--name", "x", "--output", tmp_path / "a.srt", "-i",
+              film_mkv)
+    assert ran.code == 2 and "--output only works with --extract subtitle" in ran.err
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_extract_a_track_that_is_not_there_says_so(run: Callable[..., Ran], film_mkv: Path) -> None:
+    ran = run("--extract", "subtitle", "--track", "9", "-i", film_mkv)
+    assert "has no subtitle track 9 (3 subtitle tracks)" in ran.err
+    assert not list(film_mkv.parent.glob("*.srt"))
+
+
+# Changing several properties of a track at once -----------------------------
+
+@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+def test_set_track_changes_language_name_and_forced_together(run: Callable[..., Ran],
+                                                             film_mkv: Path,
+                                                             tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    before = (mkv_layout(film_mkv), mkv_names(film_mkv))
+    ran = run("--set", "track", "--track", "3", "--kind", "sub", "--lang", "Spanish", "--name",
+              "Latino",
+              "--forced-flag", "yes", "--log", log, "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    assert ran.out.strip() == (f'{film_mkv}: subtitle track 3 (ita): language ita -> spa, '
+                               'name "" -> "Latino", forced no -> yes')
+    assert mkv_layout(film_mkv)[-3:] == ["s:eng", "s:engF", "s:spaF"]
+    assert mkv_names(film_mkv)[-1] == "Latino"
+    assert leftovers(film_mkv.parent) == []
+    assert run("--undo", log).code == 0
+    assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+def test_set_track_only_touches_what_is_given(run: Callable[..., Ran], film_mkv: Path) -> None:
+    ran = run("--set", "track", "--track", "2", "--name", "English 5.1", "-i", film_mkv)
+    assert 'name "English" -> "English 5.1"' in ran.out and "language" not in ran.out
+    assert mkv_layout(film_mkv)[:3] == ["a:ita*", "a:eng", "a:fre"]
+    again = run("--set", "track", "--track", "2", "--lang", "eng", "--name", "English 5.1", "-i",
+                film_mkv)
+    assert "already as asked" in again.out
+    gone = run("--set", "track", "--track", "2", "--name", "", "-i", film_mkv)
+    assert mkv_names(film_mkv)[1] == "" and gone.code == 0
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+@pytest.mark.parametrize("extra, message", [
+    ([], "needs --track"),
+    (["--track", "1"], "needs at least one of --lang, --name and --forced-flag"),
+    (["--track", "1", "--lang", "it", "--default", "eng"], "not --default"),
+    (["--track", "1", "--forced-flag", "maybe"], "invalid choice"),
+])
+def test_a_bad_set_track_is_refused(run: Callable[..., Ran], film_mkv: Path, extra: list[str],
+                                    message: str) -> None:
+    before = film_mkv.read_bytes()
+    ran = run("--set", "track", *extra, "-i", film_mkv)
+    assert ran.code == 2 and message in ran.err, ran.err
+    assert film_mkv.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+def test_forced_flag_needs_set_track(run: Callable[..., Ran], film_mkv: Path) -> None:
+    ran = run("--set", "name", "--track", "1", "--name", "x", "--forced-flag", "yes", "-i",
+              film_mkv)
+    assert ran.code == 2 and "--forced-flag only works with --set track" in ran.err
+
+
+# Adding a subtitle file ------------------------------------------------------
+
+def srt(folder: Path, name: str = "it.srt") -> Path:
+    path = folder / name
+    path.write_text("1\n00:00:00,000 --> 00:00:00,900\nCiao\n\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_add_a_subtitle_file_as_the_last_subtitle_track(run: Callable[..., Ran], film_mkv: Path,
+                                                         tmp_path: Path) -> None:
+    before = mkv_json(film_mkv)
+    ran = run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "Italian", "--name",
+              "Italiano SDH",
+              "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    assert ran.out.strip() == f"{film_mkv}: added subtitle track 4 (ita) from it.srt"
+    assert mkv_layout(film_mkv) == ["a:ita*", "a:eng", "a:fre", "s:eng", "s:engF", "s:ita", "s:ita"]
+    assert mkv_names(film_mkv)[3:] == ["", "", "", "Italiano SDH"]
+    after = mkv_json(film_mkv)
+    assert [t["codec"] for t in after["tracks"][-1:]] == ["SubRip/SRT"]
+    assert len(after["chapters"]) == len(before["chapters"]) > 0  # nothing else was lost
+    assert leftovers(film_mkv.parent) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_a_new_subtitle_is_never_default_or_forced(run: Callable[..., Ran], und_mkv: Path,
+                                                   tmp_path: Path) -> None:
+    assert run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "eng", "-i",
+               und_mkv).code == 0
+    assert mkv_layout(und_mkv)[-1] == "s:eng"  # no star: not default, no F: not forced
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_undo_an_added_subtitle_from_the_backup(run: Callable[..., Ran], film_mkv: Path,
+                                               tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    before = (mkv_layout(film_mkv), mkv_names(film_mkv))
+    run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "ita", "--backup", "--log",
+        log, "-i", film_mkv)
+    assert len(mkv_layout(film_mkv)) == len(before[0]) + 1
+    assert run("--undo", log).code == 0
+    assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_undo_an_added_subtitle_without_a_backup_says_why(run: Callable[..., Ran], film_mkv: Path,
+                                                          tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "ita", "--log", log, "-i",
+        film_mkv)
+    ran = run("--undo", log)
+    assert "use --backup" in ran.err
+    assert len(mkv_layout(film_mkv)) == 7
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+@pytest.mark.parametrize("extra, message", [
+    (["--lang", "ita", "--sub-file", "missing.srt"], "is not a file"),
+    (["--lang", "ita", "--sub-file", "notes.txt"], "not a subtitle file I can add"),
+    (["--sub-file", "it.srt"], "needs --lang"),
+    ([], "needs --sub-file"),
+    (["--lang", "ita", "--sub-file", "it.srt", "--in-place"], "can't be used with --in-place"),
+    (["--lang", "ita", "--sub-file", "it.srt", "--track", "1"], "not --track"),
+])
+def test_a_bad_add_is_refused_and_changes_nothing(run: Callable[..., Ran], film_mkv: Path,
+                                                  tmp_path: Path,
+                                                  extra: list[str], message: str) -> None:
+    srt(tmp_path)
+    (tmp_path / "notes.txt").write_text("hello")
+    args = [str(tmp_path / a) if a in ("missing.srt", "notes.txt", "it.srt") else a for a in extra]
+    before = film_mkv.read_bytes()
+    ran = run("--add", "subtitle", *args, "-i", film_mkv)
+    assert ran.code == 2 and message in ran.err, ran.err
+    assert film_mkv.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_sub_file_needs_add(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
+    ran = run("--set", "name", "--track", "1", "--name", "x", "--sub-file", srt(tmp_path), "-i",
+              film_mkv)
+    assert ran.code == 2 and "--sub-file only works with --add subtitle" in ran.err
+
+
+# What a change will do, as data -----------------------------------------------
+
+def layouts(ran: Ran) -> tuple[list[str], list[str]]:
+    """The audio and subtitle tracks before and after, as ``a:ita*`` (``*`` default)."""
+    layout = json.loads(ran.out)["results"][0]["data"]["layout"]
+
+    def show(tracks: list[dict[str, Any]]) -> list[str]:
+        return [f"{t['type'][0]}:{t['language']}{'*' if t['default'] else ''}"
+                f"{'F' if t['forced'] else ''}" for t in tracks if t["type"] != "video"]
+    return show(layout["before"]), show(layout["after"])
+
+
+@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+def test_a_dry_run_says_what_the_tracks_will_be(run: Callable[..., Ran], film_mkv: Path,
+                                                tmp_path: Path) -> None:
+    before = film_mkv.read_bytes()
+    ran = run("--set", "order", "--order", "3,1,2", "--default-first", "--dryrun", "--format",
+              "json", "-i", film_mkv)
+    shown_before, shown_after = layouts(ran)
+    assert shown_before == mkv_layout(film_mkv) == ["a:ita*", "a:eng", "a:fre", "s:eng", "s:engF",
+                                                    "s:ita"]
+    assert shown_after == ["a:fre*", "a:ita", "a:eng", "s:eng", "s:engF", "s:ita"]
+    assert film_mkv.read_bytes() == before
+    # and it is what the real change then does
+    run("--set", "order", "--order", "3,1,2", "--default-first", "-i", film_mkv)
+    assert mkv_layout(film_mkv) == shown_after
+
+
+@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+@pytest.mark.parametrize("args, after", [
+    (["--delete", "lang", "--lang", "eng"], ["a:ita*", "a:fre", "s:eng", "s:engF", "s:ita"]),
+    (["--delete", "track", "--track", "subtitles:2"], ["a:ita*", "a:eng", "a:fre", "s:eng",
+                                                       "s:ita"]),
+    (["--preserve", "lang", "--lang", "fre"], ["a:fre*", "s:eng", "s:engF", "s:ita"]),
+    (["--set", "lang", "--default", "English"], ["a:ita", "a:eng*", "a:fre", "s:eng", "s:engF",
+                                                 "s:ita"]),
+])
+def test_the_layout_matches_the_result_for_each_kind_of_change(
+        run: Callable[..., Ran], film_mkv: Path, args: list[str], after: list[str]) -> None:
+    preview = run(*args, "--dryrun", "--format", "json", "-i", film_mkv)
+    assert layouts(preview)[1] == after
+    run(*args, "-i", film_mkv)
+    assert mkv_layout(film_mkv) == after
+
+
+@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+def test_adding_a_subtitle_says_what_the_tracks_will_be(run: Callable[..., Ran], film_mkv: Path,
+                                                         tmp_path: Path) -> None:
+    sub = tmp_path / "x.srt"
+    sub.write_text("1\n00:00:00,000 --> 00:00:00,900\nCiao\n\n")
+    ran = run("--add", "subtitle", "--sub-file", sub, "--lang", "fre", "--dryrun", "--format",
+              "json", "-i", film_mkv)
+    assert layouts(ran)[1][-2:] == ["s:ita", "s:fre"]
+
+
+@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+def test_a_result_with_nothing_to_show_has_no_layout(run: Callable[..., Ran],
+                                                     film_mkv: Path) -> None:
+    ran = run("--set", "lang", "--default", "Italian", "--format", "json", "-i", film_mkv)
+    assert json.loads(ran.out)["results"][0]["status"] == "unchanged"
+    assert json.loads(ran.out)["results"][0]["data"] in (None, {})
+
+
+# Reordering ------------------------------------------------------------------
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.parametrize("kind, order, expected, names", [
+    ("audio", "3,1,2", ["a:fre", "a:ita*", "a:eng", "s:eng", "s:engF", "s:ita"],
+     ["French", "Italian", "English"]),
+    ("audio", "2,1,3", ["a:eng", "a:ita*", "a:fre", "s:eng", "s:engF", "s:ita"],
+     ["English", "Italian", "French"]),
+    ("sub", "3,2,1", ["a:ita*", "a:eng", "a:fre", "s:ita", "s:engF", "s:eng"],
+     ["Italian", "English", "French"]),
+])
+def test_put_the_tracks_in_any_order(run: Callable[..., Ran], film_mkv: Path, kind: str, order: str,
+                                     expected: list[str], names: list[str]) -> None:
+    ran = run("--set", "order", "--order", order, "--kind", kind, "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    assert mkv_layout(film_mkv) == expected  # flags travel with their tracks
+    assert mkv_names(film_mkv)[:3] == names
+    assert leftovers(film_mkv.parent) == []
+    assert run("--set", "order", "--order", ",".join(str(i) for i in range(1, 4)), "--kind", kind,
+               "-i", film_mkv).code == 0  # a second order is applied to what is there now
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_an_order_in_the_order_it_is_changes_nothing(run: Callable[..., Ran],
+                                                     film_mkv: Path) -> None:
+    before = film_mkv.read_bytes()
+    ran = run("--set", "order", "--order", "1,2,3", "-i", film_mkv)
+    assert "already in that order" in ran.out
+    assert film_mkv.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.parametrize("order, message", [
+    ("1,2", "must list each of the 3 audio tracks once"),
+    ("1,2,3,4", "must list each of the 3 audio tracks once"),
+    ("1,2,5", "must list each of the 3 audio tracks once"),
+    ("1,1,2", "names a track twice"),
+    ("1,x", "is not an order of tracks"),
+])
+def test_a_bad_order_is_refused_and_changes_nothing(run: Callable[..., Ran], film_mkv: Path,
+                                                    order: str, message: str) -> None:
+    before = film_mkv.read_bytes()
+    ran = run("--set", "order", "--order", order, "-i", film_mkv)
+    assert message in ran.err
+    assert film_mkv.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_order_needs_its_own_settings(run: Callable[..., Ran], film_mkv: Path) -> None:
+    assert "needs one of --order" in run("--set", "order", "-i", film_mkv).err
+    assert "needs one of --order" in run("--set", "order", "--order", "1,2,3", "--order-lang",
+                                         "ita", "-i", film_mkv).err
+    other = run("--set", "lang", "--default", "eng", "--order-lang", "ita", "-i", film_mkv)
+    assert "--order-lang only works with --set order" in other.err
+    assert "only works with --set order" in run("--set", "lang", "--default", "eng", "--order",
+                                                "1,2,3", "-i", film_mkv).err
+    assert "not --track" in run("--set", "order", "--order", "2,1,3", "--track", "1", "-i",
+                                film_mkv).err
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_undo_a_reorder(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    before = (mkv_layout(film_mkv), mkv_names(film_mkv))
+    run("--set", "order", "--order", "3,1,2", "-i", film_mkv, "--log", log)
+    assert mkv_layout(film_mkv)[:3] == ["a:fre", "a:ita*", "a:eng"]
+    ran = run("--undo", log)
+    assert ran.code == 0, ran.err
+    assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_order_can_make_the_new_first_track_the_default(run: Callable[..., Ran], film_mkv: Path,
+                                                        tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    before = (mkv_layout(film_mkv), mkv_names(film_mkv))
+    ran = run("--set", "order", "--order", "3,1,2", "--default-first", "--log", log, "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    assert mkv_layout(film_mkv)[:3] == ["a:fre*", "a:ita",
+                                        "a:eng"]  # one default, on the first track
+    assert mkv_names(film_mkv)[:3] == ["French", "Italian", "English"]
+    assert run("--undo", log).code == 0
+    assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_default_first_fixes_the_flag_when_the_order_is_already_right(run: Callable[..., Ran],
+                                                                    film_mkv: Path) -> None:
+    run("--set", "order", "--order", "2,1,3", "-i", film_mkv)
+    assert mkv_layout(film_mkv)[:3] == ["a:eng", "a:ita*", "a:fre"]  # the flag stayed on ita
+    ran = run("--set", "order", "--order", "1,2,3", "--default-first", "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    assert mkv_layout(film_mkv)[:3] == ["a:eng*", "a:ita", "a:fre"]
+    again = run("--set", "order", "--order", "1,2,3", "--default-first", "-i", film_mkv)
+    assert "already in that order and the first is the default" in again.out
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_default_first_needs_set_order(run: Callable[..., Ran], film_mkv: Path) -> None:
+    ran = run("--set", "lang", "--default", "eng", "--default-first", "-i", film_mkv)
+    assert ran.code == 2 and "--default-first only works with --set order" in ran.err
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_order_by_language_suits_files_with_different_tracks(run: Callable[..., Ran],
+                                                             make: Callable[..., Path],
+                                                             tmp_path: Path) -> None:
+    full = make("a.mkv", [("ita", "Italian", True), ("eng", "English", False), ("fre", "French",
+                                                                                False)], [])
+    short = make("b.mkv", [("eng", "English", True), ("ita", "Italian", False)], [])
+    other = make("c.mkv", [("fre", "French", True), ("ger", "German", False), ("eng", "English",
+                                                                               False)], [])
+    folder = tmp_path / "season"
+    folder.mkdir()
+    for path in (full, short, other):
+        path.rename(folder / path.name)
+    ran = run("--set", "order", "--order-lang", "eng,ita", "--default-first", "--dir", folder)
+    assert ran.code == 0, ran.err
+    assert mkv_layout(folder / "a.mkv") == ["a:eng*", "a:ita", "a:fre"]
+    assert mkv_layout(folder / "b.mkv") == ["a:eng*", "a:ita"]
+    assert mkv_layout(folder / "c.mkv") == ["a:eng*", "a:fre",
+                                            "a:ger"]  # others follow in their old order
+    again = run("--set", "order", "--order-lang", "eng,ita", "--dir", folder)
+    assert again.out.count("already in that order") == 3
 
 
 # The log and undoing ------------------------------------------------------------

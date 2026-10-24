@@ -12,6 +12,7 @@ from typing import Callable
 
 import pytest
 from conftest import (
+    FML_BIN,
     Ran,
     audio_streams,
     leftovers,
@@ -118,11 +119,62 @@ def test_default_subtitles(run: Callable[..., Ran], film_mp4: Path) -> None:
     assert mp4_layout(film_mp4) == ["a:ita*", "a:eng", "a:fre", "s:eng", "s:ita*"]
 
 
+@pytest.mark.skipif(bool(FML_BIN),
+                    reason="the Rust version can turn the default subtitles off in an MP4")
 def test_default_none_is_refused_for_subtitles(run: Callable[..., Ran], film_mp4: Path) -> None:
     before = film_mp4.read_bytes()
     ran = run("--set", "lang", "--default", "none", "--kind", "sub", "-i", film_mp4)
     assert "MP4 files always have a default subtitle track" in ran.err
     assert film_mp4.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--default none for an MP4 is Rust only")
+def test_default_none_turns_the_default_subtitles_off_in_an_mp4(run: Callable[..., Ran],
+                                                                film_mp4: Path,
+                                                                tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    names = mp4_titles(film_mp4)
+    size = film_mp4.stat().st_size
+    ran = run("--set", "lang", "--default", "none", "--kind", "sub", "--log", log, "-i", film_mp4)
+    assert ran.code == 0, ran.err
+    assert ran.out.strip() == f"{film_mp4}: subtitle track 1 (eng): default yes -> no"
+    assert mp4_layout(film_mp4) == ["a:ita*", "a:eng", "a:fre", "s:eng",
+                                    "s:ita"]  # the audio is untouched
+    assert film_mp4.stat().st_size == size  # nothing was rewritten, one bit was changed
+    assert mp4_titles(film_mp4) == names
+    flags = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "s", "-show_entries",
+                            "stream_disposition=default", "-of", "csv=p=0", str(film_mp4)],
+                           capture_output=True, text=True, check=True).stdout.split()
+    assert flags == ["0", "0"]  # ffprobe agrees with mediainfo
+    assert subprocess.run(["ffmpeg", "-v", "error", "-i", str(film_mp4), "-c", "copy", "-f",
+                           "null", "-"],
+                          capture_output=True).returncode == 0  # the file still reads through
+    assert leftovers(film_mp4.parent) == []
+    again = run("--set", "lang", "--default", "none", "--kind", "sub", "-i", film_mp4)
+    assert "there is already no default subtitle track" in again.out
+    assert run("--undo", log).code == 0
+    assert mp4_layout(film_mp4)[3:] == ["s:eng*", "s:ita"]  # and the flag comes back
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--default none for an MP4 is Rust only")
+def test_default_none_in_an_mp4_dry_run_changes_nothing(run: Callable[..., Ran],
+                                                        film_mp4: Path) -> None:
+    before = film_mp4.read_bytes()
+    ran = run("--set", "lang", "--default", "none", "--kind", "sub", "--dryrun", "-i", film_mp4)
+    assert "subtitle track 1 (eng): default yes -> no" in ran.out
+    assert film_mp4.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--default none for an MP4 is Rust only")
+def test_default_none_works_for_an_mp4_with_a_default_subtitle_added_by_fml(
+        run: Callable[..., Ran], make: Callable[..., Path], tmp_path: Path) -> None:
+    plain = make("plain.mp4", [("ita", None, True), ("eng", None, False)])
+    sub = tmp_path / "x.srt"
+    sub.write_text("1\n00:00:00,000 --> 00:00:00,900\nCiao\n\n")
+    assert run("--add", "subtitle", "--sub-file", sub, "--lang", "ita", "-i", plain).code == 0
+    assert mp4_layout(plain)[-1] == "s:ita*"  # the muxer made it the default
+    assert run("--set", "lang", "--default", "none", "--kind", "sub", "-i", plain).code == 0
+    assert mp4_layout(plain) == ["a:ita*", "a:eng", "s:ita"]
 
 
 def test_set_the_language_of_a_track(run: Callable[..., Ran], film_mp4: Path) -> None:
@@ -149,6 +201,118 @@ def test_move_the_audio_track_first(run: Callable[..., Ran], film_mp4: Path) -> 
         f"{film_mp4}: audio track 1 (ita): default yes -> no",
         f"{film_mp4}: audio track 2 (eng): default no -> yes, moved to the first audio track"]
     assert mp4_layout(film_mp4) == ["a:eng*", "a:ita", "a:fre", "s:eng*", "s:ita"]
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+def test_put_the_tracks_in_any_order(run: Callable[..., Ran], film_mp4: Path,
+                                     tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    before = mp4_layout(film_mp4)
+    ran = run("--set", "order", "--order", "3,1,2", "-i", film_mp4, "--log", log)
+    assert ran.code == 0, ran.err
+    assert mp4_layout(film_mp4) == ["a:fre", "a:ita*", "a:eng", "s:eng*", "s:ita"]
+    assert run("--undo", log).code == 0
+    assert mp4_layout(film_mp4) == before
+
+
+def srt(folder: Path, name: str = "it.srt") -> Path:
+    path = folder / name
+    path.write_text("1\n00:00:00,000 --> 00:00:00,900\nCiao\n\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_add_a_subtitle_to_an_mp4(run: Callable[..., Ran], film_mp4: Path, tmp_path: Path) -> None:
+    before_names = mp4_titles(film_mp4)
+    ran = run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "Spanish", "--name",
+              "Latino",
+              "-i", film_mp4)
+    assert ran.code == 0, ran.err
+    assert ran.out.strip() == f"{film_mp4}: added subtitle track 3 (spa) from it.srt"
+    assert mp4_layout(film_mp4) == ["a:ita*", "a:eng", "a:fre", "s:eng*", "s:ita", "s:spa"]
+    assert mp4_titles(film_mp4) == before_names + ["Latino"]  # the other names survive the rewrite
+    codecs = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "s", "-show_entries",
+                             "stream=codec_name", "-of", "csv=p=0", str(film_mp4)],
+                            capture_output=True, text=True, check=True).stdout.split()
+    assert codecs == ["mov_text"] * 3
+    assert leftovers(film_mp4.parent) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_the_first_subtitle_of_an_mp4_becomes_the_default(run: Callable[..., Ran],
+                                                          make: Callable[..., Path],
+                                                          tmp_path: Path) -> None:
+    plain = make("plain.mp4", [("ita", None, True), ("eng", None, False)])
+    assert run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "ita", "-i",
+               plain).code == 0
+    assert mp4_layout(plain) == ["a:ita*", "a:eng", "s:ita*"]  # the mov muxer insists on it
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_undo_an_added_mp4_subtitle_from_the_backup(run: Callable[..., Ran], film_mp4: Path,
+                                                    tmp_path: Path) -> None:
+    log = tmp_path / "c.jsonl"
+    before = mp4_layout(film_mp4)
+    run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "ita", "--backup", "--log",
+        log, "-i", film_mp4)
+    assert len(mp4_layout(film_mp4)) == len(before) + 1
+    assert run("--undo", log).code == 0
+    assert mp4_layout(film_mp4) == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_a_picture_subtitle_is_not_added_to_an_mp4(run: Callable[..., Ran], film_mp4: Path,
+                                                   tmp_path: Path) -> None:
+    sup = tmp_path / "x.sup"
+    sup.write_bytes(b"PG")
+    before = film_mp4.read_bytes()
+    ran = run("--add", "subtitle", "--sub-file", sup, "--lang", "ita", "-i", film_mp4)
+    assert "a .sup subtitle can't be added to an MP4" in ran.err
+    assert film_mp4.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+def test_adding_a_subtitle_is_not_for_avi(run: Callable[..., Ran], three_avi: Path,
+                                          tmp_path: Path) -> None:
+    before = three_avi.read_bytes()
+    ran = run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "ita", "-i", three_avi)
+    assert "only supported for MKV and MP4" in ran.err
+    assert three_avi.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+def test_set_track_in_an_mp4_changes_language_and_name_but_not_the_forced_flag(
+        run: Callable[..., Ran], film_mp4: Path) -> None:
+    ran = run("--set", "track", "--track", "2", "--lang", "German", "--name", "Deutsch", "-i",
+              film_mp4)
+    assert ran.code == 0, ran.err
+    assert mp4_layout(film_mp4)[:3] == ["a:ita*", "a:ger", "a:fre"]
+    before = film_mp4.read_bytes()
+    refused = run("--set", "track", "--track", "1", "--forced-flag", "yes", "-i", film_mp4)
+    assert "only be set for MKV" in refused.err
+    assert film_mp4.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_extract_a_text_subtitle_from_an_mp4_as_srt(run: Callable[..., Ran],
+                                                    film_mp4: Path) -> None:
+    before = film_mp4.read_bytes()
+    ran = run("--extract", "subtitle", "--track", "2", "-i", film_mp4)
+    out = film_mp4.with_name("film.ita.srt")
+    assert ran.code == 0, ran.err
+    assert out.stat().st_size > 0
+    codec = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of",
+                            "csv=p=0", str(out)], capture_output=True, text=True, check=True).stdout
+    assert codec.split()[0] == "subrip"
+    assert film_mp4.read_bytes() == before
+    assert leftovers(film_mp4.parent) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+def test_extract_is_not_for_avi(run: Callable[..., Ran], three_avi: Path) -> None:
+    ran = run("--extract", "subtitle", "--track", "1", "-i", three_avi)
+    assert "only supported for MKV and MP4" in ran.err
+    assert not list(three_avi.parent.glob("*.srt"))
 
 
 def test_move_a_subtitle_track_first(run: Callable[..., Ran], film_mp4: Path) -> None:

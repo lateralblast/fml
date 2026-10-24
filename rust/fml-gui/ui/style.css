@@ -151,3 +151,48 @@ progress { width: 100%; height: 8px; margin: 4px 0; }
 
 dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); max-width: 460px; padding: 18px 20px; }
 dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#info { max-width: 860px; width: 92vw; max-height: 88vh; overflow: auto; }
+#info h3 { margin: 0 0 4px; word-break: break-all; }
+#info h4 { margin: 14px 0 6px; }
+#info .path { margin: 0 0 8px; word-break: break-all; font-size: 12px; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 8px 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+#info-report { max-height: 40vh; overflow: auto; font-size: 12px; white-space: pre; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.order-tools { margin: 4px 0; align-items: center; }
+#info tr[aria-selected] { cursor: pointer; }
+#info tr.picked td { background: var(--accent); color: var(--accent-text); }
+#info .table-wrap { max-height: 200px; }
+#info .tracks { width: 100%; }
+#info .tracks th, #info .tracks td { padding: 4px 10px 4px 8px; }
+button.edit { border: 1.5px solid var(--accent); color: var(--accent); font-weight: 600; padding: 3px 14px; }
+button.edit:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); }
+td.edit-cell, th.edit-cell { width: 1%; white-space: nowrap; }
+#info .rename { margin: 6px 0 10px; align-items: center; }
+#info .rename input { width: 100%; }
+#info .rename label { flex: 1; display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+#info .add-sub { margin: 6px 0; align-items: center; }
+#info #info-add { margin-top: 12px; }
+#subs { max-width: 980px; width: 94vw; max-height: 90vh; overflow: auto; }
+#subs h3 { margin: 0 0 6px; }
+#subs .table-wrap { max-height: 46vh; }
+#subs td select, #subs td input[type=text] { max-width: 150px; }
+#subs code { font-size: 12px; }
+#info .track-editor { margin: 6px 0; align-items: center; gap: 12px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+#info .track-editor label { display: flex; gap: 6px; align-items: center; }
+#info tr.removing td { opacity: 0.55; text-decoration: line-through; }
+#info tr.removing td.gone-label { opacity: 1; text-decoration: none; color: var(--danger); font-weight: 600; }
+.layout { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; }
+.layout-table { width: auto; font-size: 13px; }
+.layout-table th, .layout-table td { padding: 2px 12px 2px 0; border: 0; position: static; background: none; }
+.layout-table td.diff { color: var(--accent); font-weight: 600; }
+#results details > summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 6px; }
+.file-progress { display: grid; grid-template-columns: minmax(0, 1fr) 160px 3.5em; gap: 8px; align-items: center; margin: 4px 0; font-size: 13px; }
+.file-progress .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-progress progress { margin: 0; }
+.file-progress .percent { text-align: right; }
+body.dropping main { outline: 3px dashed var(--accent); outline-offset: -6px; }
+body.dropping #files-title::after { content: " — drop to add"; color: var(--accent); font-weight: 400; }
+input::placeholder { color: var(--muted); opacity: 0.8; }

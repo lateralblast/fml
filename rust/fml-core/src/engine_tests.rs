@@ -139,8 +139,7 @@ fn ffmpeg_command_for_a_move_maps_the_streams_in_the_new_order() {
     let media = Media::new("x.mp4", Container::Mp4);
     let audio3: Vec<Track> = four_audio().into_iter().take(3).collect();
     let edits = default_edits(&audio3, Some(&audio3[2]), "", true);
-    let moving = edits.last().unwrap().track.clone();
-    let cmd = engine(Kind::Audio).ffmpeg_command(&media, &all, &edits, Some(&moving), "out.fml-tmp.mp4");
+    let cmd = engine(Kind::Audio).ffmpeg_command(&media, &all, &edits, "out.fml-tmp.mp4");
     let maps: Vec<&String> = cmd.iter().enumerate().filter(|(_, a)| *a == "-map").map(|(i, _)| &cmd[i + 1]).collect();
     assert_eq!(maps, ["0:v?", "0:a:2", "0:a:0", "0:a:1", "0:s?", "0:d?", "0:t?"]);
     // the dispositions refer to the new positions: ita was 0 and is now 1, fre was 2 and is now 0
@@ -161,8 +160,7 @@ fn mkvmerge_command_for_a_move() {
     ];
     let media = Media::new("x.mkv", Container::Mkv);
     let edits = default_edits(&all[1..4], Some(&all[2]), "", true);
-    let moving = edits.last().unwrap().track.clone();
-    let cmd = engine(Kind::Audio).mkvmerge_command(&media, &all, &edits, Some(&moving), "out.fml-tmp");
+    let cmd = engine(Kind::Audio).mkvmerge_command(&media, &all, &edits, "out.fml-tmp");
     assert_eq!(cmd[..5], ["mkvmerge", "-o", "out.fml-tmp", "--track-order", "0:0,0:2,0:1,0:3,0:4"]);
     assert_eq!(cmd[5..], ["--default-track-flag", "1:0", "--default-track-flag", "2:1", "x.mkv"]);
 }
@@ -273,7 +271,7 @@ fn restore_edits_put_back_a_move_and_a_flag() {
         audio(3, "eng", false),
     ];
     let media = Media::new("x.mkv", Container::Mkv);
-    let edits = engine(Kind::Audio).restore_edits(&media, &now, &before, Some(3));
+    let edits = engine(Kind::Audio).restore_edits(&media, &now, &before, Some(3), &[]);
     let moved = edits.iter().find(|e| e.move_to.is_some()).unwrap();
     assert_eq!((moved.track.number, moved.move_to), (1, Some(3)));
     assert_eq!(moved.default, Some(false));
@@ -286,9 +284,9 @@ fn restore_edits_leave_the_forced_flag_of_an_mp4_alone() {
     let before = vec![Track { forced: true, ..track(1, Kind::Subtitles, "eng", false, 1) }];
     let now = vec![track(1, Kind::Subtitles, "eng", false, 1)];
     let engine = engine(Kind::Subtitles);
-    let mp4 = engine.restore_edits(&Media::new("x.mp4", Container::Mp4), &now, &before, None);
+    let mp4 = engine.restore_edits(&Media::new("x.mp4", Container::Mp4), &now, &before, None, &[]);
     assert!(mp4.is_empty());
-    let mkv = engine.restore_edits(&Media::new("x.mkv", Container::Mkv), &now, &before, None);
+    let mkv = engine.restore_edits(&Media::new("x.mkv", Container::Mkv), &now, &before, None, &[]);
     assert_eq!(mkv[0].forced, Some(true));
 }
 
@@ -301,4 +299,226 @@ fn backup_path_is_numbered_when_taken() {
     std::fs::write(format!("{file}.fml-bak"), b"x").unwrap();
     assert_eq!(Fml::backup_path(&file), format!("{file}.fml-bak.1"));
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn names_are_the_same_whatever_form_the_accents_are_in() {
+    assert!(same_name("Fran\u{e7}ais", "Franc\u{327}ais"));
+    assert!(same_name(" Italiano ", "Italiano"));
+    assert!(!same_name("Francais", "Franc\u{327}ais"));
+}
+
+fn mixed_media() -> Media {
+    let mut media = Media::new("x.mkv", Container::Mkv);
+    let mut tracks = vec![track(1, Kind::Video, "und", true, 0)];
+    tracks.extend([track(1, Kind::Audio, "jpn", true, 1), track(2, Kind::Audio, "eng", false, 2)]);
+    for (i, name) in ["", "Forced", "forced", "SDH"].iter().enumerate() {
+        let mut t = track(i + 1, Kind::Subtitles, "eng", i == 0, 3 + i as i64);
+        t.name = name.to_string();
+        tracks.push(t);
+    }
+    media.tracks = Some(tracks);
+    media
+}
+
+fn resolve(kind: Kind, spec: &str) -> Result<i64, String> {
+    let config = Config { kind, track: spec.to_string(), ..Config::default() };
+    let fml = Fml::new(config, Arc::new(|_| {}));
+    let mut media = mixed_media();
+    let mut result = Outcome::new("x.mkv", "delete", false);
+    match fml.resolve_any_track(&mut media, &mut result).unwrap() {
+        Some(t) => Ok(t.id),
+        None => Err(result.message),
+    }
+}
+
+#[test]
+fn a_track_spec_is_a_number_a_kind_and_number_an_id_or_a_name() {
+    assert_eq!(TrackSpec::parse("3"), Ok(TrackSpec::Number(3)));
+    assert_eq!(TrackSpec::parse("last"), Ok(TrackSpec::Last));
+    assert_eq!(TrackSpec::parse("subtitles:18"), Ok(TrackSpec::Of(Kind::Subtitles, Some(18))));
+    assert_eq!(TrackSpec::parse("sub:last"), Ok(TrackSpec::Of(Kind::Subtitles, None)));
+    assert_eq!(TrackSpec::parse("audio:2"), Ok(TrackSpec::Of(Kind::Audio, Some(2))));
+    assert_eq!(TrackSpec::parse("id:0"), Ok(TrackSpec::Id(0)));
+    assert_eq!(TrackSpec::parse("name:Latin America"), Ok(TrackSpec::Name("Latin America".into())));
+    for bad in ["0", "-1", "x", "id:", "id:x", "name:", "audio:0", "audio:", "tv:1", ""] {
+        assert!(TrackSpec::parse(bad).unwrap_err().contains("not a track number"), "{bad}");
+    }
+}
+
+#[test]
+fn a_track_is_found_by_place_id_or_name_whatever_the_kind_being_worked_on() {
+    assert_eq!(resolve(Kind::Audio, "2"), Ok(2));
+    assert_eq!(resolve(Kind::Audio, "last"), Ok(2));
+    assert_eq!(resolve(Kind::Audio, "subtitles:4"), Ok(6));
+    assert_eq!(resolve(Kind::Audio, "sub:last"), Ok(6));
+    assert_eq!(resolve(Kind::Subtitles, "audio:1"), Ok(1));
+    assert_eq!(resolve(Kind::Audio, "id:5"), Ok(5));
+    assert_eq!(resolve(Kind::Audio, "name:sdh"), Ok(6));
+}
+
+#[test]
+fn a_track_that_is_not_there_or_not_unique_is_reported() {
+    assert_eq!(resolve(Kind::Audio, "20"), Err("has no audio track 20 (2 audio tracks)".into()));
+    assert_eq!(resolve(Kind::Audio, "subtitles:9"), Err("has no subtitle track subtitles:9 (4 subtitle tracks)".into()));
+    assert_eq!(resolve(Kind::Audio, "id:99"), Err("has no track with ID 99".into()));
+    assert_eq!(resolve(Kind::Audio, "name:Nope"), Err("has no track named \"Nope\"".into()));
+    let both = resolve(Kind::Audio, "name:forced").unwrap_err();
+    assert!(both.contains("has 2 tracks named") && both.contains("4, 5"), "{both}");
+}
+
+#[test]
+fn reordered_by_puts_several_tracks_at_their_places() {
+    let mut all = vec![track(1, Kind::Video, "und", false, 0)];
+    all.extend(four_audio());
+    all.push(track(1, Kind::Subtitles, "eng", false, 9));
+    let numbers = |moves: &[(Track, usize)]| -> Vec<usize> {
+        reordered_by(&all, moves).iter().filter(|t| t.kind == Kind::Audio).map(|t| t.number).collect()
+    };
+    // swap the first two
+    assert_eq!(numbers(&[(all[1].clone(), 2), (all[2].clone(), 1)]), [2, 1, 3, 4]);
+    // a rotation: 4 first, the others after it in their old order
+    assert_eq!(numbers(&[(all[4].clone(), 1), (all[1].clone(), 2), (all[2].clone(), 3), (all[3].clone(), 4)]), [4, 1, 2, 3]);
+    // tracks that are not named fill the places left, in their old order
+    assert_eq!(numbers(&[(all[3].clone(), 1), (all[1].clone(), 4)]), [3, 2, 4, 1]);
+    // other kinds stay where they are
+    let kinds: Vec<Kind> = reordered_by(&all, &[(all[2].clone(), 1)]).iter().map(|t| t.kind).collect();
+    assert_eq!(kinds, all.iter().map(|t| t.kind).collect::<Vec<_>>());
+    assert_eq!(reordered_by(&all, &[]), all);
+}
+
+#[test]
+fn restore_edits_put_back_a_reorder() {
+    // ita eng fre became fre ita eng: the log has the old numbers in the new order, 3 1 2
+    let before = four_audio()[..3].to_vec();
+    let now = vec![audio(1, "fre", false), audio(2, "ita", true), audio(3, "eng", false)];
+    let media = Media::new("x.mkv", Container::Mkv);
+    let edits = engine(Kind::Audio).restore_edits(&media, &now, &before, None, &[3, 1, 2]);
+    let place = |number: usize| edits.iter().find(|e| e.track.number == number).and_then(|e| e.move_to);
+    // fre (now 1) goes back to 3, ita (now 2) to 1, eng (now 3) to 2
+    assert_eq!((place(1), place(2), place(3)), (Some(3), Some(1), Some(2)));
+    let expected = engine(Kind::Audio).expected_layout(&now, &edits);
+    assert_eq!(expected.iter().map(|t| t.language.as_str()).collect::<Vec<_>>(), ["ita", "eng", "fre"]);
+}
+
+#[test]
+fn tracks_are_ordered_by_a_list_of_languages() {
+    let tracks = four_audio(); // ita, eng, fre, eng
+    let langs = |l: &[&str]| -> Vec<String> { l.iter().map(|s| s.to_string()).collect() };
+    assert_eq!(order_by_languages(&tracks, &langs(&["eng", "ita"])), [2, 4, 1, 3]);
+    assert_eq!(order_by_languages(&tracks, &langs(&["fre"])), [3, 1, 2, 4]);
+    assert_eq!(order_by_languages(&tracks, &langs(&["ger"])), [1, 2, 3, 4]); // none present: unchanged
+    assert_eq!(order_by_languages(&tracks, &[]), [1, 2, 3, 4]);
+}
+
+#[test]
+fn an_order_is_numbers_from_one_none_twice() {
+    assert_eq!(crate::parse_order("2,1,3"), Ok(vec![2, 1, 3]));
+    assert_eq!(crate::parse_order(" 2 , 1 "), Ok(vec![2, 1]));
+    for bad in ["", "0,1", "a", "1,,2", "-1,2"] {
+        assert!(crate::parse_order(bad).unwrap_err().contains("not an order of tracks"), "{bad}");
+    }
+    assert!(crate::parse_order("1,2,1").unwrap_err().contains("twice"));
+}
+
+#[test]
+fn a_renamed_file_is_followed_in_the_log() {
+    let dir = std::env::temp_dir().join(format!("fml-renamelog-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("log.jsonl").to_string_lossy().into_owned();
+    let (a, b, c) = (dir.join("a.mkv"), dir.join("b.mkv"), dir.join("c.mkv"));
+    let entry = |file: &std::path::Path, change: &str| {
+        serde_json::json!({"file": file.to_string_lossy(), "changes": [change], "backup": null}).to_string()
+    };
+    let other = "not json, kept as it is";
+    std::fs::write(&log, format!("{}\n{other}\n{}\n{}\n", entry(&a, "one"), entry(&b, "two"), entry(&a, "three"))).unwrap();
+    let changed = rename_in_log(&log, &a.to_string_lossy(), &c.to_string_lossy()).unwrap();
+    assert_eq!(changed, 2);
+    let text = std::fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], entry(&c, "one"));
+    assert_eq!(lines[1], other); // a line that is not an entry is left alone
+    assert_eq!(lines[2], entry(&b, "two")); // so is another file's entry
+    assert_eq!(lines[3], entry(&c, "three"));
+    assert!(text.ends_with('\n'));
+    assert!(!std::path::Path::new(&format!("{log}{TEMP_MARK}")).exists());
+    // nothing to change: the log is not rewritten; a log that is not there has no entries
+    let before = std::fs::metadata(&log).unwrap().modified().unwrap();
+    assert_eq!(rename_in_log(&log, &a.to_string_lossy(), &b.to_string_lossy()).unwrap(), 0);
+    assert_eq!(std::fs::metadata(&log).unwrap().modified().unwrap(), before);
+    assert_eq!(rename_in_log(&dir.join("none.jsonl").to_string_lossy(), "a", "b").unwrap(), 0);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn progress_follows_the_size_of_the_new_file() {
+    use std::sync::Mutex;
+    type Seen = Vec<(String, String, u64, u64)>;
+    let dir = std::env::temp_dir().join(format!("fml-progress-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("src.bin");
+    let temp = dir.join("new.bin");
+    std::fs::write(&source, vec![0u8; 1000]).unwrap();
+    let events: Arc<Mutex<Seen>> = Arc::default();
+    let collected = Arc::clone(&events);
+    let sink: Sink = Arc::new(move |event| {
+        if let Event::Progress { file, stage, done, total } = event {
+            collected.lock().unwrap().push((file, stage, done, total));
+        }
+    });
+    let fml = Fml::new(Config { progress: true, ..Config::default() }, sink);
+    let (s, t) = (source.to_string_lossy().into_owned(), temp.to_string_lossy().into_owned());
+    let outcome = fml.track_progress(&s, &s, &t, "Rewriting", || {
+        for step in 1..=4u64 {
+            std::fs::write(&temp, vec![0u8; (step * 400) as usize]).unwrap(); // more than the source
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        "done"
+    });
+    assert_eq!(outcome, "done");
+    let at_end = events.lock().unwrap().clone();
+    assert!(at_end.len() >= 3, "{at_end:?}");
+    assert!(at_end.iter().all(|(file, stage, _, total)| *file == s && stage == "Rewriting" && *total == 1000));
+    let done: Vec<u64> = at_end.iter().map(|e| e.2).collect();
+    assert!(done.windows(2).all(|w| w[0] <= w[1]), "{done:?}"); // never goes back
+    assert_eq!(*done.last().unwrap(), 1000); // capped at the size of the source
+    // the thread that looks at the file stopped with the work: nothing more arrives
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(events.lock().unwrap().len(), at_end.len());
+    // not asked for, or a dry run: nothing is sent
+    let quiet = Fml::new(Config::default(), Arc::new(|_| panic!("no progress was asked for")));
+    assert_eq!(quiet.track_progress(&s, &s, &t, "Rewriting", || 7), 7);
+    let dry = Config { progress: true, dryrun: true, ..Config::default() };
+    let dry = Fml::new(dry, Arc::new(|_| panic!("a dry run has no progress")));
+    assert_eq!(dry.track_progress(&s, &s, &t, "Rewriting", || 8), 8);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn install_uses_the_package_manager_of_the_system_once_per_package() {
+    use std::sync::Mutex;
+    let heard: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink_heard = Arc::clone(&heard);
+    let sink: Sink = Arc::new(move |event| match event {
+        Event::Note(text) | Event::Warn(text) => sink_heard.lock().unwrap().push(text),
+        _ => {}
+    });
+    let config = Config { dryrun: true, verbose: true, install: true, ..Config::default() };
+    let mut fml = Fml::new(config, sink);
+    let missing: Vec<String> = ["mkvmerge", "mkvpropedit", "mediainfo", "ffmpeg"].map(String::from).to_vec();
+    fml.installer = Some(Installer::Dnf);
+    fml.install_missing(&missing);
+    assert_eq!(*heard.lock().unwrap(), [
+        "Executing:\tsudo dnf install -y mkvtoolnix",
+        "Executing:\tsudo dnf install -y mediainfo",
+        "Executing:\tsudo dnf install -y ffmpeg-free",
+    ]); // mkvmerge and mkvpropedit are one package
+    heard.lock().unwrap().clear();
+    fml.installer = Some(Installer::Winget);
+    fml.install_missing(&missing[2..3].to_vec());
+    assert!(heard.lock().unwrap()[0].contains("winget install --id MediaArea.MediaInfo --exact"));
+    heard.lock().unwrap().clear();
+    fml.installer = None;
+    fml.install_missing(&missing[..1].to_vec());
+    assert!(heard.lock().unwrap()[0].starts_with("don't know how to install \"mkvtoolnix\" on this OS"));
 }

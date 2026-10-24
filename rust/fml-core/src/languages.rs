@@ -30,6 +30,12 @@ pub fn all() -> &'static [Row] {
     LANGUAGES
 }
 
+/// The ISO 639-2/B code of a language that is in the table (a name, or a two or three letter
+/// code), unlike `resolve_language`, which lets any three letter code through.
+pub fn known_language(text: &str) -> Option<String> {
+    index().get(&text.trim().to_lowercase()).map(|code| (*code).to_string())
+}
+
 /// Convert a language name or ISO 639 code to the ISO 639-2/B code `mkvmerge` uses.
 ///
 /// Names and two letter codes must be known. Any other three letter code is passed

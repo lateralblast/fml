@@ -2,6 +2,7 @@
 
 ## Todo
 
+- `--install` on Fedora, Arch and Windows has not been run for real: only the commands it would run are tested
 - `--preserve` can leave a file with no default track, when the track that is kept was not flagged default before
 - `mediainfo` does not report the forced flag that `ffmpeg` writes into an MP4, so `--set forced` is MKV only and `--forced` can't pick a forced subtitle in an MP4 reliably
 - A track name that starts with `-` must be written `--name=-text`, because `argparse` takes `--name -text` for an option
@@ -9,17 +10,27 @@
 - An interrupt (or `kill`) during `--jobs` waits for the files already being processed to finish before it exits
 - `--swap` only changes the default flag and never the order of the tracks (`--set ... --move` reorders), which the name does not suggest
 - A dry run with several actions plans each one from the file as it is now, so `--set lang --default X --swap lang --dryrun` does not show the second action's effect on the first
-- `--default none` is not supported for MP4 subtitles, because ffmpeg always enables the first track of the group
 - AVI files carry no language or default flag, so `--get lang` on AVI reports the first audio track (usually `und`), and the AVI `--swap` reorder could not be observed in testing (the test tracks were identical)
 - Only about 60 languages are built in; other names and two letter codes are rejected, and only three letter codes pass through, so a valid language outside the table needs its ISO 639-2 code
 - Actions that find nothing to do (no track in that language, a format that doesn't support the action) print a warning but exit 0, so a script cannot tell nothing was changed
-- `--default`, `--lang`, `--track` and the other settings are shared by every action in one command, so two actions that need different values (`--set lang --default X` and `--delete lang --lang Y`) must be run as separate commands
-- `--install` only knows apt on Ubuntu and brew on macOS, and warns on other systems
 
 ## In Progress
 
+
 ## Done
 
+- `--install` only knew apt on Ubuntu and brew on macOS, and warned on other systems (fixed in 1.0.2: Debian, Fedora and Arch families, winget and Chocolatey; installs on those systems not yet run)
+- `--default none` was not supported for MP4 subtitles, because ffmpeg always enables the first track of the group (fixed in 1.0.1: the track header flag is changed in a copy of the file)
+- `--default`, `--lang`, `--track` and the other settings were shared by every action in one command, so two actions that needed different values had to be separate commands (fixed in 1.0.0: settings belong to the action they follow)
+- Renaming a file from the Edit dialog breaks `--undo` for changes logged before the rename, because the log has the old path (fixed in 0.9.6)
+- A subtitle track can be added but not taken out to a file (fixed in 0.9.5)
+- The app's preview is a list of messages, with no before and after track table (fixed in 0.9.4)
+- No preview of what `--preserve` would leave in a file's Edit dialog (fixed in 0.9.3)
+- A subtitle file can only be added to an MKV, not an MP4 (fixed in 0.9.2)
+- A track's language, name and forced flag can't be changed from the Edit dialog (fixed in 0.9.1)
+- Subtitle files can only be added one file at a time, with the language chosen by hand (fixed in 0.9.0)
+- A reorder or removal made in a file's Edit dialog applies to that file only; a whole season needs the same change on every file (fixed in 0.8.9)
+- Reordering tracks leaves the default flag on the old first track, so a player that plays the first track and one that follows the flag disagree (fixed in 0.8.8, `--default-first`)
 - Rewriting an MP4 with `ffmpeg` lost track names that its demuxer cannot read, and the check before replacing the original did not look at names (fixed in 0.6.6 and 0.6.8)
 - Removing the default track left a file with no default audio track (fixed in 0.6.7)
 

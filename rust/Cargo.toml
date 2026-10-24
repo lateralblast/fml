@@ -5,7 +5,7 @@ members = ["fml-core", "fml-cli", "fml-gui"]
 default-members = ["fml-core", "fml-cli"]
 
 [workspace.package]
-version = "0.7.7"
+version = "1.0.2"
 edition = "2021"
 license = "CC-BY-NC-SA-4.0"
 authors = ["Richard Spindler <richard@lateralblast.com.au>"]
@@ -16,3 +16,4 @@ serde_json = { version = "1", features = ["preserve_order"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
+unicode-normalization = "0.1"

@@ -12,15 +12,22 @@
 
 mod engine;
 pub mod languages;
+mod install;
 mod language_table;
 pub mod model;
+pub mod mp4;
+pub mod subtitles;
 pub mod track;
 pub mod util;
 mod validate;
 
-pub use engine::{abspath, default_edits, info_text, pattern_hit, reordered, Fml, RunEnd};
+pub use engine::{
+    abspath, default_edits, info_text, order_by_languages, rename_in_log, subtitle_extension, pattern_hit, reordered, reordered_by, Fml,
+    RunEnd,
+};
 pub use model::*;
-pub use validate::validate;
-pub use track::{format_tracks, human_size, Kind, Track};
+pub use install::{detect_installer, linux_installer, Installer};
+pub use validate::{parse_order, validate};
+pub use track::{format_tracks, human_size, Kind, Track, TrackSpec};
 
-pub const VERSION: &str = "0.7.7";
+pub const VERSION: &str = "1.0.2";

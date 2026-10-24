@@ -54,6 +54,49 @@ impl Kind {
     }
 }
 
+/// What `--track` names: a position among the tracks of the kind being worked on, or one
+/// track of any kind by its place (`subtitles:18`), its ID (`id:20`) or its name (`name:Forced`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrackSpec {
+    /// Position from 1 among the tracks of the kind being worked on.
+    Number(usize),
+    /// The last track of the kind being worked on.
+    Last,
+    /// Position from 1 among the tracks of the given kind (`None` is the last one).
+    Of(Kind, Option<usize>),
+    /// The track ID, as `--info` and `mkvmerge` show it.
+    Id(i64),
+    /// The track name, ignoring case.
+    Name(String),
+}
+
+impl TrackSpec {
+    pub fn parse(text: &str) -> Result<TrackSpec, String> {
+        let bad = || format!("\"{text}\" is not a track number (from 1), \"last\", audio:N, subtitles:N, id:N or name:TEXT");
+        let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+        let position = |s: &str| if digits(s) { s.parse::<usize>().ok().filter(|n| *n >= 1) } else { None };
+        if text == "last" {
+            return Ok(TrackSpec::Last);
+        }
+        if let Some(n) = position(text) {
+            return Ok(TrackSpec::Number(n));
+        }
+        let Some((head, rest)) = text.split_once(':') else { return Err(bad()) };
+        match head.to_lowercase().as_str() {
+            "id" if digits(rest) => rest.parse().map(TrackSpec::Id).map_err(|_| bad()),
+            "name" if !rest.is_empty() => Ok(TrackSpec::Name(rest.to_string())),
+            other => {
+                let kind = if other == "video" { Some(Kind::Video) } else { Kind::parse(other) };
+                match (kind, rest) {
+                    (Some(kind), "last") => Ok(TrackSpec::Of(kind, None)),
+                    (Some(kind), _) => position(rest).map(|n| TrackSpec::Of(kind, Some(n))).ok_or_else(bad),
+                    _ => Err(bad()),
+                }
+            }
+        }
+    }
+}
+
 /// A track in a media file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Track {

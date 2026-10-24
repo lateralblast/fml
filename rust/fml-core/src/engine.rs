@@ -14,11 +14,13 @@ use std::sync::{mpsc, Arc, Mutex};
 use serde_json::{json, Value};
 
 use crate::model::*;
+use crate::install::{detect_installer, Installer};
+use crate::mp4;
 use crate::track::{
-    format_tracks, human_size, parse_mediainfo_tracks, parse_mkv_tracks, Kind, Track,
+    format_tracks, human_size, parse_mediainfo_tracks, parse_mkv_tracks, Kind, Track, TrackSpec,
 };
 use crate::util::{
-    copy_file, copy_stat, detect_distro, detect_kind, disk_free, fnmatch, run_command,
+    copy_file, copy_stat, detect_kind, disk_free, fnmatch, run_command,
     shell_join, strerror, which, Completed, Ran,
 };
 use crate::VERSION;
@@ -51,8 +53,8 @@ pub struct Fml {
     pub config: Config,
     shared: Arc<Shared>,
     sink: Sink,
-    os_name: &'static str,
-    distro: String,
+    /// What `--install` uses on this system, if it is known.
+    installer: Option<Installer>,
 }
 
 fn skip(mut result: Outcome, message: &str) -> Outcome {
@@ -106,19 +108,59 @@ fn args(items: &[&str]) -> Vec<String> {
 
 /// The tracks, with the one being moved put at a place among its kind.
 pub fn reordered(all: &[Track], moving: Option<&Track>, to: usize) -> Vec<Track> {
+    match moving {
+        Some(moving) => reordered_by(all, &[(moving.clone(), to)]),
+        None => all.to_vec(),
+    }
+}
+
+/// The tracks, with each track in `moves` put at its place (from 1) among its kind, and the
+/// kind's other tracks filling the places left, in their old order. A place past the end is
+/// the last; two tracks wanting one place get the next free one.
+pub fn reordered_by(all: &[Track], moves: &[(Track, usize)]) -> Vec<Track> {
     let mut tracks = all.to_vec();
-    if let Some(moving) = moving {
-        tracks.retain(|t| t.key() != moving.key());
-        let rest: Vec<&Track> = tracks.iter().filter(|t| t.kind == moving.kind).collect();
-        let position = |t: &Track| tracks.iter().position(|x| x.key() == t.key()).unwrap_or(0);
-        let at = if to >= 1 && to - 1 < rest.len() {
-            position(rest[to - 1])
-        } else {
-            rest.last().map_or(tracks.len(), |last| position(last) + 1)
-        };
-        tracks.insert(at, moving.clone());
+    let mut kinds: Vec<Kind> = Vec::new();
+    for (track, _) in moves {
+        if !kinds.contains(&track.kind) {
+            kinds.push(track.kind);
+        }
+    }
+    for kind in kinds {
+        let slots: Vec<usize> =
+            tracks.iter().enumerate().filter(|(_, t)| t.kind == kind).map(|(i, _)| i).collect();
+        let count = slots.len();
+        let mut placed: Vec<Option<Track>> = vec![None; count];
+        let mut moving: Vec<(Kind, usize)> = Vec::new();
+        for (track, to) in moves.iter().filter(|(t, _)| t.kind == kind) {
+            let want = (*to).clamp(1, count.max(1)) - 1;
+            if let Some(at) = (want..count).chain(0..want).find(|i| placed[*i].is_none()) {
+                placed[at] = Some(track.clone());
+                moving.push(track.key());
+            }
+        }
+        let mut rest = tracks
+            .iter()
+            .filter(|t| t.kind == kind && !moving.contains(&t.key()))
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter();
+        for (slot, track) in slots.iter().zip(placed) {
+            if let Some(track) = track.or_else(|| rest.next()) {
+                tracks[*slot] = track;
+            }
+        }
     }
     tracks
+}
+
+/// The track numbers of a kind put in the order of a list of languages: the tracks in the
+/// first language, then those in the second, and so on, then the rest; each group in its
+/// old order.
+pub fn order_by_languages(tracks: &[Track], languages: &[String]) -> Vec<usize> {
+    let rank = |t: &Track| languages.iter().position(|l| *l == t.language).unwrap_or(languages.len());
+    let mut sorted: Vec<&Track> = tracks.iter().collect();
+    sorted.sort_by_key(|t| rank(t)); // stable
+    sorted.iter().map(|t| t.number).collect()
 }
 
 /// The edits that make one track the only default (none if `chosen` is `None`), give it
@@ -148,8 +190,9 @@ pub fn default_edits(
     edits
 }
 
-fn moving_edit(edits: &[Edit]) -> Option<&Edit> {
-    edits.iter().find(|edit| edit.move_to.is_some())
+/// The tracks the edits move, with the place each goes to.
+fn moves_of(edits: &[Edit]) -> Vec<(Track, usize)> {
+    edits.iter().filter_map(|e| e.move_to.map(|to| (e.track.clone(), to))).collect()
 }
 
 /// The tracks of each kind, in the order they will have in the new file; `replaced`
@@ -193,6 +236,73 @@ fn name_args(
     out
 }
 
+/// Point the entries of a `--log` file that are about `from` at `to`, after the file was renamed,
+/// so that `--undo` still finds it. Other lines are kept as they are. The log is rewritten
+/// through a temporary file, so it is never left half written. Returns how many entries were
+/// changed; a log that does not exist has none.
+pub fn rename_in_log(log: &str, from: &str, to: &str) -> io::Result<usize> {
+    let text = match fs::read_to_string(log) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error),
+    };
+    let (from, to) = (abspath(from), abspath(to));
+    let mut changed = 0;
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| match serde_json::from_str::<Value>(line) {
+            Ok(Value::Object(mut entry)) if entry.get("file").and_then(Value::as_str) == Some(&from) => {
+                entry.insert("file".to_string(), json!(to));
+                changed += 1;
+                Value::Object(entry).to_string()
+            }
+            _ => line.to_string(),
+        })
+        .collect();
+    if changed > 0 {
+        let temp_file = format!("{log}{TEMP_MARK}");
+        let mut out = lines.join("\n");
+        if text.ends_with('\n') {
+            out.push('\n');
+        }
+        let written = fs::write(&temp_file, out)
+            .and_then(|()| copy_stat(Path::new(log), Path::new(&temp_file)))
+            .and_then(|()| fs::rename(&temp_file, log));
+        if let Err(error) = written {
+            let _ = fs::remove_file(&temp_file);
+            return Err(error);
+        }
+    }
+    Ok(changed)
+}
+
+/// The tracks before and after a change, for a front end that shows what it does. It goes in the
+/// result's `data` as `{"layout": {"before": [...], "after": [...]}}`.
+fn layout_data(before: &[Track], after: &[Track]) -> Value {
+    json!({"layout": {"before": before, "after": after}})
+}
+
+/// The extension a subtitle track of this codec is extracted with, or `None` if it can't be
+/// extracted to a single file (VobSub is two files). A text subtitle in an MP4 is written as `.srt`.
+pub fn subtitle_extension(container: Container, codec: &str) -> Option<&'static str> {
+    let codec = codec.to_lowercase();
+    if container == Container::Mp4 {
+        return (codec.contains("timed text") || codec.contains("tx3g") || codec.contains("mov_text"))
+            .then_some("srt");
+    }
+    if codec.contains("subrip") || codec.contains("srt") {
+        Some("srt")
+    } else if codec.contains("substation") {
+        Some("ass")
+    } else if codec.contains("webvtt") {
+        Some("vtt")
+    } else if codec.contains("pgs") {
+        Some("sup")
+    } else {
+        None
+    }
+}
+
 /// The track that becomes the default when the default is removed.
 ///
 /// If none of the tracks left has the default flag, the first one gets it. That is
@@ -207,11 +317,18 @@ fn promotion(container: Container, survivors: &[Track]) -> Option<Track> {
     (first.kind == Kind::Audio || container == Container::Mp4).then(|| first.clone())
 }
 
+/// A track name as comparable text: mkvtoolnix on macOS stores text in decomposed form
+/// (`c` and a combining cedilla for `ç`), so the name read back is not byte for byte the name given.
+fn same_name(a: &str, b: &str) -> bool {
+    use unicode_normalization::UnicodeNormalization;
+    a.trim().nfc().eq(b.trim().nfc())
+}
+
 fn same_state(first: &[Track], second: &[Track]) -> bool {
     first.len() == second.len()
         && first.iter().zip(second).all(|(a, b)| {
-            (a.kind, &a.language, a.default, a.forced, &a.name)
-                == (b.kind, &b.language, b.default, b.forced, &b.name)
+            (a.kind, &a.language, a.default, a.forced) == (b.kind, &b.language, b.default, b.forced)
+                && same_name(&a.name, &b.name)
         })
 }
 
@@ -249,13 +366,17 @@ fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
 
 impl Fml {
     pub fn new(config: Config, sink: Sink) -> Fml {
-        let os_name = match std::env::consts::OS {
-            "linux" => "Linux",
-            "macos" => "Darwin",
-            other => other,
-        };
-        let distro = if os_name == "Linux" { detect_distro() } else { String::new() };
-        Fml { config, shared: Arc::new(Shared::default()), sink, os_name, distro }
+        Fml { config, shared: Arc::new(Shared::default()), sink, installer: detect_installer() }
+    }
+
+    /// The same engine, with the settings of one action on top of its own.
+    fn for_task(&self, task: &Task) -> Fml {
+        Fml {
+            config: self.config.for_task(task),
+            shared: Arc::clone(&self.shared),
+            sink: Arc::clone(&self.sink),
+            installer: self.installer,
+        }
     }
 
     /// The same engine, working on another kind of track.
@@ -266,8 +387,7 @@ impl Fml {
             config,
             shared: Arc::clone(&self.shared),
             sink: Arc::clone(&self.sink),
-            os_name: self.os_name,
-            distro: self.distro.clone(),
+            installer: self.installer,
         }
     }
 
@@ -334,17 +454,17 @@ impl Fml {
     // Environment --------------------------------------------------------------
 
     fn install_package(&self, package: &str) {
-        let cmd = if self.os_name == "Linux" && self.distro == "Ubuntu" {
-            args(&["sudo", "apt", "install", "-y", package])
-        } else if self.os_name == "Darwin" {
-            args(&["brew", "install", package])
-        } else {
-            self.warn(&format!("don't know how to install \"{package}\" on this OS"));
+        let Some(installer) = self.installer else {
+            let hint = if cfg!(windows) { " (install winget or Chocolatey)" } else { "" };
+            self.warn(&format!("don't know how to install \"{package}\" on this OS{hint}"));
             return;
         };
+        let cmd = installer.command(package);
         self.note(&format!("Executing:\t{}", shell_join(&cmd)));
         if !self.config.dryrun {
-            let _ = Command::new(&cmd[0]).args(&cmd[1..]).status();
+            // found through PATHEXT on Windows (winget is winget.exe)
+            let program = which(&cmd[0]).unwrap_or_else(|| PathBuf::from(&cmd[0]));
+            let _ = Command::new(program).args(&cmd[1..]).status();
         }
     }
 
@@ -357,6 +477,10 @@ impl Fml {
                     self.install_package(package);
                 }
             }
+        }
+        // the installers change PATH for programs started later, not for this one
+        if !self.config.dryrun && !done.is_empty() {
+            crate::util::add_tool_folders();
         }
     }
 
@@ -511,21 +635,77 @@ impl Fml {
 
     /// The track chosen with --track (the first if none was).
     fn resolve_track(&self, media: &mut Media, result: &mut Outcome) -> Res<Option<Track>> {
-        let tracks = self.selected(media)?;
-        let wanted = if self.config.track.is_empty() { "1" } else { self.config.track.as_str() };
-        let number = if wanted == "last" { tracks.len() } else { wanted.parse().unwrap_or(0) };
-        if number < 1 || number > tracks.len() {
+        let Some(track) = self.resolve_any_track(media, result)? else { return Ok(None) };
+        if track.kind != self.kind() {
             mark_skipped(
                 result,
                 &format!(
-                    "has no {w} track {wanted} ({n} {w} tracks)",
-                    w = self.word(),
-                    n = tracks.len()
+                    "{} is a {} track, not {} (use --kind {})",
+                    self.config.track,
+                    track.kind.word(),
+                    self.word(),
+                    track.kind.name()
                 ),
             );
             return Ok(None);
         }
-        Ok(Some(tracks[number - 1].clone()))
+        Ok(Some(track))
+    }
+
+    /// The track chosen with --track, of whatever kind: a position among the tracks of the kind
+    /// being worked on, or `audio:N`/`subtitles:N`, `id:N` or `name:TEXT`.
+    fn resolve_any_track(&self, media: &mut Media, result: &mut Outcome) -> Res<Option<Track>> {
+        let all = self.tracks(media)?;
+        let text = if self.config.track.is_empty() { "1" } else { self.config.track.as_str() };
+        let spec = match TrackSpec::parse(text) {
+            Ok(spec) => spec,
+            Err(message) => {
+                mark_skipped(result, &message);
+                return Ok(None);
+            }
+        };
+        let of_kind = |kind: Kind| -> Vec<Track> { all.iter().filter(|t| t.kind == kind).cloned().collect() };
+        let by_position = |kind: Kind, wanted: Option<usize>| -> Result<Track, String> {
+            let tracks = of_kind(kind);
+            let number = wanted.unwrap_or(tracks.len());
+            if number < 1 || number > tracks.len() {
+                return Err(format!(
+                    "has no {w} track {text} ({n} {w} tracks)",
+                    w = kind.word(),
+                    n = tracks.len()
+                ));
+            }
+            Ok(tracks[number - 1].clone())
+        };
+        let found = match &spec {
+            TrackSpec::Number(n) => by_position(self.kind(), Some(*n)),
+            TrackSpec::Last => by_position(self.kind(), None),
+            TrackSpec::Of(kind, n) => by_position(*kind, *n),
+            TrackSpec::Id(id) => all
+                .iter()
+                .find(|t| t.id == *id)
+                .cloned()
+                .ok_or_else(|| format!("has no track with ID {id}")),
+            TrackSpec::Name(name) => {
+                let hits: Vec<&Track> =
+                    all.iter().filter(|t| t.name.to_lowercase() == name.to_lowercase()).collect();
+                match hits.len() {
+                    0 => Err(format!("has no track named \"{name}\"")),
+                    1 => Ok(hits[0].clone()),
+                    n => Err(format!(
+                        "has {n} tracks named \"{name}\" (choose one with id:N, for ID {})",
+                        hits.iter().map(|t| t.id.to_string()).collect::<Vec<_>>().join(", ")
+                    )),
+                }
+            }
+        };
+        match found {
+            Ok(track) => Ok(Some(track)),
+            Err(message) => {
+                mark_skipped(result, &message);
+                Ok(None)
+            }
+        }
     }
 
     /// Check there is room beside a file to work on a copy of it as big as the file.
@@ -577,6 +757,47 @@ impl Fml {
     }
 
     /// Copy a file, so the copy can be changed and swapped in if that works.
+    /// Run `work`, which writes `temp_file`, and while it does tell the front end how big the
+    /// file has got compared with `source` (a copy, rewrite or removal makes a file about that
+    /// size). It tells nothing unless asked (`Config::progress`) or in a dry run.
+    fn track_progress<T>(&self, file: &str, source: &str, temp_file: &str, stage: &str, work: impl FnOnce() -> T) -> T {
+        if !self.config.progress || self.config.dryrun {
+            return work();
+        }
+        let total = fs::metadata(source).map(|m| m.len()).unwrap_or(0);
+        let stop = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !stop.load(Ordering::SeqCst) {
+                    let done = fs::metadata(temp_file).map(|m| m.len()).unwrap_or(0);
+                    (self.sink)(Event::Progress {
+                        file: file.to_string(),
+                        stage: stage.to_string(),
+                        done: done.min(total),
+                        total,
+                    });
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            });
+            let outcome = work();
+            stop.store(true, Ordering::SeqCst);
+            outcome
+        })
+    }
+
+    /// `apply` for a command that writes `temp_file` from `source`, with progress.
+    fn apply_tracked(
+        &self,
+        result: &mut Outcome,
+        cmd: Vec<String>,
+        ok_codes: &[i32],
+        source: &str,
+        temp_file: &str,
+        stage: &str,
+    ) -> Res<bool> {
+        self.track_progress(source, source, temp_file, stage, || self.apply(result, cmd, ok_codes))
+    }
+
     fn start_copy(&self, result: &mut Outcome, path: &str, temp_file: &str) -> Res<bool> {
         if !self.check_space(result, path, "copy the file (use --in-place to edit it directly)") {
             return Ok(false);
@@ -586,7 +807,10 @@ impl Fml {
         if self.config.dryrun {
             return Ok(true);
         }
-        match copy_file(Path::new(path), Path::new(temp_file)) {
+        let copied = self.track_progress(path, path, temp_file, "Copying", || {
+            copy_file(Path::new(path), Path::new(temp_file))
+        });
+        match copied {
             Ok(()) => Ok(true),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => Err(Stop::Interrupted),
             Err(error) => {
@@ -721,11 +945,9 @@ impl Fml {
 
     /// The tracks the file should have after the edits.
     fn expected_layout(&self, all: &[Track], edits: &[Edit]) -> Vec<Track> {
-        let mover = moving_edit(edits);
         let by_track: HashMap<(Kind, usize), &Edit> =
             edits.iter().map(|e| (e.track.key(), e)).collect();
-        let to = mover.and_then(|m| m.move_to).unwrap_or(1);
-        reordered(all, mover.map(|m| &m.track), to)
+        reordered_by(all, &moves_of(edits))
             .into_iter()
             .map(|mut track| {
                 if let Some(edit) = by_track.get(&track.key()) {
@@ -763,7 +985,7 @@ impl Fml {
             || actual.iter().zip(expected).any(|(got, want)| {
                 got.kind != want.kind
                     || got.language != want.language
-                    || got.name.trim() != want.name.trim()
+                    || !same_name(&got.name, &want.name)
                     || (rewritten.container == Container::Mkv && got.forced != want.forced)
                     || (want.kind == self.kind() && got.default != want.default)
             });
@@ -792,12 +1014,19 @@ impl Fml {
             return Ok(result);
         }
         result.changes.extend(edits.iter().map(Edit::describe));
-        let mover = moving_edit(&edits).cloned();
-        let moving = mover.as_ref().map(|m| m.track.clone());
-        if let Some(mover) = &mover {
-            result.moved_from = mover.track.number;
+        let moves = moves_of(&edits);
+        if let [(track, _)] = moves.as_slice() {
+            result.moved_from = track.number;
+        } else if !moves.is_empty() {
+            // several tracks move: the log keeps the old number of each track, in the new order
+            let all = self.tracks(media)?;
+            result.order = reordered_by(&all, &moves)
+                .iter()
+                .filter(|t| t.kind == self.kind())
+                .map(|t| t.number)
+                .collect();
         }
-        if media.container == Container::Mkv && moving.is_none() {
+        if media.container == Container::Mkv && moves.is_empty() {
             return self.edit_mkv(media, result, &edits);
         }
         if !self.check_space(&mut result, &media.path, "rewrite the file") {
@@ -805,21 +1034,70 @@ impl Fml {
         }
         let all = self.tracks(media)?;
         let expected = self.expected_layout(&all, &edits);
+        result.data = layout_data(&all, &expected);
         let (temp_file, cmd, tool, ok): (String, Vec<String>, &str, &[i32]) =
             if media.container == Container::Mkv {
                 let temp_file = format!("{}{TEMP_MARK}", media.path);
-                let cmd = self.mkvmerge_command(media, &all, &edits, moving.as_ref(), &temp_file);
+                let cmd = self.mkvmerge_command(media, &all, &edits, &temp_file);
                 (temp_file, cmd, "mkvmerge", MKVMERGE_OK)
             } else {
                 let temp_file = temp_path(&media.path);
-                let cmd = self.ffmpeg_command(media, &all, &edits, moving.as_ref(), &temp_file);
+                let cmd = self.ffmpeg_command(media, &all, &edits, &temp_file);
                 (temp_file, cmd, "ffmpeg", &[0])
             };
         self.pend(&temp_file);
-        let done = self.apply(&mut result, cmd, ok)?;
+        let done = self.apply_tracked(&mut result, cmd, ok, &media.path, &temp_file, "Rewriting")?;
         if done && !self.config.dryrun {
             let rewritten = Media::new(&temp_file, media.container);
             self.verify_layout(&mut result, &rewritten, &expected, tool)?;
+        }
+        self.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
+    /// Change the default flags of an MP4 by changing the "enabled" bit in the track headers of a copy
+    /// of the file, which `ffmpeg` can't do (it enables the first track of each kind again). Nothing
+    /// is rewritten, so it is as quick as a copy; the copy is read back before it replaces the file.
+    fn edit_mp4_flags(
+        &self,
+        media: &mut Media,
+        mut result: Outcome,
+        edits: Vec<Edit>,
+        unchanged: &str,
+    ) -> Res<Outcome> {
+        if edits.is_empty() {
+            result.status = Status::Unchanged;
+            result.message = unchanged.to_string();
+            return Ok(result);
+        }
+        result.changes.extend(edits.iter().map(Edit::describe));
+        let all = self.tracks(media)?;
+        let expected = self.expected_layout(&all, &edits);
+        result.data = layout_data(&all, &expected);
+        let temp_file = temp_path(&media.path);
+        if !self.start_copy(&mut result, &media.path, &temp_file)? {
+            return Ok(result);
+        }
+        self.note(&format!("Patching:\tthe enabled bit of {} track header(s) in {temp_file}", edits.len()));
+        if !self.config.dryrun {
+            let patched = mp4::read_track_flags(Path::new(&temp_file)).and_then(|flags| {
+                let mut changes = Vec::new();
+                for edit in &edits {
+                    let Some(flag) = flags.iter().find(|f| f.kind == edit.track.kind && f.number == edit.track.number)
+                    else {
+                        return Err(io::Error::new(io::ErrorKind::InvalidData, "a track was not found in the file"));
+                    };
+                    changes.push((flag.offset, edit.default.unwrap_or(flag.enabled)));
+                }
+                mp4::set_enabled(Path::new(&temp_file), &changes)
+            });
+            match patched {
+                Ok(()) => {
+                    let rewritten = Media::new(&temp_file, media.container);
+                    self.verify_layout(&mut result, &rewritten, &expected, "the flag change")?;
+                }
+                Err(error) => result.error(format!("could not change the track flags: {}", strerror(&error))),
+            }
         }
         self.replace_file(&mut result, &temp_file, &media.path)?;
         Ok(result.finish())
@@ -864,9 +1142,10 @@ impl Fml {
         if !self.start_copy(&mut result, &media.path, &temp_file)? {
             return Ok(result);
         }
+        let all = self.tracks(media)?;
+        let expected = self.expected_layout(&all, edits);
+        result.data = layout_data(&all, &expected);
         if self.apply(&mut result, command(&temp_file), &[0])? && !self.config.dryrun {
-            let all = self.tracks(media)?;
-            let expected = self.expected_layout(&all, edits);
             let rewritten = Media::new(&temp_file, media.container);
             self.verify_layout(&mut result, &rewritten, &expected, "mkvpropedit")?;
         }
@@ -880,11 +1159,9 @@ impl Fml {
         media: &Media,
         all: &[Track],
         edits: &[Edit],
-        moving: Option<&Track>,
         temp_file: &str,
     ) -> Vec<String> {
-        let to = moving_edit(edits).and_then(|m| m.move_to).unwrap_or(1);
-        let order = reordered(all, moving, to);
+        let order = reordered_by(all, &moves_of(edits));
         let order_text =
             order.iter().map(|t| format!("0:{}", t.id)).collect::<Vec<_>>().join(",");
         let mut cmd = args(&["mkvmerge", "-o", temp_file, "--track-order", &order_text]);
@@ -914,16 +1191,15 @@ impl Fml {
         media: &Media,
         all: &[Track],
         edits: &[Edit],
-        moving: Option<&Track>,
         temp_file: &str,
     ) -> Vec<String> {
         let selector = self.kind().selector();
         let tracks: Vec<Track> = all.iter().filter(|t| t.kind == self.kind()).cloned().collect();
         let mut order = tracks.clone();
         let mut maps = args(&["-map", "0"]);
-        if let Some(moving) = moving {
-            let to = moving_edit(edits).and_then(|m| m.move_to).unwrap_or(1);
-            order = reordered(all, Some(moving), to)
+        let moves = moves_of(edits);
+        if !moves.is_empty() {
+            order = reordered_by(all, &moves)
                 .into_iter()
                 .filter(|t| t.kind == self.kind())
                 .collect();
@@ -1020,6 +1296,7 @@ impl Fml {
                 t
             })
             .collect();
+        result.data = layout_data(&all, &expected);
         let (temp_file, cmd, tool, ok): (String, Vec<String>, &str, &[i32]) =
             if media.container == Container::Mkv {
                 let ids = remove.iter().map(|t| t.id.to_string()).collect::<Vec<_>>().join(",");
@@ -1052,7 +1329,7 @@ impl Fml {
                 (temp_file, cmd, "ffmpeg", &[0])
             };
         self.pend(&temp_file);
-        let done = self.apply(&mut result, cmd, ok)?;
+        let done = self.apply_tracked(&mut result, cmd, ok, &media.path, &temp_file, "Rewriting")?;
         if done && !self.config.dryrun {
             let rewritten = Media::new(&temp_file, media.container);
             self.verify_layout(&mut result, &rewritten, &expected, tool)?;
@@ -1102,6 +1379,46 @@ impl Fml {
         if matches!(what, "name" | "forced" | "unforced") {
             return self.set_track_property(media, result, what);
         }
+        if what == "track" {
+            return self.set_track(media, result);
+        }
+        if what == "order" {
+            let wanted = if self.config.order_lang.is_empty() {
+                self.config.order.clone()
+            } else {
+                order_by_languages(&tracks, &self.config.order_lang)
+            };
+            let mut sorted = wanted.clone();
+            sorted.sort_unstable();
+            if sorted != (1..=tracks.len()).collect::<Vec<_>>() {
+                let message = format!(
+                    "--order must list each of the {} {} tracks once",
+                    tracks.len(),
+                    self.word()
+                );
+                return Ok(skip(result, &message));
+            }
+            let mut edits: Vec<Edit> = Vec::new();
+            for (place, number) in wanted.iter().enumerate() {
+                let track = &tracks[number - 1];
+                let mut edit = Edit::new(track);
+                if *number != place + 1 {
+                    edit.move_to = Some(place + 1);
+                }
+                if self.config.default_first && track.default != (place == 0) {
+                    edit.default = Some(place == 0);
+                }
+                if edit.move_to.is_some() || edit.default.is_some() {
+                    edits.push(edit);
+                }
+            }
+            let unchanged = format!(
+                "{} tracks are already in that order{}",
+                self.word(),
+                if self.config.default_first { " and the first is the default" } else { "" }
+            );
+            return self.edit_tracks(media, result, edits, &unchanged);
+        }
         if what == "default" {
             let Some(track) = self.resolve_track(media, &mut result)? else { return Ok(result) };
             let lang = self.config.lang.clone();
@@ -1139,7 +1456,7 @@ impl Fml {
         let (changed, unchanged);
         if what == "name" {
             let wanted = self.config.name.clone().unwrap_or_default();
-            changed = track.name != wanted;
+            changed = !same_name(&track.name, &wanted);
             unchanged = if wanted.is_empty() {
                 format!("{} has no name", track.label())
             } else {
@@ -1160,14 +1477,47 @@ impl Fml {
         self.edit_tracks(media, result, edits, &unchanged)
     }
 
+    /// Change the language, name and forced flag of one track (`--track`) together, in one
+    /// edit of the file; only what is given (`--lang`, `--name`, `--forced-flag`) is touched.
+    fn set_track(&self, media: &mut Media, result: Outcome) -> Res<Outcome> {
+        if self.config.forced_flag.is_some() && media.container != Container::Mkv {
+            return Ok(skip(
+                result,
+                "the forced flag can only be set for MKV files (mediainfo cannot read it from \
+                 an MP4 to check the change)",
+            ));
+        }
+        let mut result = result;
+        let Some(track) = self.resolve_track(media, &mut result)? else { return Ok(result) };
+        let mut edit = Edit::new(&track);
+        if !self.config.lang.is_empty() && track.language != self.config.lang {
+            edit.language = Some(self.config.lang.clone());
+        }
+        if let Some(name) = &self.config.name {
+            if !same_name(&track.name, name) {
+                edit.name = Some(name.clone());
+            }
+        }
+        if let Some(forced) = self.config.forced_flag {
+            if track.forced != forced {
+                edit.forced = Some(forced);
+            }
+        }
+        let changed = edit.language.is_some() || edit.name.is_some() || edit.forced.is_some();
+        let unchanged = format!("{} is already as asked", track.label());
+        self.edit_tracks(media, result, if changed { vec![edit] } else { Vec::new() }, &unchanged)
+    }
+
     /// Make the first track in the (preferred) language the only default track.
     fn set_default_language(&self, media: &mut Media, result: Outcome, tracks: &[Track]) -> Res<Outcome> {
         if self.config.default == "none" {
-            if media.container == Container::Mp4 {
-                return Ok(skip(result, "MP4 files always have a default subtitle track"));
-            }
             let unchanged = format!("there is already no default {} track", self.word());
-            return self.edit_tracks(media, result, default_edits(tracks, None, "", false), &unchanged);
+            let edits = default_edits(tracks, None, "", false);
+            if media.container == Container::Mp4 {
+                // ffmpeg would enable the first track again, so the flags are changed in the file
+                return self.edit_mp4_flags(media, result, edits, &unchanged);
+            }
+            return self.edit_tracks(media, result, edits, &unchanged);
         }
         let languages = self.languages(&self.config.default);
         let Some((lang, track)) = self.choose(tracks, &languages) else {
@@ -1197,7 +1547,8 @@ impl Fml {
         let temp_file = temp_path(&media.path);
         self.pend(&temp_file);
         result.changes.push("audio tracks 1 and 2 swapped".to_string());
-        let mut expected = self.tracks(media)?;
+        let before = self.tracks(media)?;
+        let mut expected = before.clone();
         let audio_at: Vec<usize> = expected
             .iter()
             .enumerate()
@@ -1206,6 +1557,7 @@ impl Fml {
             .take(2)
             .collect();
         expected.swap(audio_at[0], audio_at[1]);
+        result.data = layout_data(&before, &expected);
         let mut cmd = vec!["ffmpeg".to_string()];
         cmd.extend(args(crate::model::FFMPEG_QUIET));
         cmd.extend(args(&[
@@ -1213,7 +1565,7 @@ impl Fml {
             "0:a:2?", "-map", "0:s?", "-disposition:a:0", "default", "-disposition:a:1", "none",
             "-c", "copy", &temp_file,
         ]));
-        let done = self.apply(&mut result, cmd, &[0])?;
+        let done = self.apply_tracked(&mut result, cmd, &[0], &media.path, &temp_file, "Rewriting")?;
         if done && !self.config.dryrun {
             let rewritten = Media::new(&temp_file, media.container);
             self.verify_layout(&mut result, &rewritten, &expected, "ffmpeg")?;
@@ -1225,8 +1577,11 @@ impl Fml {
     fn do_delete(&self, media: &mut Media, what: &str) -> Res<Outcome> {
         let mut result = self.result(media, "delete");
         if what == "track" {
-            let Some(track) = self.resolve_track(media, &mut result)? else { return Ok(result) };
-            return self.remove_tracks(media, result, vec![track]);
+            let Some(track) = self.resolve_any_track(media, &mut result)? else { return Ok(result) };
+            if track.kind == Kind::Video {
+                return Ok(skip(result, "removing a video track is not supported (audio and subtitles only)"));
+            }
+            return self.with_kind(track.kind).remove_tracks(media, result, vec![track]);
         }
         if media.container == Container::Avi {
             return Ok(skip(
@@ -1240,6 +1595,256 @@ impl Fml {
             .filter(|t| t.language == self.config.lang)
             .collect();
         self.remove_tracks(media, result, remove)
+    }
+
+    /// Add subtitle files to an MKV as new subtitle tracks, last among the subtitles, not default,
+    /// with the language (and name) each was given. mkvmerge writes a copy with the files added,
+    /// and the copy is read back before it replaces the original.
+    fn do_add(&self, media: &mut Media, _what: &str) -> Res<Outcome> {
+        let mut result = self.result(media, "add");
+        if media.container == Container::Avi {
+            return Ok(skip(result, "adding a subtitle is only supported for MKV and MP4 files"));
+        }
+        let specs: Vec<SubSpec> = if self.config.subtitles.is_empty() {
+            vec![SubSpec {
+                file: self.config.sub_file.clone(),
+                lang: self.config.lang.clone(),
+                name: self.config.name.clone().unwrap_or_default(),
+                forced: false,
+            }]
+        } else {
+            self.config.subtitles.clone()
+        };
+        let worker = self.with_kind(Kind::Subtitles);
+        let all = worker.tracks(media)?;
+        let mut number = all.iter().filter(|t| t.kind == Kind::Subtitles).count();
+        if media.container == Container::Mp4 {
+            if let Some(refusal) = Self::mp4_subtitle_refusal(&specs) {
+                return Ok(skip(result, &refusal));
+            }
+        }
+        if !worker.check_space(&mut result, &media.path, "rewrite the file") {
+            return Ok(result);
+        }
+        if media.container == Container::Mp4 {
+            return worker.add_to_mp4(media, result, &specs, &all);
+        }
+        let temp_file = format!("{}{TEMP_MARK}", media.path);
+        let mut cmd = args(&["mkvmerge", "-o", &temp_file, &media.path]);
+        let mut expected = all.clone();
+        for spec in &specs {
+            number += 1;
+            let new = Track {
+                id: expected.len() as i64,
+                kind: Kind::Subtitles,
+                number,
+                codec: String::new(),
+                language: spec.lang.clone(),
+                default: false,
+                forced: spec.forced,
+                name: spec.name.clone(),
+            };
+            let file_name = Path::new(&spec.file).file_name().map(|n| n.to_string_lossy().into_owned());
+            result.changes.push(format!(
+                "added {} ({}) from {}",
+                new.label(),
+                new.language,
+                file_name.unwrap_or_else(|| spec.file.clone())
+            ));
+            cmd.extend(args(&["--language", &format!("0:{}", new.language)]));
+            if !new.name.is_empty() {
+                cmd.extend(args(&["--track-name", &format!("0:{}", new.name)]));
+            }
+            cmd.extend(args(&[
+                "--default-track-flag",
+                "0:0",
+                "--forced-display-flag",
+                if spec.forced { "0:1" } else { "0:0" },
+            ]));
+            cmd.push(spec.file.clone());
+            expected.push(new);
+        }
+        result.data = layout_data(&all, &expected);
+        worker.pend(&temp_file);
+        let done = worker.apply_tracked(&mut result, cmd, MKVMERGE_OK, &media.path, &temp_file, "Rewriting")?;
+        if done && !self.config.dryrun {
+            let rewritten = Media::new(&temp_file, media.container);
+            worker.verify_layout(&mut result, &rewritten, &expected, "mkvmerge")?;
+        }
+        worker.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
+    /// Why a set of subtitle files can't be added to an MP4, if so: only text subtitles can be
+    /// converted to `mov_text`, and the forced flag of an MP4 can't be read back to check it.
+    fn mp4_subtitle_refusal(specs: &[SubSpec]) -> Option<String> {
+        for spec in specs {
+            let extension = Path::new(&spec.file)
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if !MP4_SUBTITLE_FILES.contains(&extension.as_str()) {
+                return Some(format!(
+                    "a .{extension} subtitle can't be added to an MP4 (only {} can be converted)",
+                    MP4_SUBTITLE_FILES.join(", ")
+                ));
+            }
+            if spec.forced {
+                return Some(
+                    "the forced flag can only be set for MKV files (mediainfo cannot read it from \
+                     an MP4 to check the change)"
+                        .into(),
+                );
+            }
+        }
+        None
+    }
+
+    /// Add subtitle files to an MP4, converted to `mov_text`, with `ffmpeg`. The names of all
+    /// the tracks are written back, as ffmpeg can't read them from an MP4, and the muxer makes the
+    /// first subtitle track default if none is, which the check expects.
+    fn add_to_mp4(&self, media: &mut Media, mut result: Outcome, specs: &[SubSpec], all: &[Track]) -> Res<Outcome> {
+        let first_new = all.iter().filter(|t| t.kind == Kind::Subtitles).count();
+        let mut subtitles: Vec<Track> = all.iter().filter(|t| t.kind == Kind::Subtitles).cloned().collect();
+        let mut cmd = vec!["ffmpeg".to_string()];
+        cmd.extend(args(crate::model::FFMPEG_QUIET));
+        cmd.extend(args(&["-i", &media.path]));
+        for spec in specs {
+            cmd.extend(args(&["-i", &spec.file]));
+        }
+        cmd.extend(args(&["-map", "0"]));
+        for index in 0..specs.len() {
+            cmd.extend(args(&["-map", &format!("{}:0", index + 1)]));
+        }
+        cmd.extend(args(&["-c", "copy"]));
+        for (index, spec) in specs.iter().enumerate() {
+            let place = first_new + index;
+            let new = Track {
+                id: (all.len() + index) as i64,
+                kind: Kind::Subtitles,
+                number: place + 1,
+                codec: String::new(),
+                language: spec.lang.clone(),
+                default: false,
+                forced: false,
+                name: spec.name.clone(),
+            };
+            let file_name = Path::new(&spec.file).file_name().map(|n| n.to_string_lossy().into_owned());
+            result.changes.push(format!(
+                "added {} ({}) from {}",
+                new.label(),
+                new.language,
+                file_name.unwrap_or_else(|| spec.file.clone())
+            ));
+            cmd.extend(args(&[&format!("-c:s:{place}"), "mov_text"]));
+            cmd.extend(args(&[&format!("-metadata:s:s:{place}"), &format!("language={}", spec.lang)]));
+            subtitles.push(new);
+        }
+        // the muxer makes the first subtitle track default when none is
+        if !subtitles.is_empty() && !subtitles.iter().any(|t| t.default) {
+            subtitles[0].default = true;
+        }
+        cmd.extend(name_args(&kept_tracks(all, Some((Kind::Subtitles, subtitles.clone()))), &HashMap::new()));
+        for index in 0..specs.len() {
+            let place = first_new + index;
+            if !subtitles[place].default {
+                cmd.extend(args(&[&format!("-disposition:s:{place}"), "0"]));
+            }
+        }
+        let temp_file = temp_path(&media.path);
+        cmd.extend(Self::ffmpeg_output(media, &temp_file));
+        let expected: Vec<Track> = all
+            .iter()
+            .filter(|t| t.kind != Kind::Subtitles)
+            .cloned()
+            .chain(subtitles)
+            .collect();
+        result.data = layout_data(all, &expected);
+        self.pend(&temp_file);
+        let done = self.apply_tracked(&mut result, cmd, &[0], &media.path, &temp_file, "Rewriting")?;
+        if done && !self.config.dryrun {
+            let rewritten = Media::new(&temp_file, media.container);
+            self.verify_layout(&mut result, &rewritten, &expected, "ffmpeg")?;
+        }
+        self.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
+    /// Write a subtitle track to a file of its own (`mkvextract` for an MKV, `ffmpeg` for an MP4,
+    /// as `.srt`). The media file is not changed. The file is written under a temporary name and
+    /// only given its own if the tool made something.
+    fn do_extract(&self, media: &mut Media, _what: &str) -> Res<Outcome> {
+        let mut result = self.result(media, "extract");
+        if media.container == Container::Avi {
+            return Ok(skip(result, "extracting a subtitle is only supported for MKV and MP4 files"));
+        }
+        let worker = self.with_kind(Kind::Subtitles);
+        let Some(track) = worker.resolve_track(media, &mut result)? else { return Ok(result) };
+        let Some(extension) = subtitle_extension(media.container, &track.codec) else {
+            let codec = if track.codec.is_empty() { "this".to_string() } else { track.codec.clone() };
+            return Ok(skip(result, &format!("a {codec} subtitle can't be extracted to a single file")));
+        };
+        if media.container == Container::Mkv && which("mkvextract").is_none() {
+            result.error("mkvextract is not installed (it comes with mkvtoolnix)".to_string());
+            return Ok(result);
+        }
+        let folder = Path::new(&media.path).parent().map(Path::to_path_buf).unwrap_or_default();
+        let wanted = self.config.output.trim();
+        let is_folder = wanted.ends_with(['/', '\\']) || Path::new(wanted).is_dir();
+        let explicit = !wanted.is_empty() && !is_folder;
+        let out: PathBuf = if explicit {
+            PathBuf::from(wanted)
+        } else {
+            let stem = Path::new(&media.path)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let name = format!(
+                "{stem}.{}{}.{extension}",
+                track.language,
+                if track.forced { ".forced" } else { "" }
+            );
+            if wanted.is_empty() { folder.join(name) } else { Path::new(wanted).join(name) }
+        };
+        let out_text = out.to_string_lossy().into_owned();
+        let parent = out.parent().filter(|p| !p.as_os_str().is_empty());
+        if parent.is_some_and(|p| !p.is_dir()) {
+            result.error(format!("the folder for {out_text} does not exist"));
+            return Ok(result);
+        }
+        if out.exists() && !(explicit && self.config.force) {
+            return Ok(skip(
+                result,
+                &format!("{out_text} already exists (name another file with --output, or use --force to replace it)"),
+            ));
+        }
+        let temp_file = temp_path(&out_text);
+        let cmd = if media.container == Container::Mkv {
+            args(&["mkvextract", "tracks", &media.path, &format!("{}:{temp_file}", track.id)])
+        } else {
+            let mut cmd = vec!["ffmpeg".to_string()];
+            cmd.extend(args(crate::model::FFMPEG_QUIET));
+            cmd.extend(args(&["-i", &media.path, "-map", &format!("0:s:{}", track.number - 1)]));
+            cmd.extend(args(&["-c:s", "srt", &temp_file]));
+            cmd
+        };
+        result.changes.push(format!("extracted {} ({}) to {out_text}", track.label(), track.language));
+        self.pend(&temp_file);
+        let done = self.apply(&mut result, cmd, &[0, 1])?;
+        if done && !self.config.dryrun {
+            let made = fs::metadata(&temp_file).map(|m| m.len() > 0).unwrap_or(false);
+            if !made {
+                result.error(format!("{} wrote nothing", if media.container == Container::Mkv { "mkvextract" } else { "ffmpeg" }));
+            } else if let Err(error) = fs::rename(&temp_file, &out) {
+                result.error(format!("could not write {out_text}: {}", strerror(&error)));
+            }
+        }
+        if result.status == Status::Error {
+            let _ = fs::remove_file(&temp_file);
+        }
+        self.shared.pending.lock().unwrap().retain(|p| p != &temp_file);
+        result.data = json!({"output": out_text});
+        Ok(result)
     }
 
     fn do_preserve(&self, media: &mut Media) -> Res<Outcome> {
@@ -1286,7 +1891,7 @@ impl Fml {
             self.note(&format!("Skipping {path}: not a supported media file"));
             return Ok(None);
         };
-        let tools = if matches!(task.name.as_str(), "info" | "get") {
+        let tools = if matches!(task.name.as_str(), "info" | "get" | "extract") {
             container.read_tools()
         } else {
             container.write_tools()
@@ -1307,6 +1912,8 @@ impl Fml {
             "info" => self.do_info(media),
             "get" => self.do_get(media),
             "set" => self.do_set(media, &task.what),
+            "add" => self.do_add(media, &task.what),
+            "extract" => self.do_extract(media, &task.what),
             "swap" => self.do_swap(media),
             "delete" => self.do_delete(media, &task.what),
             _ => self.do_preserve(media),
@@ -1323,6 +1930,7 @@ impl Fml {
             "version": VERSION, "file": abspath(&media.path),
             "action": result.action, "kind": self.kind().name(), "changes": result.changes,
             "moved_from": if result.moved_from > 0 { json!(result.moved_from) } else { Value::Null },
+            "order": if result.order.is_empty() { Value::Null } else { json!(result.order) },
             "backup": if result.backup.is_empty() { Value::Null }
                       else { json!(abspath(&result.backup)) },
             "before": media.tracks.clone().unwrap_or_default(),
@@ -1377,17 +1985,35 @@ impl Fml {
     }
 
     /// The edits that put the tracks of the kind back as they were.
-    fn restore_edits(&self, media: &Media, current: &[Track], before: &[Track], moved_from: Option<usize>) -> Vec<Edit> {
+    fn restore_edits(
+        &self,
+        media: &Media,
+        current: &[Track],
+        before: &[Track],
+        moved_from: Option<usize>,
+        order: &[usize],
+    ) -> Vec<Edit> {
         let current: Vec<Track> = current.iter().filter(|t| t.kind == self.kind()).cloned().collect();
         let wanted: Vec<&Track> = before.iter().filter(|t| t.kind == self.kind()).collect();
-        let moving = match (moved_from, current.first()) {
-            (Some(from), Some(first)) if from != 1 => Some(first.clone()),
-            _ => None,
-        };
+        // the places the tracks go back to (by their number now), and the tracks in the old order
+        let mut back: HashMap<usize, usize> = HashMap::new();
         let mut restored = current.clone();
-        if let (Some(moving), Some(from)) = (&moving, moved_from) {
-            restored.retain(|t| t.number != moving.number);
-            restored.insert((from - 1).min(restored.len()), moving.clone());
+        if order.len() == current.len() && !order.is_empty() {
+            // current[p] was track order[p]
+            restored = (1..=current.len())
+                .filter_map(|old| order.iter().position(|o| *o == old).map(|p| current[p].clone()))
+                .collect();
+            for (p, track) in current.iter().enumerate() {
+                if order[p] != p + 1 {
+                    back.insert(track.number, order[p]);
+                }
+            }
+        } else if let (Some(from), Some(first)) = (moved_from, current.first()) {
+            if from != 1 {
+                restored.retain(|t| t.number != first.number);
+                restored.insert((from - 1).min(restored.len()), first.clone());
+                back.insert(first.number, from);
+            }
         }
         let mut edits = Vec::new();
         for (now, old) in restored.iter().zip(wanted) {
@@ -1398,10 +2024,7 @@ impl Fml {
             // the forced flag of an MP4 can't be read back to check, so it is not touched
             edit.forced = (now.forced != old.forced && media.container == Container::Mkv)
                 .then_some(old.forced);
-            edit.move_to = match (&moving, moved_from) {
-                (Some(m), Some(from)) if m.number == now.number => Some(from),
-                _ => None,
-            };
+            edit.move_to = back.get(&now.number).copied();
             if edit.default.is_some() || edit.language.is_some() || edit.name.is_some()
                 || edit.forced.is_some() || edit.move_to.is_some()
             {
@@ -1501,7 +2124,12 @@ impl Fml {
         }
         let worker = self.with_kind(kind);
         let moved_from = entry.get("moved_from").and_then(Value::as_u64).map(|n| n as usize);
-        let edits = worker.restore_edits(&media, &current, &before, moved_from);
+        let order: Vec<usize> = entry
+            .get("order")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_u64).map(|n| n as usize).collect())
+            .unwrap_or_default();
+        let edits = worker.restore_edits(&media, &current, &before, moved_from, &order);
         worker.edit_tracks(&mut media, result, edits, "is already as it was")
     }
 
@@ -1575,17 +2203,19 @@ impl Fml {
                 done?;
                 continue;
             }
-            let paths = self.files()?;
-            if self.config.jobs > 1 && paths.len() > 1 {
-                self.process_in_parallel(task, &paths, results)?;
+            // each action works with its own settings on top of the shared ones
+            let worker = self.for_task(task);
+            let paths = worker.files()?;
+            if worker.config.jobs > 1 && paths.len() > 1 {
+                worker.process_in_parallel(task, &paths, results)?;
                 continue;
             }
             for path in &paths {
                 if cancelled() {
                     return Err(Stop::Interrupted);
                 }
-                if let Some(outcome) = self.process(task, path)? {
-                    self.report(results, outcome);
+                if let Some(outcome) = worker.process(task, path)? {
+                    worker.report(results, outcome);
                 }
             }
         }

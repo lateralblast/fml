@@ -22,6 +22,8 @@
         <div class="row">
           <button id="add-folder" type="button">Add a folder…</button>
           <button id="add-files" type="button">Add files…</button>
+          <button id="add-subs" type="button" title="Add subtitle files to the ticked MKV and MP4 files, matched by name">Add subtitles…</button>
+          <button id="clear" type="button" title="Take the ticked files off the list (the files themselves are not touched)">Clear selected</button>
         </div>
       </div>
       <div class="row filters">
@@ -30,13 +32,13 @@
         <label>Skip <input id="exclude" type="text" placeholder="Extras, *.sample.*" size="20"></label>
         <button id="rescan" type="button" class="quiet">Rescan</button>
       </div>
-      <p id="source" class="muted">Nothing chosen yet. MKV, MP4 (M4V, MOV) and AVI files are supported.</p>
+      <p id="source" class="muted">Nothing chosen yet. MKV, MP4 (M4V, MOV) and AVI files are supported. You can also drop a folder or files on this window.</p>
       <div id="files-wrap" class="table-wrap" hidden>
         <table id="files">
           <thead>
             <tr>
               <th class="narrow"><input id="select-all" type="checkbox" aria-label="Select all files" checked></th>
-              <th>File</th><th>Type</th><th>Audio (default marked *)</th><th>Subtitles</th>
+              <th>File</th><th>Type</th><th>Audio (default marked *)</th><th>Subtitles</th><th class="edit-cell"><span class="visually-hidden">Edit</span></th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -45,7 +47,7 @@
     </section>
 
     <section class="card" aria-labelledby="change-title">
-      <h2 id="change-title">2. Choose the change</h2>
+      <h2 id="change-title">2. Choose a bulk change</h2>
       <div class="grid">
         <label>What to do
           <select id="action">
@@ -114,10 +116,68 @@
         </div>
       </div>
       <progress id="progress" max="1" value="0" hidden></progress>
+      <div id="file-progress" aria-live="off"></div>
       <ul id="results"></ul>
       <p id="warnings" class="warnings" hidden></p>
     </section>
   </main>
+
+  <dialog id="info" aria-labelledby="info-title">
+    <h3 id="info-title"></h3>
+    <p id="info-path" class="muted path"></p>
+    <form id="info-rename" class="row rename">
+      <label>File name <input id="info-name" type="text" size="44" autocomplete="off" spellcheck="false"></label>
+      <button id="info-rename-go" type="submit">Rename</button>
+    </form>
+    <dl id="info-facts" class="facts"></dl>
+    <div id="info-tracks"></div>
+    <p id="info-status" class="muted" role="status"></p>
+    <details id="info-add" hidden>
+      <summary>Add a subtitle file</summary>
+      <div class="row add-sub">
+        <button id="add-sub-choose" type="button">Choose subtitle file…</button>
+        <span id="add-sub-file" class="muted">None chosen (.srt, .ass, .ssa, .vtt or .sup)</span>
+      </div>
+      <div class="row add-sub">
+        <label>Language <select id="add-sub-lang" aria-label="Language of the new subtitle track"></select></label>
+        <label>Name <input id="add-sub-name" type="text" size="22" placeholder="optional"></label>
+        <button id="add-sub-go" type="button" class="primary">Add subtitle…</button>
+      </div>
+      <p class="muted">The subtitle becomes the last subtitle track, not default and not forced. The file is rewritten.
+        MP4 files get the subtitle converted to text subtitles (no forced flag, no <code>.sup</code>).</p>
+    </details>
+    <details id="info-report-box">
+      <summary>Full technical report (mediainfo)</summary>
+      <pre id="info-report"></pre>
+    </details>
+    <div class="row end"><button id="info-close" type="button" class="primary">Close</button></div>
+  </dialog>
+
+  <dialog id="subs" aria-labelledby="subs-title">
+    <h3 id="subs-title">Add subtitle files to the ticked files</h3>
+    <p class="muted">Each subtitle file is matched to a ticked MKV or MP4 file by its name
+      (<code>Show.S01E03.ita.srt</code> goes with <code>Show.S01E03.mkv</code>, or the same season and episode),
+      and its language is guessed from the name. Check the table, then preview or add. A file is rewritten once,
+      with all its new subtitles, which are not default.</p>
+    <div class="row">
+      <button id="subs-choose" type="button">Choose subtitle files…</button>
+      <span id="subs-count" class="muted"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="subs-table">
+        <thead><tr><th class="narrow"><span class="visually-hidden">Add</span></th><th>Media file</th><th>Subtitle file</th>
+          <th>Language</th><th>Name</th><th>Forced</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p id="subs-unmatched" class="warnings" hidden></p>
+    <p id="subs-status" class="muted" role="status"></p>
+    <div class="row end">
+      <button id="subs-close" type="button">Close</button>
+      <button id="subs-preview" type="button">Preview</button>
+      <button id="subs-apply" type="button" class="primary">Add subtitles…</button>
+    </div>
+  </dialog>
 
   <dialog id="confirm">
     <form method="dialog">

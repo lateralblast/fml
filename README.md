@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 0.7.7
+Version 1.0.2
 
 License
 -------
@@ -24,6 +24,10 @@ Contents
 - [Requirements](#requirements)
 - [MKV examples](#mkv-examples)
 - [Moving a track first](#moving-a-track-first)
+- [Taking a subtitle track out to a file](#taking-a-subtitle-track-out-to-a-file)
+- [Changing a track's language, name and forced flag together](#changing-a-tracks-language-name-and-forced-flag-together)
+- [Put the tracks in any order](#put-the-tracks-in-any-order)
+- [Adding a subtitle file](#adding-a-subtitle-file)
 - [Example: a whole season](#example-a-whole-season)
 - [Subtitles](#subtitles)
 - [Choosing a track by number](#choosing-a-track-by-number)
@@ -82,10 +86,31 @@ dependencies of its own. It needs these commands:
 | `ffmpeg`                  | ffmpeg     | rewriting MP4 and AVI files   |
 
 Check they are installed with `./fml --check`, and install any that are missing
-(apt on Ubuntu, brew on macOS) with `./fml --check --install`.
+with `./fml --check --install`, which uses the package manager of the system:
+
+| System                                      | Command                                        |
+|---------------------------------------------|------------------------------------------------|
+| Debian, Ubuntu and what is built on them    | `sudo apt install -y`                          |
+| Fedora, RHEL and what is built on them      | `sudo dnf install -y` (`ffmpeg-free`)          |
+| Arch Linux and what is built on it          | `sudo pacman -S --noconfirm --needed` (`mkvtoolnix-cli`) |
+| macOS                                       | `brew install`                                 |
+| Windows                                     | `winget install --id ... --exact` (`MoritzBunkus.MKVToolNix`, `MediaArea.MediaInfo`, `Gyan.FFmpeg`), else `choco install -y` (`mediainfo-cli`) |
+
+A Linux distribution is recognised by the `ID` and `ID_LIKE` in `/etc/os-release`, so a distribution built on one of
+these is covered too. Any other system is told it is not known. The package names were checked against the
+package repositories, but the installs on Fedora, Arch and Windows have not been run on those systems (only
+the commands that would be run are tested; `--dryrun --verbose` shows them). Fedora's `ffmpeg-free` is enough for
+fml, which copies streams; the full `ffmpeg` needs RPM Fusion.
 Each action only needs the commands it uses, so an MKV-only setup works without `ffmpeg`.
 
 The desktop app (`./fml --gui`) is optional and also needs the system webview (see [Installing](#installing)).
+In the app you can drop a folder, or files, on the window instead of using the buttons: a folder on its own is
+worked on as a folder (with its filters and subfolders), and anything else becomes a list of the media files among
+the files and inside the folders dropped. In the app, click a file's row for its track list, or its **Edit** button for the file's details, the track table
+with IDs and the full `mediainfo` report. The Edit dialog also renames the file (in its folder; nothing is overwritten); the entries about it in the log
+named in the form are changed to the new name, so **Undo from a log…** and `--undo` still find it (a kept original
+`.fml-bak` keeps its own name, which the log records, so it is still found too). **Clear selected** takes the ticked files off the list (the files on
+disk are not touched); a rescan of the same folder keeps them off.
 
 MKV examples
 ------------
@@ -141,6 +166,18 @@ Remove all the English audio, or one audio track by number (`last` is the last o
 ./fml --delete track --track 2 --file video.mkv
 ```
 
+`--track` can also name a track of any kind, as the `--info` table shows it, and `--delete track` then removes
+that track whatever `--kind` says: `subtitles:18` (or `sub:18`, `audio:2`), `id:20` (the ID column) or `name:Forced`
+(the track name, ignoring case; it must match one track, else use the ID):
+
+```
+./fml --delete track --track subtitles:18 --file video.mkv
+./fml --delete track --track id:20 --file video.mkv
+./fml --delete track --track name:Traditional --file video.mkv
+```
+
+Video tracks cannot be removed. The other `--set` actions accept the same forms for a track of the kind they work on.
+
 As a safeguard, `--preserve` and `--delete` refuse to leave a file with no audio at all, and
 `--preserve` refuses if the file has none of the language you asked to keep.
 `--force` overrides both.
@@ -166,6 +203,90 @@ with `mkvmerge`, which reorders the tracks and sets their flags and languages to
 chapters, attachments, tags and track names. If the track is already first, only the flag is edited, as
 without `--move`. It cannot be used with `--in-place` or `--default none`, and `--swap` only changes the
 default flag, never the order.
+
+Taking a subtitle track out to a file
+-------------------------------------
+
+`--extract subtitle --track T [--output FILE|FOLDER]` writes a subtitle track to a file of its own and leaves the media
+file as it is. An MKV is read with `mkvextract` (from `mkvtoolnix`) and the file gets the extension of the track
+(`.srt` for SubRip, `.ass` for SubStation, `.vtt` for WebVTT, `.sup` for PGS); a text subtitle in an MP4 is written
+as `.srt` with `ffmpeg`. VobSub and other formats that are not one file are refused. The name is made from the media
+file (`Film.ita.srt`, `Film.eng.forced.srt`) and goes beside it, or in `--output` if that is a folder; give a file
+name to choose it. The track is chosen as with `--delete track` (`--track 2`, `--track subtitles:2`, `--track id:5`,
+`--track name:Forced`), and a plain number counts subtitle tracks. A file that exists is never replaced unless you
+give `--force` with a file name.
+
+```
+./fml --extract subtitle --track 2 --file Film.mkv
+./fml --extract subtitle --track name:Forced --output ~/Subs/ --file Film.mkv
+```
+
+In the desktop app, picking a subtitle track in the Edit dialog shows **Extract…**, which asks where to save it.
+
+Changing a track's language, name and forced flag together
+---------------------------------------------------------
+
+`--set track --track T [--lang L] [--name TEXT] [--forced-flag yes|no]` changes several properties of one track in
+one edit of the file, where `--set lang`, `--set name` and `--set forced` each make a change of their own. Only
+what is given is changed; an empty `--name ""` removes the name. The track is chosen as with `--delete track`
+(`--track 2`, `--track subtitles:3`, `--track id:5`, `--track name:Forced`). The forced flag is MKV only.
+
+```
+./fml --set track --track 3 --kind sub --lang Spanish --name "Latino" --forced-flag yes --file video.mkv
+```
+
+In the desktop app, pick a track in the Edit dialog and an editor appears above the table with its language, name
+and forced flag, and **Save changes…**.
+
+Put the tracks in any order
+---------------------------
+
+`--set order --order N,N,...` puts the tracks of `--kind` in a new order in one rewrite. Each number is the
+current number of a track (as `--info` shows it), listed in the order the tracks should have: with three audio
+tracks, `3,1,2` makes the third first, then the first, then the second. Flags, languages and names go with their
+tracks, so the default flag does not move to the new first track unless you add `--default-first`, which makes
+the track that ends up first the only default of its kind (it also fixes the flag when the order is already right). List every track of the kind once. MKV and MP4 only; it cannot be used with `--in-place`.
+
+```
+./fml --set order --order 3,1,2 --file video.mkv
+./fml --set order --order 2,1 --kind sub --file video.mp4
+```
+
+`--order-lang ita,eng` does the same by language instead of by number: the tracks in the first language come
+first, then the second, then the rest in their old order. It suits a whole season whose files have different
+tracks (`./fml --set order --order-lang eng,ita --default-first --dir /media/Show.S01`).
+
+`--log` records it and `--undo` puts the old order back. In the desktop app the **Edit** button of a file opens a dialog that shows
+its audio and subtitle tracks, which can be picked and moved up or down, and the new order applied, or deleted
+(**Delete…**; the last audio track is only removed if "Allow removing every audio track" is ticked). Each section also has
+**Keep only** a language: choosing one marks, in the table, the tracks that would be removed (and which track
+becomes the default) before anything is changed, and **Remove the others…** makes the change (`--preserve`). The same
+section can **preview the arrangement, or the removal of the picked track's language, for all the ticked
+files**: tracks are matched by language, and the preview in the results can then be applied.
+
+Adding a subtitle file
+----------------------
+
+`--add subtitle --sub-file FILE --lang LANGUAGE [--name TEXT]` adds a subtitle file (`.srt`, `.ass`, `.ssa`,
+`.vtt` or `.sup`) to an MKV or MP4 as a new subtitle track, the last one, in the language you give. It is not default
+and not forced (change that afterwards with `--set default` or `--set forced`). The file is rewritten with
+`mkvmerge` on a copy and checked, like every change; chapters, attachments and the other tracks are kept.
+
+```
+./fml --add subtitle --sub-file Film.it.srt --lang Italian --name "Italiano" --file Film.mkv
+```
+
+It works on MKV and MP4 files, not AVI. In an MP4 the subtitle is converted to `mov_text` text subtitles with `ffmpeg`
+(`.srt`, `.ass`, `.ssa` and `.vtt` only, not a `.sup` picture subtitle, and no forced flag); the MP4 muxer makes the
+first subtitle track the default if there was none, so the first subtitle added to a file without any is default.
+It cannot be used with `--in-place`. `--undo` can
+take the track out again only if the change was made with `--backup`, because it changes the number of tracks.
+In the desktop app, **Add subtitles…** (in "1. Choose files") adds many at once: choose the subtitle files and each is
+matched to a ticked MKV file by name (`Show.S01E03.ita.srt` goes with `Show.S01E03.mkv`, else the same season and
+episode), with the language, the name (`SDH`, `Forced`) and the forced flag guessed from what follows the name. Check
+the table, choose any language that could not be guessed, then **Preview** or add; each file is rewritten once with
+all its new subtitles. The Edit dialog has an **Add a subtitle file** section: choose the file, the language (guessed
+from the file name when it holds one, as in `Film.ita.srt`) and an optional name.
 
 Example: a whole season
 -----------------------
@@ -298,7 +419,9 @@ MP4 has no way to edit the tracks in place, so each change rewrites the file wit
 streams (nothing is re-encoded, so it is quick and lossless). The new file is read back and checked before
 it replaces the original, and if the check fails the original is left alone. The index (`moov`) is moved
 to the front of the file, as for streaming, and permissions and timestamps are kept.
-An MP4 file always has a default subtitle track, so `--default none` is refused.
+`--default none` for subtitles is the exception: `ffmpeg` would enable the first subtitle track again, so it clears
+the "enabled" bit in the track headers of a copy of the file instead (nothing is rewritten, so it is as quick as a
+copy), and the copy is read back before it replaces the original.
 
 Track names are kept: `ffmpeg` drops the names it can't read back, so they are written again, and the new file
 is checked to have them.
@@ -332,6 +455,22 @@ and the rest are still processed.
 ```
 
 Several actions can be given. They run in the order given, each across all the files.
+
+Each action has its own settings: the settings that follow an action on the command line belong to it, so two
+actions can need different values. Settings given before the first action are shared by every action, and an
+action's own settings are added on top of them (a setting given twice for one action uses the last):
+
+```
+./fml --set lang --default English --delete lang --lang ita --file video.mkv     # English default, then no Italian
+./fml --kind sub --get lang --info --file video.mkv                              # --kind sub is for both
+./fml --set lang --default French --move --set lang --default Italian -i a.mkv   # --move only for the first
+```
+
+The settings that go with an action are `--lang`, `--default`, `--prefer`, `--track`, `--kind`, `--forced`, `--move`,
+`--name`, `--order`, `--order-lang`, `--default-first`, `--forced-flag`, `--sub-file` and `--output`. The rest
+(`--file`, `--dir`, `--recursive`, `--include`, `--exclude`, `--dryrun`, `--backup`, `--log`, `--jobs`, `--force`,
+`--in-place`, `--format` and `--verbose`) are for the whole command, wherever they are given. Each action is checked
+with its own settings, so a mistake is reported for the action it is in.
 
 Choosing files
 --------------
@@ -491,11 +630,16 @@ Output formats
       "commands": [["mkvpropedit", "/media/films/a.mkv", "--edit", "track:a1", "--set", "flag-default=0", "--edit", "track:a2", "--set", "flag-default=1"]],
       "dry_run": true,
       "backup": null,
-      "data": null
+      "data": {"layout": {"before": [...], "after": [...]}}
     }
   ]
 }
 ```
+
+`data.layout` (from every change that rewrites or edits the tracks of a file: `--set`, `--delete`, `--preserve`,
+`--add` and `--swap`) holds the tracks of the file before and after the change, each as in `--info` (`type`,
+`number`, `id`, `codec`, `language`, `default`, `forced`, `name`). The desktop app shows them side by side in its
+preview. In a dry run it is what the file is expected to be.
 
 `status` is one of `changed`, `unchanged`, `skipped` (nothing could be done, for example the file has no
 track in that language) or `error`. For `--info` and `--get`, `data` holds the tracks or languages.
@@ -541,8 +685,12 @@ actions (may be combined; they run in the order given):
           undo the changes recorded in a --log file, newest first, for the files that are still as they were left (limited to --file or --dir if given)
   -g, --get <{lang}>
           get the default language, or with --lang the tracks in a language
-  -c, --set <{lang,default,name,forced,unforced}>
-          name: set the name of track --track to --name; forced, unforced: set or clear its forced flag (MKV); lang: make --default (or the first of --prefer) the default, or with --lang set the language of track --track (1); default: make track --track the default, and with --lang set its language
+  -c, --set <{lang,default,name,forced,unforced,order,track}>
+          name: set the name of track --track to --name; forced, unforced: set or clear its forced flag (MKV); track: change the language (--lang), name (--name) and forced flag (--forced-flag) of track --track together; order: put the tracks of --kind in the order of --order; lang: make --default (or the first of --prefer) the default, or with --lang set the language of track --track (1); default: make track --track the default, and with --lang set its language
+  -a, --add <{subtitle}>
+          subtitle: add the subtitle file --sub-file to an MKV or MP4 as a new subtitle track in the language --lang (and the name --name); not default, not forced
+  -x, --extract <{subtitle}>
+          subtitle: write the subtitle track --track to a file (.srt, .ass, .vtt or .sup; an MP4's text subtitle as .srt), named after the media file unless --output says; the media file is not changed
   -s, --swap <{lang}>
           make the second audio track the default (the order is unchanged: see --move)
   -z, --delete <{lang,track}>
@@ -551,24 +699,32 @@ actions (may be combined; they run in the order given):
           remove all tracks that are not in --lang (or the first of --prefer that is present)
 
 settings:
-  -k, --kind <{audio,sub}>  the kind of track the actions work on (default audio) [default: audio]
-  -l, --lang <LANG>         language, by name or ISO 639 code (English, en, eng)
-  -D, --default <LANG>      language to make the default (none turns the default subtitles off)
-      --prefer <LANGS>      languages in order of preference, e.g. eng,jpn,fre: the first that a file has is used, so one command suits a mixed library
-      --forced              with --kind sub, pick the forced subtitle track
-  -t, --track <N>           track number from 1 (among tracks of the kind), or last
-  -f, --force               allow removing every audio track
-      --name <TEXT>         the track name for --set name (an empty name removes it)
-      --move                with --set, also move the chosen track to be the first track of its kind, for players that play the first track whatever its flag; the file is rewritten
-  -j, --jobs <N>            process N files at once (default 1; rewriting is limited by the disk, so more than a few rarely helps) [default: 1]
-      --log <FILE>          record each change in FILE (one JSON line per file), so that --undo can reverse it
-      --backup              keep the original beside the changed file, as NAME.fml-bak (a hard link where possible, so it costs no space)
-      --in-place            edit MKV files directly instead of a copy that replaces them if it worked: quicker and needs no free space, but an interruption can leave the file damaged
-  -T, --dryrun              show what would change without changing anything
-  -v, --verbose             show the commands that are run
-  -F, --format <format>     output format (default text) [default: text]
-      --gui                 open the desktop app (fml) instead; takes no other options
-      --install             install missing commands (apt on Ubuntu, brew on macOS)
+  -k, --kind <{audio,sub}>      the kind of track the actions work on (default audio) [default: audio]
+  -l, --lang <LANG>             language, by name or ISO 639 code (English, en, eng)
+  -D, --default <LANG>          language to make the default (none turns the default subtitles off)
+      --prefer <LANGS>          languages in order of preference, e.g. eng,jpn,fre: the first that a file has is used, so one command suits a mixed library
+      --forced...               with --kind sub, pick the forced subtitle track
+  -t, --track <N>               a track number from 1 (among tracks of the kind), last, or any track by audio:N, subtitles:N, id:N (the ID column of --info) or name:TEXT
+  -f, --force                   allow removing every audio track
+      --output <FILE>           for --extract subtitle: the file to write, or a folder to put the generated name (FILM.ita.srt) in; an existing file needs --force
+      --sub-file <FILE>         for --add subtitle: the subtitle file (.srt, .ass, .ssa, .vtt or .sup) to add; the file is rewritten
+      --forced-flag <{yes,no}>  for --set track: set (yes) or clear (no) the forced flag of the track (MKV only)
+      --order-lang <LANGS>      for --set order, instead of --order: languages in the order their tracks should come, e.g. ita,eng; tracks in other languages follow. Works on files whose tracks differ, so one command suits a whole season
+      --default-first...        with --set order, also make the track that ends up first the only default of its kind, for players that follow the flag and players that play the first track
+      --order <N,N,...>         for --set order: the current number of each track of the kind, in the order they should have, e.g. 2,1,3 swaps the first two of three; the file is rewritten
+      --name <TEXT>             the track name for --set name (an empty name removes it)
+      --move...                 with --set, also move the chosen track to be the first track of its kind, for players that play the first track whatever its flag; the file is rewritten
+  -j, --jobs <N>                process N files at once (default 1; rewriting is limited by the disk, so more than a few rarely helps) [default: 1]
+      --log <FILE>              record each change in FILE (one JSON line per file), so that --undo can reverse it
+      --backup                  keep the original beside the changed file, as NAME.fml-bak (a hard link where possible, so it costs no space)
+      --in-place                edit MKV files directly instead of a copy that replaces them if it worked: quicker and needs no free space, but an interruption can leave the file damaged
+  -T, --dryrun                  show what would change without changing anything
+  -v, --verbose                 show the commands that are run
+  -F, --format <format>         output format (default text) [default: text]
+      --gui                     open the desktop app (fml) instead; takes no other options
+      --install                 install missing commands (apt, dnf, pacman, brew, winget or choco, by system)
+
+
 
 examples:
   fml --set lang --default English --file video.mkv     make English the default audio
@@ -582,6 +738,7 @@ examples:
   fml --preserve lang --lang eng --file video.mkv       remove the audio that isn't English
   fml --delete track --track last --file video.mp4      remove the last audio track
   fml --set lang --default French --dir films --dryrun  show what would change
+  fml --set lang --default eng --delete lang --lang ita -i a.mkv   each action has its own settings
 ```
 
 Installing

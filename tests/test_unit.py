@@ -380,7 +380,8 @@ def test_version_matches_the_readme_and_changelog() -> None:
     readme = (root / "README.md").read_text()
     assert f"\nVersion {fml.__version__}\n" in readme
     changelog = (root / "CHANGELOG.md").read_text()
-    first = next(line for line in changelog.splitlines() if line.startswith("## [0"))
+    first = next(line for line in changelog.splitlines()
+                 if line.startswith("## [") and "Unreleased" not in line)
     assert first.startswith(f"## [{fml.__version__}]")
 
 

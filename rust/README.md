@@ -95,10 +95,11 @@ Add a folder (or files), pick a change, **Preview** it, then **Apply**. A previe
 applying asks first, and the log (on by default, `~/fml-log.jsonl`) lets **Undo from a log** put
 changes back, from the kept original when `Keep the original` was ticked. The page is plain
 HTML, CSS and JavaScript in `fml-gui/ui` (no build step); the Rust side exposes `scan`, `run`,
-`cancel`, `app_info` and `languages`.
+`cancel`, `app_info`, `languages` and `file_details` (the size, date and `mediainfo` report for the Edit dialog), `rename_file` and `classify_dropped` (what was dropped on the window: a folder, or a list of media files).
 
 In a debug build, `FML_GUI_SCRIPT=script.js FML_GUI_REPORT=out.txt target/debug/fml` runs
 the script in the window after it loads, and the script can send text back with
 `invoke('dev_report', {text})`. That is how the app was driven and checked without a person
-clicking (`xvfb-run` gives it a screen on a machine with no display). It is compiled out of
-release builds.
+clicking (`xvfb-run` gives it a screen on a machine with no display). `FML_GUI_THEME=dark` (or `light`)
+shows the window in that theme whatever the system uses, which is how the page was checked in both. Both are
+compiled out of release builds.

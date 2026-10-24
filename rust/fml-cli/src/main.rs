@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use fml_core::languages::resolve_language;
 use fml_core::{
-    format_tracks, info_text, Config, Event, Fml, Kind, Outcome, Status, Task, Track, VERSION,
+    format_tracks, info_text, Config, Event, Fml, Kind, Outcome, Status, Task, TaskSettings, Track, VERSION,
 };
 use serde_json::{json, Value};
 
@@ -23,12 +23,15 @@ const EXAMPLES: &str = "examples:
   fml --get lang --dir /media/films --recursive         default audio language of each film
   fml --preserve lang --lang eng --file video.mkv       remove the audio that isn't English
   fml --delete track --track last --file video.mp4      remove the last audio track
-  fml --set lang --default French --dir films --dryrun  show what would change";
+  fml --set lang --default French --dir films --dryrun  show what would change
+  fml --set lang --default eng --delete lang --lang ita -i a.mkv   each action has its own settings";
 
 /// The words each action takes.
 const TASK_CHOICES: &[(&str, &[&str])] = &[
     ("get", &["lang"]),
-    ("set", &["lang", "default", "name", "forced", "unforced"]),
+    ("set", &["lang", "default", "name", "forced", "unforced", "order", "track"]),
+    ("add", &["subtitle"]),
+    ("extract", &["subtitle"]),
     ("swap", &["lang"]),
     ("delete", &["lang", "track"]),
     ("preserve", &["lang"]),
@@ -85,12 +88,7 @@ fn jobs_arg(text: &str) -> Result<usize, String> {
 }
 
 fn track_arg(text: &str) -> Result<String, String> {
-    let number = text.chars().all(|c| c.is_ascii_digit()) && text.parse::<usize>().is_ok_and(|n| n >= 1);
-    if text == "last" || number {
-        Ok(text.to_string())
-    } else {
-        Err(format!("\"{text}\" is not a track number (from 1) or \"last\""))
-    }
+    fml_core::TrackSpec::parse(text).map(|_| text.to_string())
 }
 
 fn build_command() -> Command {
@@ -194,9 +192,23 @@ fn build_command() -> Command {
             "set",
             'c',
             "name: set the name of track --track to --name; forced, unforced: set or clear its \
-             forced flag (MKV); lang: make --default (or the first of --prefer) the default, or \
+             forced flag (MKV); track: change the language (--lang), name (--name) and forced flag \
+             (--forced-flag) of track --track together; order: put the tracks of --kind in the order of --order; lang: make --default (or the first of --prefer) the default, or \
              with --lang set the language of track --track (1); default: make track --track the \
              default, and with --lang set its language",
+        ),
+        (
+            "add",
+            'a',
+            "subtitle: add the subtitle file --sub-file to an MKV or MP4 as a new subtitle track in \
+             the language --lang (and the name --name); not default, not forced",
+        ),
+        (
+            "extract",
+            'x',
+            "subtitle: write the subtitle track --track to a file (.srt, .ass, .vtt or .sup; an MP4's \
+             text subtitle as .srt), named after the media file unless --output says; the media \
+             file is not changed",
         ),
         ("swap", 's', "make the second audio track the default (the order is unchanged: see --move)"),
         ("delete", 'z', "remove the tracks in --lang, or track --track"),
@@ -225,6 +237,7 @@ fn build_command() -> Command {
             Arg::new("kind")
                 .short('k')
                 .long("kind")
+                .action(ArgAction::Append)
                 .value_name("{audio,sub}")
                 .value_parser(kind_arg)
                 .default_value("audio")
@@ -235,6 +248,7 @@ fn build_command() -> Command {
             Arg::new("lang")
                 .short('l')
                 .long("lang")
+                .action(ArgAction::Append)
                 .value_name("LANG")
                 .value_parser(language_arg)
                 .help("language, by name or ISO 639 code (English, en, eng)")
@@ -244,6 +258,7 @@ fn build_command() -> Command {
             Arg::new("default")
                 .short('D')
                 .long("default")
+                .action(ArgAction::Append)
                 .value_name("LANG")
                 .value_parser(default_arg)
                 .help("language to make the default (none turns the default subtitles off)")
@@ -252,6 +267,7 @@ fn build_command() -> Command {
         .arg(
             Arg::new("prefer")
                 .long("prefer")
+                .action(ArgAction::Append)
                 .value_name("LANGS")
                 .value_parser(prefer_arg)
                 .help(
@@ -263,7 +279,7 @@ fn build_command() -> Command {
         .arg(
             Arg::new("forced")
                 .long("forced")
-                .action(ArgAction::SetTrue)
+                .action(ArgAction::Count)
                 .help("with --kind sub, pick the forced subtitle track")
                 .help_heading(settings),
         )
@@ -271,10 +287,14 @@ fn build_command() -> Command {
             Arg::new("track")
                 .short('t')
                 .long("track")
+                .action(ArgAction::Append)
                 .value_name("N")
                 .allow_negative_numbers(true)
                 .value_parser(track_arg)
-                .help("track number from 1 (among tracks of the kind), or last")
+                .help(
+                    "a track number from 1 (among tracks of the kind), last, or any track by \
+                     audio:N, subtitles:N, id:N (the ID column of --info) or name:TEXT",
+                )
                 .help_heading(settings),
         )
         .arg(
@@ -286,8 +306,74 @@ fn build_command() -> Command {
                 .help_heading(settings),
         )
         .arg(
+            Arg::new("output")
+                .long("output")
+                .value_name("FILE")
+                .help(
+                    "for --extract subtitle: the file to write, or a folder to put the generated \
+                     name (FILM.ita.srt) in; an existing file needs --force",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("sub-file")
+                .long("sub-file")
+                .action(ArgAction::Append)
+                .value_name("FILE")
+                .help(
+                    "for --add subtitle: the subtitle file (.srt, .ass, .ssa, .vtt or .sup) to \
+                     add; the file is rewritten",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("forced-flag")
+                .long("forced-flag")
+                .value_name("{yes,no}")
+                .value_parser(|text: &str| choice_arg(text, &["yes", "no"]))
+                .help("for --set track: set (yes) or clear (no) the forced flag of the track (MKV only)")
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("order-lang")
+                .long("order-lang")
+                .action(ArgAction::Append)
+                .value_name("LANGS")
+                .value_parser(prefer_arg)
+                .help(
+                    "for --set order, instead of --order: languages in the order their tracks \
+                     should come, e.g. ita,eng; tracks in other languages follow. Works on \
+                     files whose tracks differ, so one command suits a whole season",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("default-first")
+                .long("default-first")
+                .action(ArgAction::Count)
+                .help(
+                    "with --set order, also make the track that ends up first the only default \
+                     of its kind, for players that follow the flag and players that play the \
+                     first track",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("order")
+                .long("order")
+                .value_name("N,N,...")
+                .value_parser(|text: &str| fml_core::parse_order(text).map(|_| text.to_string()))
+                .help(
+                    "for --set order: the current number of each track of the kind, in the order \
+                     they should have, e.g. 2,1,3 swaps the first two of three; the file is \
+                     rewritten",
+                )
+                .help_heading(settings),
+        )
+        .arg(
             Arg::new("name")
                 .long("name")
+                .action(ArgAction::Append)
                 .value_name("TEXT")
                 .help("the track name for --set name (an empty name removes it)")
                 .help_heading(settings),
@@ -295,7 +381,7 @@ fn build_command() -> Command {
         .arg(
             Arg::new("move")
                 .long("move")
-                .action(ArgAction::SetTrue)
+                .action(ArgAction::Count)
                 .help(
                     "with --set, also move the chosen track to be the first track of its kind, \
                      for players that play the first track whatever its flag; the file is \
@@ -383,7 +469,7 @@ fn build_command() -> Command {
             Arg::new("install")
                 .long("install")
                 .action(ArgAction::SetTrue)
-                .help("install missing commands (apt on Ubuntu, brew on macOS)")
+                .help("install missing commands (apt, dnf, pacman, brew, winget or choco, by system)")
                 .help_heading(settings),
         )
 }
@@ -427,8 +513,9 @@ fn explain(error: clap::Error) -> ! {
     }
 }
 
-/// The actions, in the order they were given on the command line.
-fn queued_tasks(matches: &ArgMatches) -> Vec<Task> {
+/// The actions, in the order they were given on the command line, each with the place it was
+/// given at (the settings that follow it belong to it).
+fn queued_tasks(matches: &ArgMatches) -> Vec<(usize, Task)> {
     let mut queue: Vec<(usize, Task)> = Vec::new();
     for name in ["check", "info"] {
         if matches.get_flag(name) {
@@ -437,7 +524,7 @@ fn queued_tasks(matches: &ArgMatches) -> Vec<Task> {
             }
         }
     }
-    let valued = ["undo", "get", "set", "swap", "delete", "preserve"];
+    let valued = ["undo", "get", "set", "add", "extract", "swap", "delete", "preserve"];
     for name in valued {
         let values: Vec<String> = matches.get_many::<String>(name).into_iter().flatten().cloned().collect();
         let indices: Vec<usize> = matches.indices_of(name).into_iter().flatten().collect();
@@ -446,7 +533,7 @@ fn queued_tasks(matches: &ArgMatches) -> Vec<Task> {
         }
     }
     queue.sort_by_key(|(index, _)| *index);
-    queue.into_iter().map(|(_, task)| task).collect()
+    queue
 }
 
 fn text(matches: &ArgMatches, name: &str) -> String {
@@ -457,27 +544,78 @@ fn many(matches: &ArgMatches, name: &str) -> Vec<String> {
     matches.get_many::<String>(name).into_iter().flatten().cloned().collect()
 }
 
-/// Reject combinations of arguments that make no sense, and build the settings.
+/// The settings that belong to an action, each with where it was given on the command line (a
+/// switch with no value has "true"). A setting that was not given, only defaulted, is left out.
+fn setting_occurrences(matches: &ArgMatches) -> Vec<(usize, &'static str, String)> {
+    let mut found = Vec::new();
+    let valued = [
+        "lang", "default", "prefer", "track", "kind", "name", "order", "order-lang", "forced-flag",
+        "sub-file", "output",
+    ];
+    for name in valued {
+        let values = many(matches, name);
+        let indices: Vec<usize> = matches.indices_of(name).into_iter().flatten().collect();
+        if values.len() == indices.len() {
+            found.extend(indices.into_iter().zip(values).map(|(index, value)| (index, name, value)));
+        }
+    }
+    for name in ["forced", "move", "default-first"] {
+        // a switch that was not given still has a count (0) and an index of its own
+        if matches.get_count(name) > 0 {
+            found.extend(matches.indices_of(name).into_iter().flatten().map(|i| (i, name, "true".to_string())));
+        }
+    }
+    found.sort_by_key(|(index, _, _)| *index);
+    found
+}
+
+fn set_setting(settings: &mut TaskSettings, name: &str, value: String) {
+    let list = |text: &str| -> Vec<String> {
+        text.split(',').filter(|s| !s.is_empty()).map(String::from).collect()
+    };
+    match name {
+        "lang" => settings.lang = Some(value),
+        "default" => settings.default = Some(value),
+        "prefer" => settings.prefer = Some(list(&value)),
+        "track" => settings.track = Some(value),
+        "kind" => settings.kind = Some(Kind::parse(&value).unwrap_or(Kind::Audio)),
+        "name" => settings.name = Some(value),
+        "order" => settings.order = fml_core::parse_order(&value).ok(),
+        "order-lang" => settings.order_lang = Some(list(&value)),
+        "forced-flag" => settings.forced_flag = Some(value == "yes"),
+        "sub-file" => settings.sub_file = Some(value),
+        "output" => settings.output = Some(value),
+        "forced" => settings.forced = Some(true),
+        "move" => settings.move_first = Some(true),
+        "default-first" => settings.default_first = Some(true),
+        _ => {}
+    }
+}
+
+/// Reject combinations of arguments that make no sense, and build the settings. A setting that
+/// follows an action belongs to that action; one given before the first action is shared by all.
 fn config_from(matches: &ArgMatches) -> Config {
-    let tasks = queued_tasks(matches);
+    let mut queue = queued_tasks(matches);
+    let mut base = TaskSettings::default();
+    for (index, name, value) in setting_occurrences(matches) {
+        match queue.iter_mut().rev().find(|(at, _)| *at < index) {
+            Some((_, task)) => set_setting(&mut task.settings, name, value),
+            None => set_setting(&mut base, name, value),
+        }
+    }
+    let tasks: Vec<Task> = queue.into_iter().map(|(_, task)| task).collect();
     let (file, dir) = (text(matches, "file"), text(matches, "dir"));
-    let kind = Kind::parse(&text(matches, "kind")).unwrap_or(Kind::Audio);
-    let prefer: Vec<String> = text(matches, "prefer")
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-        .collect();
     let config = Config {
         paths: Vec::new(),
         file,
         dir,
         recursive: matches.get_flag("recursive"),
-        lang: text(matches, "lang"),
-        default: text(matches, "default"),
-        prefer,
-        track: text(matches, "track"),
-        kind,
-        forced: matches.get_flag("forced"),
+        lang: base.lang.unwrap_or_default(),
+        default: base.default.unwrap_or_default(),
+        prefer: base.prefer.unwrap_or_default(),
+        track: base.track.unwrap_or_default(),
+        kind: base.kind.unwrap_or(Kind::Audio),
+        forced: base.forced.unwrap_or(false),
         verbose: matches.get_flag("verbose"),
         dryrun: matches.get_flag("dryrun"),
         install: matches.get_flag("install"),
@@ -488,8 +626,16 @@ fn config_from(matches: &ArgMatches) -> Config {
         include: many(matches, "include"),
         exclude: many(matches, "exclude"),
         jobs: matches.get_one::<usize>("jobs").copied().unwrap_or(1),
-        move_first: matches.get_flag("move"),
-        name: matches.get_one::<String>("name").cloned(),
+        move_first: base.move_first.unwrap_or(false),
+        name: base.name,
+        order: base.order.unwrap_or_default(),
+        sub_file: base.sub_file.unwrap_or_default(),
+        output: base.output.unwrap_or_default(),
+        progress: false,
+        subtitles: Vec::new(),
+        default_first: base.default_first.unwrap_or(false),
+        forced_flag: base.forced_flag,
+        order_lang: base.order_lang.unwrap_or_default(),
         tasks,
     };
     check_arguments(&config);
@@ -704,6 +850,7 @@ fn main() -> ExitCode {
             Event::Note(message) => eprintln!("{message}"),
             Event::Result(result) if !json_output => print_result(&result, &printer_config),
             Event::Result(_) => {}
+            Event::Progress { .. } => {}
         }
         let _ = std::io::stdout().flush();
     });
