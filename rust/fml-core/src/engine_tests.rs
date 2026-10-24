@@ -522,3 +522,187 @@ fn install_uses_the_package_manager_of_the_system_once_per_package() {
     fml.install_missing(&missing[..1].to_vec());
     assert!(heard.lock().unwrap()[0].starts_with("don't know how to install \"mkvtoolnix\" on this OS"));
 }
+
+// The free-space check, and the commands that are missing: a disk that is full and a PATH without
+// the tools are put in place of the real ones, so none of it needs a full disk or an empty PATH.
+
+use std::sync::Mutex;
+
+type Heard = Arc<Mutex<Vec<String>>>;
+
+fn listening(config: Config) -> (Fml, Heard) {
+    let heard: Heard = Arc::default();
+    let sink_heard = Arc::clone(&heard);
+    let sink: Sink = Arc::new(move |event| match event {
+        Event::Note(text) => sink_heard.lock().unwrap().push(text),
+        Event::Warn(text) => sink_heard.lock().unwrap().push(format!("warning: {text}")),
+        _ => {}
+    });
+    (Fml::new(config, sink), heard)
+}
+
+/// A disk with `free` bytes; a folder called `other` is a second disk.
+fn disk_with(free: u64) -> DiskFn {
+    Box::new(move |folder: &Path| {
+        let device = if folder.ends_with("other") { 2 } else { 1 };
+        Ok((free, device))
+    })
+}
+
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("fml-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn file_of(dir: &Path, name: &str, size: usize) -> String {
+    let path = dir.join(name);
+    std::fs::write(&path, vec![0u8; size]).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+fn set_disk(fml: &mut Fml, disk: DiskFn) {
+    Arc::get_mut(&mut fml.shared).expect("not shared yet").disk = disk;
+}
+
+fn set_finder(fml: &mut Fml, present: &[&str]) {
+    let present: Vec<String> = present.iter().map(|s| s.to_string()).collect();
+    Arc::get_mut(&mut fml.shared).expect("not shared yet").finder = Box::new(move |tool: &str| {
+        present.iter().any(|p| p == tool).then(|| std::path::PathBuf::from(format!("/usr/bin/{tool}")))
+    });
+}
+
+#[test]
+fn room_is_set_aside_for_each_file_until_it_is_done() {
+    let dir = scratch("space");
+    let (a, b) = (file_of(&dir, "a.bin", 1000), file_of(&dir, "b.bin", 1000));
+    let (mut fml, _) = listening(Config::default());
+    set_disk(&mut fml, disk_with(1500));
+    let mut first = Outcome::new(&a, "set", false);
+    assert!(fml.check_space(&mut first, &a, "rewrite the file"));
+    // 1500 bytes are free and 1000 are set aside for the first file: the second does not fit
+    let mut second = Outcome::new(&b, "set", false);
+    second.changes.push("a change that is not going to happen".into());
+    assert!(!fml.check_space(&mut second, &b, "rewrite the file"));
+    assert_eq!(second.status, Status::Error);
+    assert_eq!(second.message, "not enough free space to rewrite the file: needs 1000 bytes, 500 bytes free");
+    assert!(second.changes.is_empty(), "a refused change is not reported as made");
+    // when the first file is done its room is free again
+    fml.release_space(&a);
+    let mut again = Outcome::new(&b, "set", false);
+    assert!(fml.check_space(&mut again, &b, "rewrite the file"));
+    // a file's room is released once, and a file that set none aside releases nothing
+    fml.release_space(&b);
+    fml.release_space(&b);
+    fml.release_space("never.bin");
+    let mut once_more = Outcome::new(&a, "set", false);
+    assert!(fml.check_space(&mut once_more, &a, "rewrite the file"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn another_disk_has_its_own_room() {
+    let dir = scratch("disks");
+    let other = dir.join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    let (a, b) = (file_of(&dir, "a.bin", 1000), file_of(&other, "b.bin", 1000));
+    let (mut fml, _) = listening(Config::default());
+    set_disk(&mut fml, disk_with(1200));
+    let (mut one, mut two) = (Outcome::new(&a, "set", false), Outcome::new(&b, "set", false));
+    assert!(fml.check_space(&mut one, &a, "copy the file"));
+    assert!(fml.check_space(&mut two, &b, "copy the file"), "the second file is on another disk");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_disk_that_cannot_be_read_stops_the_file_with_a_reason() {
+    let dir = scratch("nodisk");
+    let a = file_of(&dir, "a.bin", 10);
+    let (mut fml, _) = listening(Config::default());
+    set_disk(&mut fml, Box::new(|_: &Path| Err(io::Error::new(io::ErrorKind::PermissionDenied, "no way"))));
+    let mut result = Outcome::new(&a, "set", false);
+    assert!(!fml.check_space(&mut result, &a, "copy the file"));
+    assert_eq!(result.status, Status::Error);
+    assert!(result.message.starts_with("could not check the free space: "), "{}", result.message);
+    let mut missing = Outcome::new("gone.bin", "set", false);
+    assert!(!fml.check_space(&mut missing, &dir.join("gone.bin").to_string_lossy(), "copy the file"));
+    assert!(missing.message.starts_with("could not check the free space: "));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_copy_that_would_not_fit_is_not_started() {
+    let dir = scratch("nocopy");
+    let a = file_of(&dir, "a.bin", 4000);
+    let temp = format!("{a}{TEMP_MARK}");
+    let (mut fml, _) = listening(Config::default());
+    set_disk(&mut fml, disk_with(3999));
+    let mut result = Outcome::new(&a, "set", false);
+    assert!(!fml.start_copy(&mut result, &a, &temp).unwrap());
+    assert!(result.message.contains("not enough free space to copy the file (use --in-place to edit it directly)"));
+    assert!(!Path::new(&temp).exists(), "nothing was copied");
+    assert!(fml.shared.pending.lock().unwrap().is_empty(), "and no temporary file is waiting to be removed");
+    // with enough room the copy is made, and is the same size
+    set_disk(&mut fml, disk_with(4000));
+    let mut fits = Outcome::new(&a, "set", false);
+    assert!(fml.start_copy(&mut fits, &a, &temp).unwrap());
+    assert_eq!(std::fs::metadata(&temp).unwrap().len(), 4000);
+    fml.release_space(&a);
+    let _ = std::fs::remove_file(&temp);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn check_says_which_commands_are_missing() {
+    let (mut fml, _) = listening(Config::default());
+    set_finder(&mut fml, &["mkvmerge", "ffmpeg"]);
+    let result = fml.check_tools();
+    assert_eq!(result.status, Status::Error);
+    assert_eq!(result.message, "missing: mkvpropedit, mediainfo (use --install to install them)");
+    let listed: Vec<(String, bool)> = result.data.as_array().unwrap().iter()
+        .map(|e| (e["tool"].as_str().unwrap().to_string(), e["path"].is_string())).collect();
+    assert_eq!(listed, [("mkvmerge".into(), true), ("mkvpropedit".into(), false), ("mediainfo".into(), false), ("ffmpeg".into(), true)]);
+    assert_eq!(result.data[1]["package"], "mkvtoolnix");
+    // everything there: nothing to say
+    set_finder(&mut fml, &["mkvmerge", "mkvpropedit", "mediainfo", "ffmpeg"]);
+    assert_ne!(fml.check_tools().status, Status::Error);
+}
+
+#[test]
+fn check_with_install_shows_what_it_would_run_and_is_not_an_error_in_a_dry_run() {
+    let config = Config { install: true, dryrun: true, verbose: true, ..Config::default() };
+    let (mut fml, heard) = listening(config);
+    set_finder(&mut fml, &["mkvmerge", "ffmpeg"]);
+    fml.installer = Some(Installer::Apt);
+    let result = fml.check_tools();
+    assert_ne!(result.status, Status::Error, "{}", result.message);
+    assert_eq!(*heard.lock().unwrap(), ["Executing:\tsudo apt install -y mkvtoolnix", "Executing:\tsudo apt install -y mediainfo"]);
+}
+
+#[test]
+fn check_with_install_on_a_system_it_does_not_know_still_reports_the_commands_missing() {
+    let config = Config { install: true, ..Config::default() };
+    let (mut fml, heard) = listening(config);
+    set_finder(&mut fml, &["mkvmerge", "mkvpropedit", "ffmpeg"]);
+    fml.installer = None;
+    let result = fml.check_tools();
+    assert_eq!(result.status, Status::Error);
+    assert_eq!(result.message, "missing: mediainfo"); // no "(use --install ...)": it was asked for
+    assert!(heard.lock().unwrap()[0].starts_with("warning: don't know how to install \"mediainfo\" on this OS"));
+}
+
+#[test]
+fn an_action_names_the_commands_it_needs_and_stops_before_touching_anything() {
+    let (mut fml, _) = listening(Config::default());
+    set_finder(&mut fml, &["ffmpeg"]);
+    let Err(Stop::Fatal(message)) = fml.require(&["mkvmerge", "mkvpropedit"]) else { panic!("should stop") };
+    assert_eq!(message, "command not found: mkvmerge, mkvpropedit (use --install to install, or --check to see what is missing)");
+    assert!(fml.require(&["ffmpeg"]).is_ok());
+    // only what the action uses is asked for
+    assert!(fml.require(&[]).is_ok());
+    let config = Config { install: true, dryrun: true, ..Config::default() };
+    let (mut dry, _) = listening(config);
+    set_finder(&mut dry, &[]);
+    dry.installer = Some(Installer::Brew);
+    assert!(dry.require(&["mkvmerge"]).is_ok(), "a dry run with --install goes on, the install is only shown");
+}

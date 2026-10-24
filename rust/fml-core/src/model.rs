@@ -156,6 +156,7 @@ pub struct TaskSettings {
     pub default_first: Option<bool>,
     pub forced_flag: Option<bool>,
     pub sub_file: Option<String>,
+    pub sub_dir: Option<String>,
     pub output: Option<String>,
 }
 
@@ -242,6 +243,12 @@ pub struct Config {
     pub default_first: bool,
     /// For `add subtitle`: the subtitle file to add as a track.
     pub sub_file: String,
+    /// For `add subtitle`, instead of `sub_file`: a folder of subtitle files, matched to the media
+    /// files by name (see `subtitles::plan_from_folder`); `lang` is used where a name has none.
+    pub sub_dir: String,
+    /// What was matched from `sub_dir` for each media file, made once before the files are
+    /// processed (the engine fills it in; a front end leaves it empty).
+    pub sub_matches: std::collections::HashMap<String, Vec<SubSpec>>,
     /// For `add subtitle`, instead of `sub_file`, `lang` and `name`: several files, each with its
     /// own language, name and forced flag, added in one rewrite.
     pub subtitles: Vec<SubSpec>,
@@ -267,6 +274,7 @@ impl Config {
         if let Some(v) = own.default_first { config.default_first = v; }
         if let Some(v) = own.forced_flag { config.forced_flag = Some(v); }
         if let Some(v) = &own.sub_file { config.sub_file = v.clone(); }
+        if let Some(v) = &own.sub_dir { config.sub_dir = v.clone(); }
         if let Some(v) = &own.output { config.output = v.clone(); }
         config.tasks = vec![task.clone()];
         config
@@ -305,6 +313,8 @@ impl Default for Config {
             order_lang: Vec::new(),
             default_first: false,
             sub_file: String::new(),
+            sub_dir: String::new(),
+            sub_matches: std::collections::HashMap::new(),
             subtitles: Vec::new(),
             tasks: Vec::new(),
         }

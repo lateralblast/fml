@@ -316,6 +316,19 @@ fn build_command() -> Command {
                 .help_heading(settings),
         )
         .arg(
+            Arg::new("sub-dir")
+                .long("sub-dir")
+                .action(ArgAction::Append)
+                .value_name("DIR")
+                .help(
+                    "for --add subtitle, instead of --sub-file: add the subtitle files in DIR (and \
+                     below it) to the files being processed, each matched by name (FILM.ita.srt \
+                     goes with FILM.mkv, else the same season and episode); the language, \
+                     Forced and SDH come from the name, --lang is used where it has none",
+                )
+                .help_heading(settings),
+        )
+        .arg(
             Arg::new("sub-file")
                 .long("sub-file")
                 .action(ArgAction::Append)
@@ -550,7 +563,7 @@ fn setting_occurrences(matches: &ArgMatches) -> Vec<(usize, &'static str, String
     let mut found = Vec::new();
     let valued = [
         "lang", "default", "prefer", "track", "kind", "name", "order", "order-lang", "forced-flag",
-        "sub-file", "output",
+        "sub-file", "sub-dir", "output",
     ];
     for name in valued {
         let values = many(matches, name);
@@ -584,6 +597,7 @@ fn set_setting(settings: &mut TaskSettings, name: &str, value: String) {
         "order-lang" => settings.order_lang = Some(list(&value)),
         "forced-flag" => settings.forced_flag = Some(value == "yes"),
         "sub-file" => settings.sub_file = Some(value),
+        "sub-dir" => settings.sub_dir = Some(value),
         "output" => settings.output = Some(value),
         "forced" => settings.forced = Some(true),
         "move" => settings.move_first = Some(true),
@@ -630,6 +644,8 @@ fn config_from(matches: &ArgMatches) -> Config {
         name: base.name,
         order: base.order.unwrap_or_default(),
         sub_file: base.sub_file.unwrap_or_default(),
+        sub_dir: base.sub_dir.unwrap_or_default(),
+        sub_matches: Default::default(),
         output: base.output.unwrap_or_default(),
         progress: false,
         subtitles: Vec::new(),

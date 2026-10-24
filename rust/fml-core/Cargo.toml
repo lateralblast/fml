@@ -3,6 +3,8 @@ name = "fml-core"
 description = "Fix Media Language: change default audio and subtitle tracks of media files"
 version.workspace = true
 edition.workspace = true
+# what the dependencies in Cargo.lock need (checked in CI)
+rust-version = "1.85"
 license.workspace = true
 authors.workspace = true
 

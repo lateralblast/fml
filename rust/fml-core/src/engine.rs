@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use crate::model::*;
 use crate::install::{detect_installer, Installer};
 use crate::mp4;
+use crate::subtitles;
 use crate::track::{
     format_tracks, human_size, parse_mediainfo_tracks, parse_mkv_tracks, Kind, Track, TrackSpec,
 };
@@ -33,13 +34,34 @@ struct Space {
     holds: HashMap<String, Vec<(u64, i64)>>,
 }
 
-#[derive(Default)]
+/// How much room a folder's disk has and which disk it is (see `disk_free`).
+type DiskFn = Box<dyn Fn(&Path) -> io::Result<(u64, u64)> + Send + Sync>;
+/// Where a command is (see `which`).
+type FindFn = Box<dyn Fn(&str) -> Option<PathBuf> + Send + Sync>;
+
 struct Shared {
     /// Temporary files to remove if we are stopped.
     pending: Mutex<Vec<String>>,
     space: Mutex<Space>,
     install: Mutex<()>,
     log: Mutex<()>,
+    /// The real disk and `PATH`; the tests put others in their place, to get a full disk or
+    /// missing commands without having either.
+    disk: DiskFn,
+    finder: FindFn,
+}
+
+impl Default for Shared {
+    fn default() -> Shared {
+        Shared {
+            pending: Mutex::default(),
+            space: Mutex::default(),
+            install: Mutex::default(),
+            log: Mutex::default(),
+            disk: Box::new(|folder| disk_free(folder)),
+            finder: Box::new(|tool| which(tool)),
+        }
+    }
 }
 
 /// What a run did.
@@ -369,6 +391,48 @@ impl Fml {
         Fml { config, shared: Arc::new(Shared::default()), sink, installer: detect_installer() }
     }
 
+    /// Match the subtitle files in `--sub-dir` to the media files that are going to be processed
+    /// (all of them at once, so that the longest name wins), and say what is left over.
+    fn plan_subtitle_folder(&mut self, paths: &[String]) {
+        let files = subtitles::subtitle_files_in(Path::new(&self.config.sub_dir));
+        let plan = subtitles::plan_from_folder(paths, &files, &self.config.lang);
+        for file in &plan.unmatched {
+            self.warn(&format!("no media file matches the subtitle {file}"));
+        }
+        for file in &plan.no_language {
+            self.warn(&format!(
+                "the language of the subtitle {file} is not in its name (give --lang to use one for such files)"
+            ));
+        }
+        self.config.sub_matches = plan.specs;
+    }
+
+    /// Of the subtitles matched from a folder, those that can be added to this file: not ones it
+    /// has already (a track in the same language with the same name), and for an MP4 not ones that
+    /// can't be converted. Each one left out is said.
+    fn addable_from_folder(&self, media: &Media, all: &[Track], specs: Vec<SubSpec>) -> Vec<SubSpec> {
+        let mut keep = Vec::new();
+        for spec in specs {
+            let file = Path::new(&spec.file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let has = all.iter().any(|t| {
+                t.kind == Kind::Subtitles && t.language == spec.lang && same_name(&t.name, &spec.name)
+            });
+            if has {
+                self.warn(&format!(
+                    "{}: already has a subtitle track in {}{}, so {file} was not added",
+                    media.path,
+                    spec.lang,
+                    if spec.name.is_empty() { String::new() } else { format!(" named \"{}\"", spec.name) }
+                ));
+            } else if let Some(why) = media.container.eq(&Container::Mp4).then(|| Self::mp4_subtitle_refusal(std::slice::from_ref(&spec))).flatten() {
+                self.warn(&format!("{}: {file} was not added: {why}", media.path));
+            } else {
+                keep.push(spec);
+            }
+        }
+        keep
+    }
+
     /// The same engine, with the settings of one action on top of its own.
     fn for_task(&self, task: &Task) -> Fml {
         Fml {
@@ -453,6 +517,11 @@ impl Fml {
 
     // Environment --------------------------------------------------------------
 
+    /// Where a command is, if it is on `PATH`.
+    fn find(&self, tool: &str) -> Option<PathBuf> {
+        (self.shared.finder)(tool)
+    }
+
     fn install_package(&self, package: &str) {
         let Some(installer) = self.installer else {
             let hint = if cfg!(windows) { " (install winget or Chocolatey)" } else { "" };
@@ -487,7 +556,7 @@ impl Fml {
     /// Report which of the required commands are installed.
     pub fn check_tools(&self) -> Outcome {
         let find = || -> Vec<(String, Option<PathBuf>)> {
-            REQUIRED_TOOLS.iter().map(|(t, _)| (t.to_string(), which(t))).collect()
+            REQUIRED_TOOLS.iter().map(|(t, _)| (t.to_string(), self.find(t))).collect()
         };
         let mut found = find();
         let missing_of = |found: &[(String, Option<PathBuf>)]| -> Vec<String> {
@@ -525,7 +594,7 @@ impl Fml {
     /// Make sure commands are installed, installing them if install was asked for.
     fn require(&self, tools: &[&str]) -> Res<()> {
         let missing_now = || -> Vec<String> {
-            tools.iter().filter(|t| which(t).is_none()).map(|t| t.to_string()).collect()
+            tools.iter().filter(|t| self.find(t).is_none()).map(|t| t.to_string()).collect()
         };
         let mut missing = missing_now();
         if missing.is_empty() {
@@ -716,7 +785,7 @@ impl Fml {
         let checked = (|| -> io::Result<(i64, u64, i64)> {
             let need = fs::metadata(path)?.len() as i64;
             let folder = fs::canonicalize(path)?.parent().map(Path::to_path_buf).unwrap_or_default();
-            let (free, device) = disk_free(&folder)?;
+            let (free, device) = (self.shared.disk)(&folder)?;
             Ok((need, device, free as i64))
         })();
         let (need, device, free_now) = match checked {
@@ -1605,7 +1674,16 @@ impl Fml {
         if media.container == Container::Avi {
             return Ok(skip(result, "adding a subtitle is only supported for MKV and MP4 files"));
         }
-        let specs: Vec<SubSpec> = if self.config.subtitles.is_empty() {
+        let from_folder = !self.config.sub_dir.is_empty();
+        let mut specs: Vec<SubSpec> = if from_folder {
+            match self.config.sub_matches.get(&media.path) {
+                Some(found) if !found.is_empty() => found.clone(),
+                _ => {
+                    let message = format!("no subtitle file in {} matches", self.config.sub_dir);
+                    return Ok(skip(result, &message));
+                }
+            }
+        } else if self.config.subtitles.is_empty() {
             vec![SubSpec {
                 file: self.config.sub_file.clone(),
                 lang: self.config.lang.clone(),
@@ -1617,6 +1695,12 @@ impl Fml {
         };
         let worker = self.with_kind(Kind::Subtitles);
         let all = worker.tracks(media)?;
+        if from_folder {
+            specs = self.addable_from_folder(media, &all, specs);
+            if specs.is_empty() {
+                return Ok(skip(result, "nothing to add: the subtitles that match are already there or can't be added"));
+            }
+        }
         let mut number = all.iter().filter(|t| t.kind == Kind::Subtitles).count();
         if media.container == Container::Mp4 {
             if let Some(refusal) = Self::mp4_subtitle_refusal(&specs) {
@@ -1784,7 +1868,7 @@ impl Fml {
             let codec = if track.codec.is_empty() { "this".to_string() } else { track.codec.clone() };
             return Ok(skip(result, &format!("a {codec} subtitle can't be extracted to a single file")));
         };
-        if media.container == Container::Mkv && which("mkvextract").is_none() {
+        if media.container == Container::Mkv && self.find("mkvextract").is_none() {
             result.error("mkvextract is not installed (it comes with mkvtoolnix)".to_string());
             return Ok(result);
         }
@@ -2204,8 +2288,11 @@ impl Fml {
                 continue;
             }
             // each action works with its own settings on top of the shared ones
-            let worker = self.for_task(task);
+            let mut worker = self.for_task(task);
             let paths = worker.files()?;
+            if task.name == "add" && !worker.config.sub_dir.is_empty() {
+                worker.plan_subtitle_folder(&paths);
+            }
             if worker.config.jobs > 1 && paths.len() > 1 {
                 worker.process_in_parallel(task, &paths, results)?;
                 continue;

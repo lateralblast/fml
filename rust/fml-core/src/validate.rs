@@ -91,9 +91,9 @@ fn validate_task(args: &Config) -> Result<(), String> {
     if !args.output.is_empty() && !tasks.iter().any(|t| t.name == "extract") {
         return Err("--output only works with --extract subtitle".into());
     }
-    if (!args.sub_file.is_empty() || !args.subtitles.is_empty())
+    if (!args.sub_file.is_empty() || !args.sub_dir.is_empty() || !args.subtitles.is_empty())
         && !tasks.iter().any(|t| t.name == "add" && t.what == "subtitle") {
-        return Err("--sub-file only works with --add subtitle".into());
+        return Err("--sub-file and --sub-dir only work with --add subtitle".into());
     }
     if args.default_first && !tasks.iter().any(|t| t.name == "set" && t.what == "order") {
         return Err("--default-first only works with --set order".into());
@@ -163,9 +163,18 @@ fn validate_task(args: &Config) -> Result<(), String> {
             }
         }
         if name == "add" {
-            if args.subtitles.is_empty() {
+            if !args.sub_dir.is_empty() {
+                if !args.sub_file.is_empty() || args.name.is_some() {
+                    return Err("--sub-dir takes the files in a folder, not --sub-file or --name (the \
+                                names come from the file names; --lang is used where they have none)"
+                        .into());
+                }
+                if !Path::new(&args.sub_dir).is_dir() {
+                    return Err(format!("--sub-dir: \"{}\" is not a folder", args.sub_dir));
+                }
+            } else if args.subtitles.is_empty() {
                 if args.sub_file.is_empty() {
-                    return Err("--add subtitle needs --sub-file".into());
+                    return Err("--add subtitle needs --sub-file (or --sub-dir)".into());
                 }
                 check_subtitle_file(&args.sub_file)?;
                 if args.lang.is_empty() {
@@ -310,7 +319,7 @@ mod tests {
         assert!(validate(&c).unwrap_err().contains("--in-place"));
         assert!(validate(&{ let mut d = config(&[("info", "")]); d.sub_file = "x.srt".into(); d })
             .unwrap_err()
-            .contains("only works with --add subtitle"));
+            .contains("only work with --add subtitle"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -335,7 +344,7 @@ mod tests {
         assert!(validate(&c).unwrap_err().contains("is not a file"));
         let mut other = config(&[("info", "")]);
         other.subtitles = vec![spec(&a, "ita")];
-        assert!(validate(&other).unwrap_err().contains("only works with --add subtitle"));
+        assert!(validate(&other).unwrap_err().contains("only work with --add subtitle"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

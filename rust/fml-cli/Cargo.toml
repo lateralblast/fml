@@ -3,6 +3,7 @@ name = "fml-cli"
 description = "Command line front end for fml"
 version.workspace = true
 edition.workspace = true
+rust-version = "1.85"
 license.workspace = true
 authors.workspace = true
 

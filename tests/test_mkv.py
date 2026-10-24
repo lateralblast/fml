@@ -716,6 +716,98 @@ def test_extract_a_track_that_is_not_there_says_so(run: Callable[..., Ran], film
     assert not list(film_mkv.parent.glob("*.srt"))
 
 
+# Adding the subtitle files of a folder ---------------------------------------
+
+def subs_folder(root: Path, *names: str) -> Path:
+    folder = root / "subs"
+    folder.mkdir(exist_ok=True)
+    for name in names:
+        target = folder / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        srt(target.parent, target.name)
+    return folder
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+def test_add_the_subtitle_files_of_a_folder_by_name(run: Callable[..., Ran], film_mkv: Path,
+                                                    tmp_path: Path) -> None:
+    folder = subs_folder(tmp_path, "film.ger.srt", "film.spa.forced.srt", "other.ita.srt",
+                         "nested/film.fre.srt")
+    (folder / "notes.txt").write_text("not a subtitle")
+    ran = run("--add", "subtitle", "--sub-dir", folder, "-i", film_mkv)
+    assert ran.code == 0, ran.err
+    # added in path order: the folder's own files, then the folder below it
+    assert mkv_layout(film_mkv)[3:] == ["s:eng", "s:engF", "s:ita", "s:ger", "s:spaF", "s:fre"]
+    assert mkv_names(film_mkv)[-2] == "Forced"  # the name comes from the file name too
+    assert "no media file matches the subtitle" in ran.err and "other.ita.srt" in ran.err
+    assert leftovers(film_mkv.parent) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+def test_a_second_run_adds_nothing(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
+    folder = subs_folder(tmp_path, "film.ger.srt")
+    assert run("--add", "subtitle", "--sub-dir", folder, "-i", film_mkv).code == 0
+    done = film_mkv.read_bytes()
+    again = run("--add", "subtitle", "--sub-dir", folder, "-i", film_mkv)
+    assert again.code == 0 and "already has a subtitle track in ger" in again.err
+    assert film_mkv.read_bytes() == done  # not rewritten
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+def test_lang_is_used_where_the_name_has_no_language(run: Callable[..., Ran], film_mkv: Path,
+                                                      tmp_path: Path) -> None:
+    folder = subs_folder(tmp_path, "film.srt")
+    before = film_mkv.read_bytes()
+    without = run("--add", "subtitle", "--sub-dir", folder, "-i", film_mkv)
+    assert "is not in its name" in without.err and film_mkv.read_bytes() == before
+    given = run("--add", "subtitle", "--sub-dir", folder, "--lang", "Portuguese", "-i", film_mkv)
+    assert given.code == 0, given.err
+    assert mkv_layout(film_mkv)[-1] == "s:por"
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+def test_a_season_is_matched_by_name_or_by_episode(run: Callable[..., Ran], make: Callable[...,
+                                                                                           Path],
+                                                    tmp_path: Path) -> None:
+    season = tmp_path / "season"
+    audio = [("ita", None, True), ("eng", None, False)]
+    first = make("Show.S01E01.1080p.mkv", audio, where=season)
+    second = make("Show.S01E02.1080p.mkv", audio, where=season)
+    third = make("Show.S01E03.1080p.mkv", audio, where=season)
+    folder = subs_folder(tmp_path, "Show.S01E01.1080p.ita.srt", "Show S01E02 English.srt")
+    ran = run("--add", "subtitle", "--sub-dir", folder, "--dir", season)
+    assert ran.code == 0, ran.err
+    assert mkv_layout(first)[-1] == "s:ita"
+    assert mkv_layout(second)[-1] == "s:eng"  # by season and episode
+    assert not [t for t in mkv_layout(third) if t.startswith("s:")]  # nothing for the third
+    assert "Show.S01E03.1080p.mkv: no subtitle file" in ran.err
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+@pytest.mark.parametrize("extra, message", [
+    (["--sub-dir", "NOFOLDER"], "is not a folder"),
+    (["--sub-dir", "FOLDER", "--sub-file", "FILE"], "not --sub-file or --name"),
+    (["--sub-dir", "FOLDER", "--name", "x"], "not --sub-file or --name"),
+])
+def test_a_bad_sub_dir_is_refused(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path,
+                                  extra: list[str], message: str) -> None:
+    folder = subs_folder(tmp_path, "film.ger.srt")
+    file = srt(tmp_path, "one.srt")
+    args = [str(folder) if a == "FOLDER" else str(file) if a == "FILE"
+            else str(tmp_path / "nowhere") if a == "NOFOLDER" else a for a in extra]
+    before = film_mkv.read_bytes()
+    ran = run("--add", "subtitle", *args, "-i", film_mkv)
+    assert ran.code == 2 and message in ran.err, ran.err
+    assert film_mkv.read_bytes() == before
+
+
+@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+def test_sub_dir_needs_add_subtitle(run: Callable[..., Ran], film_mkv: Path,
+                                    tmp_path: Path) -> None:
+    ran = run("--get", "lang", "--sub-dir", subs_folder(tmp_path, "film.ger.srt"), "-i", film_mkv)
+    assert ran.code == 2 and "only work with --add subtitle" in ran.err
+
+
 # Changing several properties of a track at once -----------------------------
 
 @pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
@@ -852,7 +944,7 @@ def test_a_bad_add_is_refused_and_changes_nothing(run: Callable[..., Ran], film_
 def test_sub_file_needs_add(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
     ran = run("--set", "name", "--track", "1", "--name", "x", "--sub-file", srt(tmp_path), "-i",
               film_mkv)
-    assert ran.code == 2 and "--sub-file only works with --add subtitle" in ran.err
+    assert ran.code == 2 and "--sub-file and --sub-dir only work with --add subtitle" in ran.err
 
 
 # What a change will do, as data -----------------------------------------------

@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-10-24
+
+### Added
+- A GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `main` and every pull request: `ruff`, `mypy` (not on 3.9, which current `mypy` no longer supports) and `pytest` of the archived `fml.py` on Python 3.9 to 3.14 with the real `mkvtoolnix`, `mediainfo` and `ffmpeg`; on Linux and macOS a build with warnings as errors, `cargo test --workspace` and the whole `pytest` suite run against the built `fml-cli`; a build of the core and command line tool with the oldest Rust they support; and a `cargo check` of the code for Windows. All of it uses `--locked`, so a stale `Cargo.lock` fails. It checks, signs and publishes nothing.
+- `rust-version` in the crate manifests: 1.85 for `fml-core` and `fml-cli`, 1.90 for `fml-gui`.
+
+### Fixed
+- The README, `rust/README.md` and the notes said Rust 1.80 was enough; the dependencies in `Cargo.lock` need 1.85 for the core and command line tool (a dependency uses edition 2024) and 1.90 for the app (Tauri). Found by building with each version, and the CI now checks the 1.85 claim.
+
+## [1.0.4] - 2026-10-24
+
+### Added
+- Rust tests for the paths the pytest suite cannot reach through the binary, which need a full disk or a `PATH` without the tools: the free-space check (room set aside per file until it is done and per disk, a refused change reported as not made, a disk or file that can't be read, a copy that would not fit never started, and one that exactly fits is), `--check` naming the commands that are missing (and with `--install`, in a dry run and on a system with no known package manager), and an action stopping before it touches anything when a command it needs is missing. Breaking the reservation, the comparison and the hint each made one of them fail.
+
+### Changed
+- Inside `fml-core` the disk lookup and the command lookup are fields of the engine's shared state (the real `disk_free` and `which` by default), so a test can put a full disk or a missing command in their place. Nothing changes for a user.
+
+## [1.0.3] - 2026-10-24
+
+### Added
+- `--add subtitle --sub-dir DIR` adds the subtitle files in a folder (and the folders below it) to all the files being processed, matched by name as the app's **Add subtitles…** does: by the media file's name, else by season and episode. It uses all the files of the run at once, so the longest matching name wins. The language, track name (`SDH`, `CC`, `Forced`) and forced flag come from the file name; `--lang` is used for files whose name has no language (without it they are left out, and named in a warning), and files that match nothing are named too. A file's subtitles are added in one rewrite; ones it already has (same language and name) are skipped, so running it again adds nothing, and for an MP4 the ones that can't be converted (`.sup`, forced) are skipped one by one with the reason instead of refusing the file. It works with `--dryrun`, `--log` and `--undo` (with `--backup`).
+- `fml-core` has `subtitles::plan_from_folder` and `subtitle_files_in`, which do the planning.
+
 ## [1.0.2] - 2026-10-24
 
 ### Added

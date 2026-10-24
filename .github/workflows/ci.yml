@@ -1,0 +1,121 @@
+# Checks that run on every push and pull request.
+#
+#   python        the archived fml.py, which the Rust build is tested against: ruff, mypy and pytest on each
+#                 Python the project supports, with the real mkvtoolnix, mediainfo and ffmpeg
+#   rust          the command line tool and the app on Linux and macOS: build without warnings, cargo test,
+#                 then the same pytest suite run against the built fml-cli (FML_BIN)
+#   rust-minimum  the core and the command line tool on the oldest Rust the README says they build with
+#   windows       the code for Windows compiles (it is not run: there is no Windows runner step for it yet)
+#
+# Nothing here signs, notarises, tags or publishes anything.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  python:
+    name: python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the media tools
+        run: sudo apt-get update && sudo apt-get install -y mkvtoolnix mediainfo ffmpeg
+      - name: Install the project and its checks
+        run: pip install -e ".[dev]"
+      - name: ruff
+        run: ruff check
+      - name: mypy
+        # current mypy no longer supports 3.9; ruff with target-version py39 and the tests cover it
+        if: matrix.python-version != '3.9'
+        run: mypy
+      - name: pytest
+        run: pytest -q
+
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the media tools and, on Linux, what the app needs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mkvtoolnix mediainfo ffmpeg \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+      - name: Install the media tools
+        if: runner.os == 'macOS'
+        run: brew install mkvtoolnix mediainfo ffmpeg
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build the command line tool
+        working-directory: rust
+        run: cargo build --release --locked
+      - name: cargo test (core, command line tool and app)
+        working-directory: rust
+        run: cargo test --workspace --locked
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run the pytest suite against the built fml-cli
+        env:
+          FML_BIN: ${{ github.workspace }}/rust/target/release/fml-cli
+        run: |
+          pip install pytest
+          pytest -q
+
+  rust-minimum:
+    name: rust 1.85 (core and command line tool)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build with the oldest supported Rust
+        working-directory: rust
+        run: cargo build --locked -p fml-core -p fml-cli
+
+  windows:
+    name: windows (compiles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Check the code for Windows
+        working-directory: rust
+        run: cargo check --locked -p fml-core -p fml-cli --target x86_64-pc-windows-gnu

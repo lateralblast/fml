@@ -8,7 +8,7 @@ Fix Media Language (etc)
 Version
 -------
 
-Version 1.0.2
+Version 1.0.5
 
 License
 -------
@@ -76,7 +76,7 @@ have to be removed, are rewritten without re-encoding anything.
 Requirements
 ------------
 
-`fml` is built with Rust (`cargo` 1.80 or newer; see [Installing](#installing)) and has no other
+`fml` is built with Rust (`cargo` 1.85 or newer, 1.90 for the desktop app; see [Installing](#installing)) and has no other
 dependencies of its own. It needs these commands:
 
 | Command                   | Package    | Used for                      |
@@ -281,6 +281,22 @@ It works on MKV and MP4 files, not AVI. In an MP4 the subtitle is converted to `
 first subtitle track the default if there was none, so the first subtitle added to a file without any is default.
 It cannot be used with `--in-place`. `--undo` can
 take the track out again only if the change was made with `--backup`, because it changes the number of tracks.
+`--sub-dir DIR` does it for many files at once, as the app's **Add subtitles…** does: the subtitle files in `DIR`
+(and the folders below it) are matched by name to the files being processed (`--file`, or `--dir`, with
+`--recursive` if wanted), all at once, so `Show.S01E02.Extended.fre.srt` goes with the file of that name rather than
+with `Show.S01E02`. A subtitle belongs to the media file whose name it starts with, or else to the only file with
+the same season and episode (`S01E02`, `1x02`). The language, `SDH` or `CC` (as the track name) and `forced` come
+from the words after the name, using known languages only (`ita`, `it`, `Italian`); `--lang` is used for the files
+whose name has no language, and without it they are left out and named. Each file is rewritten once with all its
+new subtitles. Subtitles that a file already has (same language and name) are not added again, so the command can
+be run again after more files arrive, and in an MP4 the ones that can't be converted are left out, each with its
+reason. Files that match nothing are listed.
+
+```
+./fml --add subtitle --sub-dir ~/Subs --dir /media/Show.S01 --dryrun
+./fml --add subtitle --sub-dir ~/Subs --lang English --dir /media/Show.S01
+```
+
 In the desktop app, **Add subtitles…** (in "1. Choose files") adds many at once: choose the subtitle files and each is
 matched to a ticked MKV file by name (`Show.S01E03.ita.srt` goes with `Show.S01E03.mkv`, else the same season and
 episode), with the language, the name (`SDH`, `Forced`) and the forced flag guessed from what follows the name. Check
@@ -467,7 +483,7 @@ action's own settings are added on top of them (a setting given twice for one ac
 ```
 
 The settings that go with an action are `--lang`, `--default`, `--prefer`, `--track`, `--kind`, `--forced`, `--move`,
-`--name`, `--order`, `--order-lang`, `--default-first`, `--forced-flag`, `--sub-file` and `--output`. The rest
+`--name`, `--order`, `--order-lang`, `--default-first`, `--forced-flag`, `--sub-file`, `--sub-dir` and `--output`. The rest
 (`--file`, `--dir`, `--recursive`, `--include`, `--exclude`, `--dryrun`, `--backup`, `--log`, `--jobs`, `--force`,
 `--in-place`, `--format` and `--verbose`) are for the whole command, wherever they are given. Each action is checked
 with its own settings, so a mistake is reported for the action it is in.
@@ -707,6 +723,7 @@ settings:
   -t, --track <N>               a track number from 1 (among tracks of the kind), last, or any track by audio:N, subtitles:N, id:N (the ID column of --info) or name:TEXT
   -f, --force                   allow removing every audio track
       --output <FILE>           for --extract subtitle: the file to write, or a folder to put the generated name (FILM.ita.srt) in; an existing file needs --force
+      --sub-dir <DIR>           for --add subtitle, instead of --sub-file: add the subtitle files in DIR (and below it) to the files being processed, each matched by name (FILM.ita.srt goes with FILM.mkv, else the same season and episode); the language, Forced and SDH come from the name, --lang is used where it has none
       --sub-file <FILE>         for --add subtitle: the subtitle file (.srt, .ass, .ssa, .vtt or .sup) to add; the file is rewritten
       --forced-flag <{yes,no}>  for --set track: set (yes) or clear (no) the forced flag of the track (MKV only)
       --order-lang <LANGS>      for --set order, instead of --order: languages in the order their tracks should come, e.g. ita,eng; tracks in other languages follow. Works on files whose tracks differ, so one command suits a whole season
@@ -744,7 +761,7 @@ examples:
 Installing
 ----------
 
-Build the command line tool, and the desktop app if you want it (it needs `cargo` 1.80 or newer; the app also
+Build the command line tool, and the desktop app if you want it (it needs `cargo` 1.85 or newer, and 1.90 for the app; the app also
 needs the system webview, on Ubuntu `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`):
 
 ```
@@ -797,6 +814,18 @@ The ones marked `real` generate media files with `ffmpeg` and check the results 
 `ffprobe`, and are skipped if those are not installed (`pytest -m "not real"` leaves them out). They only
 write to temporary directories. With `FML_BIN` set, the tests that call the archived `fml.py`'s own functions
 are skipped (see [`rust/README.md`](rust/README.md)). `rust/README.md` also says what the suite does not cover.
+
+Continuous integration (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
+
+| Job            | What it checks                                                                                      |
+|----------------|-----------------------------------------------------------------------------------------------------|
+| `python`       | `ruff`, `mypy` (not on 3.9) and `pytest` of the archived `fml.py` on Python 3.9 to 3.14, with the real tools |
+| `rust`         | on Linux and macOS: a build with warnings as errors, `cargo test --workspace`, and the whole `pytest` suite run against the built `fml-cli` |
+| `rust-minimum` | the core and command line tool build with Rust 1.85, the oldest they can (the app needs 1.90)         |
+| `windows`      | the code for Windows compiles (`cargo check`); it is not run there yet                               |
+
+The same commands work locally. The workflow itself has been checked with `actionlint` and its commands run on
+a Mac, and the Linux steps in an Ubuntu container, but it has not yet run on GitHub's runners.
 
 Moving from fml.sh
 ------------------

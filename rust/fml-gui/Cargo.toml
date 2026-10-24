@@ -3,6 +3,8 @@ name = "fml-gui"
 description = "Desktop front end for fml (Tauri)"
 version.workspace = true
 edition.workspace = true
+# Tauri and its dependencies need a newer Rust than the command line tool
+rust-version = "1.90"
 license.workspace = true
 authors.workspace = true
 

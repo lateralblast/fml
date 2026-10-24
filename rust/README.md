@@ -17,7 +17,7 @@ rules about which switches go together, so the command line and the app enforce 
 
 ## Build and run
 
-Needs `cargo` (1.80 or newer) and the same tools as `fml.py`: `mkvmerge`, `mkvpropedit`,
+Needs `cargo` (1.85 or newer; 1.90 or newer for the app) and the same tools as `fml.py`: `mkvmerge`, `mkvpropedit`,
 `mediainfo` and `ffmpeg`.
 
 ```

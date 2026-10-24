@@ -4,10 +4,11 @@
 //! media file's name, and what is left (`ita`) says the language. Failing that, the season
 //! and episode (`S01E03`, `1x03`) in the two names are compared.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::languages::known_language;
-use crate::model::SUBTITLE_FILES;
+use crate::model::{SubSpec, SUBTITLE_FILES};
 
 /// A subtitle file matched to a media file, with what its name says about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,6 +162,55 @@ pub fn match_subtitles(media: &[String], subs: &[String]) -> Matched {
     result
 }
 
+/// Every subtitle file in a folder and the folders below it, in path order, skipping the
+/// temporary and backup files of fml.
+pub fn subtitle_files_in(folder: &Path) -> Vec<String> {
+    fn walk(folder: &Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(folder) else { return };
+        let mut paths: Vec<std::path::PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
+        for path in paths {
+            let text = path.to_string_lossy().into_owned();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if is_subtitle_file(&text) && !text.contains(".fml-tmp") && !text.contains(".fml-bak") {
+                out.push(text);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(folder, &mut found);
+    found
+}
+
+/// What a folder of subtitle files means for a set of media files.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FolderPlan {
+    /// For each media file, the subtitles to add to it, in file name order.
+    pub specs: HashMap<String, Vec<SubSpec>>,
+    /// Subtitle files that no media file matches.
+    pub unmatched: Vec<String>,
+    /// Subtitle files that match a media file but whose name does not say the language, with no
+    /// language given to use instead. They are left out.
+    pub no_language: Vec<String>,
+}
+
+/// Match the subtitle files of a folder to the media files by name (see [`match_subtitles`]) and
+/// say what to add to each one. A language the name does not give is `fallback` (empty for none).
+pub fn plan_from_folder(media: &[String], subs: &[String], fallback: &str) -> FolderPlan {
+    let matched = match_subtitles(media, subs);
+    let mut plan = FolderPlan { unmatched: matched.unmatched, ..FolderPlan::default() };
+    for m in matched.matches {
+        let lang = m.lang.clone().unwrap_or_else(|| fallback.to_string());
+        if lang.is_empty() {
+            plan.no_language.push(m.file);
+            continue;
+        }
+        plan.specs.entry(m.media).or_default().push(SubSpec { file: m.file, lang, name: m.name, forced: m.forced });
+    }
+    plan
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +279,43 @@ mod tests {
         assert_eq!(guess(".Italian").0.as_deref(), Some("ita"));
         assert_eq!(guess(".ita.eng").0.as_deref(), Some("eng")); // the last one
         assert_eq!(guess("_forced_ita"), (Some("ita".into()), "Forced".into(), true));
+    }
+
+    #[test]
+    fn a_folder_plan_says_what_to_add_to_each_file() {
+        let media = list(&["/tv/Show.S01E01.mkv", "/tv/Show.S01E02.mkv"]);
+        let subs = list(&[
+            "/subs/Show.S01E01.ita.srt",
+            "/subs/Show.S01E01.eng.forced.srt",
+            "/subs/Show.S01E02.srt", // no language in the name
+            "/subs/Other.S05E05.ita.srt",
+        ]);
+        let plan = plan_from_folder(&media, &subs, "");
+        assert_eq!(plan.specs["/tv/Show.S01E01.mkv"].iter().map(|s| (s.lang.as_str(), s.forced)).collect::<Vec<_>>(),
+            [("ita", false), ("eng", true)]);
+        assert!(!plan.specs.contains_key("/tv/Show.S01E02.mkv"));
+        assert_eq!(plan.no_language, ["/subs/Show.S01E02.srt"]);
+        assert_eq!(plan.unmatched, ["/subs/Other.S05E05.ita.srt"]);
+        // a language given is used where the name has none, and never over one that it has
+        let plan = plan_from_folder(&media, &subs, "fre");
+        assert_eq!(plan.specs["/tv/Show.S01E02.mkv"][0].lang, "fre");
+        assert_eq!(plan.specs["/tv/Show.S01E01.mkv"][0].lang, "ita");
+        assert!(plan.no_language.is_empty());
+    }
+
+    #[test]
+    fn the_subtitle_files_of_a_folder_are_found_below_it_too() {
+        let dir = std::env::temp_dir().join(format!("fml-subdir-{}", std::process::id()));
+        let nested = dir.join("Subs").join("Show.S01E01");
+        std::fs::create_dir_all(&nested).unwrap();
+        for (folder, name) in [(&dir, "b.srt"), (&dir, "a.ASS"), (&dir, "notes.txt"), (&dir, "c.srt.fml-bak"), (&nested, "2_English.srt")] {
+            std::fs::write(folder.join(name), b"x").unwrap();
+        }
+        let names: Vec<String> = subtitle_files_in(&dir)
+            .iter().map(|p| p.rsplit('/').next().unwrap().to_string()).collect();
+        assert_eq!(names, ["2_English.srt", "a.ASS", "b.srt"]); // in path order, folders included
+        assert!(subtitle_files_in(&dir.join("nope")).is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

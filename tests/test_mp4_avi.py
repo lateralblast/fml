@@ -248,6 +248,21 @@ def test_the_first_subtitle_of_an_mp4_becomes_the_default(run: Callable[..., Ran
     assert mp4_layout(plain) == ["a:ita*", "a:eng", "s:ita*"]  # the mov muxer insists on it
 
 
+@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+def test_an_mp4_gets_the_folder_subtitles_it_can_have(run: Callable[..., Ran], film_mp4: Path,
+                                                      tmp_path: Path) -> None:
+    folder = tmp_path / "subs"
+    folder.mkdir()
+    for name in ("film.spa.srt", "film.por.forced.srt"):
+        srt(folder, name)
+    (folder / "film.ger.sup").write_bytes(b"PG")
+    ran = run("--add", "subtitle", "--sub-dir", folder, "-i", film_mp4)
+    assert ran.code == 0, ran.err
+    assert mp4_layout(film_mp4)[-1] == "s:spa"
+    assert "film.por.forced.srt was not added: the forced flag can only be set for MKV" in ran.err
+    assert "film.ger.sup was not added: a .sup subtitle can't be added to an MP4" in ran.err
+
+
 @pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
 def test_undo_an_added_mp4_subtitle_from_the_backup(run: Callable[..., Ran], film_mp4: Path,
                                                     tmp_path: Path) -> None:
