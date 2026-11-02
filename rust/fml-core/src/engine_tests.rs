@@ -18,6 +18,7 @@ fn track(number: usize, kind: Kind, language: &str, default: bool, id: i64) -> T
         default,
         forced: false,
         name: String::new(),
+        channels: 0,
     }
 }
 

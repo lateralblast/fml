@@ -112,6 +112,13 @@ pub struct Track {
     pub default: bool,
     pub forced: bool,
     pub name: String,
+    /// The number of audio channels, when the tool says (0 when it does not, and for other kinds).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub channels: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 impl Track {
@@ -175,6 +182,7 @@ pub fn parse_mkv_tracks(data: &Value) -> Result<Vec<Track>, String> {
             default: prop("default_track").and_then(Value::as_bool).unwrap_or(false),
             forced: prop("forced_track").and_then(Value::as_bool).unwrap_or(false),
             name: text(prop("track_name")),
+            channels: prop("audio_channels").and_then(Value::as_u64).unwrap_or(0) as usize,
         });
     }
     Ok(tracks)
@@ -208,6 +216,7 @@ pub fn parse_mediainfo_tracks(data: &Value) -> Result<Vec<Track>, String> {
             default: raw.get("Default").and_then(Value::as_str) == Some("Yes"),
             forced: raw.get("Forced").and_then(Value::as_str) == Some("Yes"),
             name: text(raw.get("Title")),
+            channels: if kind == Kind::Audio { digits(raw.get("Channels")).unwrap_or(0) as usize } else { 0 },
         });
     }
     Ok(tracks)
@@ -215,7 +224,7 @@ pub fn parse_mediainfo_tracks(data: &Value) -> Result<Vec<Track>, String> {
 
 /// A table of tracks.
 pub fn format_tracks(tracks: &[Track]) -> String {
-    let mut rows: Vec<Vec<String>> = vec![["Track", "ID", "Codec", "Language", "Default", "Forced", "Name"]
+    let mut rows: Vec<Vec<String>> = vec![["Track", "ID", "Codec", "Language", "Default", "Forced", "Ch", "Name"]
         .iter()
         .map(|s| s.to_string())
         .collect()];
@@ -227,10 +236,11 @@ pub fn format_tracks(tracks: &[Track]) -> String {
             track.language.clone(),
             if track.default { "yes" } else { "-" }.into(),
             if track.forced { "yes" } else { "-" }.into(),
+            if track.channels > 0 { track.channels.to_string() } else { "-".into() },
             track.name.clone(),
         ]);
     }
-    let widths: Vec<usize> = (0..7)
+    let widths: Vec<usize> = (0..8)
         .map(|column| rows.iter().map(|row| row[column].chars().count()).max().unwrap_or(0))
         .collect();
     rows.iter()
@@ -318,11 +328,31 @@ mod tests {
     #[test]
     fn table_is_aligned_and_trimmed() {
         let data = json!({"tracks": [
-            {"id": 1, "type": "audio", "codec": "AAC", "properties": {"language": "eng"}}]});
+            {"id": 1, "type": "audio", "codec": "AAC",
+             "properties": {"language": "eng", "audio_channels": 6}}]});
         let table = format_tracks(&parse_mkv_tracks(&data).unwrap());
         let lines: Vec<&str> = table.lines().collect();
-        assert_eq!(lines[0], "Track    ID  Codec  Language  Default  Forced  Name");
-        assert_eq!(lines[1], "audio:1  1   AAC    eng       -        -");
+        assert_eq!(lines[0], "Track    ID  Codec  Language  Default  Forced  Ch  Name");
+        assert_eq!(lines[1], "audio:1  1   AAC    eng       -        -       6");
+    }
+
+    #[test]
+    fn channels_are_read_from_both_tools_and_only_for_audio() {
+        let mkv = json!({"tracks": [
+            {"id": 0, "type": "video", "codec": "AVC", "properties": {}},
+            {"id": 1, "type": "audio", "codec": "AC-3", "properties": {"audio_channels": 2}},
+            {"id": 2, "type": "audio", "codec": "AAC", "properties": {}}]});
+        let tracks = parse_mkv_tracks(&mkv).unwrap();
+        assert_eq!(tracks.iter().map(|t| t.channels).collect::<Vec<_>>(), [0, 2, 0]);
+        let info = json!({"media": {"track": [
+            {"@type": "Video", "ID": "1", "Channels": "9"},
+            {"@type": "Audio", "ID": "2", "Channels": "6"},
+            {"@type": "Audio", "ID": "3"}]}});
+        let tracks = parse_mediainfo_tracks(&info).unwrap();
+        assert_eq!(tracks.iter().map(|t| t.channels).collect::<Vec<_>>(), [0, 6, 0]);
+        // 0 is left out of the JSON, so the output of the older tools is the same
+        assert!(serde_json::to_value(&tracks[2]).unwrap().get("channels").is_none());
+        assert_eq!(serde_json::to_value(&tracks[1]).unwrap()["channels"], 6);
     }
 
     #[test]

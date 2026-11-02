@@ -31,9 +31,10 @@ const TASK_CHOICES: &[(&str, &[&str])] = &[
     ("get", &["lang"]),
     ("set", &["lang", "default", "name", "forced", "unforced", "order", "track"]),
     ("add", &["subtitle"]),
+    ("search", &["subtitle"]),
     ("extract", &["subtitle"]),
     ("swap", &["lang"]),
-    ("delete", &["lang", "track"]),
+    ("delete", &["lang", "track", "dupes", "match"]),
     ("preserve", &["lang"]),
 ];
 
@@ -62,6 +63,22 @@ fn prefer_arg(text: &str) -> Result<String, String> {
         return Err("give at least one language".into());
     }
     Ok(languages.join(","))
+}
+
+/// A number of audio channels, from 1.
+fn channels_arg(text: &str) -> Result<String, String> {
+    match text.trim().parse::<usize>() {
+        Ok(n) if n > 0 => Ok(n.to_string()),
+        _ => Err(format!("\"{text}\" is not a number of channels (1 or more)")),
+    }
+}
+
+/// The ID of a subtitle a search listed.
+fn sub_id_arg(text: &str) -> Result<String, String> {
+    match text.trim().parse::<i64>() {
+        Ok(n) if n > 0 => Ok(n.to_string()),
+        _ => Err(format!("\"{text}\" is not a subtitle ID (a number from --search subtitle)")),
+    }
 }
 
 fn kind_arg(text: &str) -> Result<String, String> {
@@ -224,6 +241,11 @@ fn build_command() -> Command {
              the language --lang (and the name --name); not default, not forced",
         ),
         (
+            "search",
+            'S',
+            "subtitle: list the subtitles OpenSubtitles has for the file (in --lang if given, for the title in --query or the one the file name says); needs an API key (see the README); the file is not changed",
+        ),
+        (
             "extract",
             'x',
             "subtitle: write the subtitle track --track to a file (.srt, .ass, .vtt or .sup; an MP4's \
@@ -231,11 +253,15 @@ fn build_command() -> Command {
              file is not changed",
         ),
         ("swap", 's', "make the second audio track the default (the order is unchanged: see --move)"),
-        ("delete", 'z', "remove the tracks in --lang, or track --track"),
+        (
+            "delete",
+            'z',
+            "lang: remove the tracks in --lang; track: remove track --track; dupes: remove every track after the first in each language; match: remove the tracks that fit all of --lang, --codec and --channels",
+        ),
         (
             "preserve",
             'p',
-            "remove all tracks that are not in --lang (or the first of --prefer that is present)",
+            "remove all tracks that are not in --lang (or the first of --prefer that is present, or all of --keep)",
         ),
     ];
     for (name, short, help) in action_help {
@@ -297,6 +323,38 @@ fn build_command() -> Command {
                 .help_heading(settings),
         )
         .arg(
+            Arg::new("keep")
+                .long("keep")
+                .action(ArgAction::Append)
+                .value_name("LANGS")
+                .value_parser(prefer_arg)
+                .help(
+                    "for --preserve, instead of --lang: every language to keep, e.g. eng,jpn,und: \
+                     the tracks in all of them stay and the rest are removed",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("codec")
+                .long("codec")
+                .action(ArgAction::Append)
+                .value_name("TEXT")
+                .help(
+                    "for --delete match: part of the codec name as --info shows it, in any case \
+                     (ac-3 matches AC-3 and E-AC-3)",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("channels")
+                .long("channels")
+                .action(ArgAction::Append)
+                .value_name("N")
+                .value_parser(channels_arg)
+                .help("for --delete match: audio tracks with N channels (2 is stereo, 6 is 5.1)")
+                .help_heading(settings),
+        )
+        .arg(
             Arg::new("forced")
                 .long("forced")
                 .action(ArgAction::Count)
@@ -345,6 +403,34 @@ fn build_command() -> Command {
                      below it) to the files being processed, each matched by name (FILM.ita.srt \
                      goes with FILM.mkv, else the same season and episode); the language, \
                      Forced and SDH come from the name, --lang is used where it has none",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("online")
+                .long("online")
+                .action(ArgAction::Count)
+                .help(
+                    "for --add subtitle, instead of --sub-file: find the subtitle on OpenSubtitles (the best one in --lang, or the one --sub-id names) and add it; needs an API key and login (see the README)",
+                )
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("sub-id")
+                .long("sub-id")
+                .action(ArgAction::Append)
+                .value_name("ID")
+                .value_parser(sub_id_arg)
+                .help("with --add subtitle --online: the ID of a subtitle that --search subtitle listed")
+                .help_heading(settings),
+        )
+        .arg(
+            Arg::new("query")
+                .long("query")
+                .action(ArgAction::Append)
+                .value_name("TEXT")
+                .help(
+                    "for --search subtitle and --add subtitle --online: the title to search for, instead of the one the file name says",
                 )
                 .help_heading(settings),
         )
@@ -557,7 +643,7 @@ fn queued_tasks(matches: &ArgMatches) -> Vec<(usize, Task)> {
             }
         }
     }
-    let valued = ["undo", "get", "set", "add", "extract", "swap", "delete", "preserve"];
+    let valued = ["undo", "get", "set", "add", "search", "extract", "swap", "delete", "preserve"];
     for name in valued {
         let values: Vec<String> = matches.get_many::<String>(name).into_iter().flatten().cloned().collect();
         let indices: Vec<usize> = matches.indices_of(name).into_iter().flatten().collect();
@@ -582,8 +668,8 @@ fn many(matches: &ArgMatches, name: &str) -> Vec<String> {
 fn setting_occurrences(matches: &ArgMatches) -> Vec<(usize, &'static str, String)> {
     let mut found = Vec::new();
     let valued = [
-        "lang", "default", "prefer", "track", "kind", "name", "order", "order-lang", "forced-flag",
-        "sub-file", "sub-dir", "output",
+        "lang", "default", "prefer", "keep", "codec", "channels", "track", "kind", "name", "order", "order-lang", "forced-flag",
+        "sub-file", "sub-dir", "output", "query", "sub-id",
     ];
     for name in valued {
         let values = many(matches, name);
@@ -592,7 +678,7 @@ fn setting_occurrences(matches: &ArgMatches) -> Vec<(usize, &'static str, String
             found.extend(indices.into_iter().zip(values).map(|(index, value)| (index, name, value)));
         }
     }
-    for name in ["forced", "move", "default-first"] {
+    for name in ["forced", "move", "default-first", "online"] {
         // a switch that was not given still has a count (0) and an index of its own
         if matches.get_count(name) > 0 {
             found.extend(matches.indices_of(name).into_iter().flatten().map(|i| (i, name, "true".to_string())));
@@ -610,6 +696,9 @@ fn set_setting(settings: &mut TaskSettings, name: &str, value: String) {
         "lang" => settings.lang = Some(value),
         "default" => settings.default = Some(value),
         "prefer" => settings.prefer = Some(list(&value)),
+        "keep" => settings.keep = Some(list(&value)),
+        "codec" => settings.codec = Some(value),
+        "channels" => settings.channels = value.parse().ok(),
         "track" => settings.track = Some(value),
         "kind" => settings.kind = Some(Kind::parse(&value).unwrap_or(Kind::Audio)),
         "name" => settings.name = Some(value),
@@ -619,6 +708,9 @@ fn set_setting(settings: &mut TaskSettings, name: &str, value: String) {
         "sub-file" => settings.sub_file = Some(value),
         "sub-dir" => settings.sub_dir = Some(value),
         "output" => settings.output = Some(value),
+        "query" => settings.query = Some(value),
+        "sub-id" => settings.sub_id = value.parse().ok(),
+        "online" => settings.online = Some(true),
         "forced" => settings.forced = Some(true),
         "move" => settings.move_first = Some(true),
         "default-first" => settings.default_first = Some(true),
@@ -647,6 +739,12 @@ fn config_from(matches: &ArgMatches) -> Config {
         lang: base.lang.unwrap_or_default(),
         default: base.default.unwrap_or_default(),
         prefer: base.prefer.unwrap_or_default(),
+        keep: base.keep.unwrap_or_default(),
+        query: base.query.unwrap_or_default(),
+        online: base.online.unwrap_or(false),
+        sub_id: base.sub_id.unwrap_or(0),
+        codec: base.codec.unwrap_or_default(),
+        channels: base.channels.unwrap_or(0),
         track: base.track.unwrap_or_default(),
         kind: base.kind.unwrap_or(Kind::Audio),
         forced: base.forced.unwrap_or(false),
@@ -716,6 +814,8 @@ fn print_result(result: &Outcome, config: &Config) {
         }
     } else if result.action == "detect" {
         print_detected(result);
+    } else if result.action == "search" {
+        print_hits(result);
     } else if result.action == "info" {
         println!("{}", info_text(result));
     } else if result.action == "get" {
@@ -746,6 +846,39 @@ fn print_detected(result: &Outcome) {
              labelled {current})",
             result.file
         );
+    }
+}
+
+/// The subtitles a search found, best first: their IDs are what `--sub-id` takes.
+fn print_hits(result: &Outcome) {
+    let hits = result.data.get("hits").and_then(Value::as_array).cloned().unwrap_or_default();
+    if hits.is_empty() {
+        println!("{}: {}", result.file, result.message);
+        return;
+    }
+    println!("{}:", result.file);
+    let mut rows = vec![vec!["ID".to_string(), "Language".into(), "Downloads".into(), "Notes".into(), "Release".into()]];
+    for hit in &hits {
+        let mut notes = Vec::new();
+        for (key, text) in [("exact", "made for this file"), ("hearing_impaired", "hearing impaired"),
+                            ("forced", "forced"), ("machine_translated", "machine translated")] {
+            if hit[key].as_bool().unwrap_or(false) {
+                notes.push(text);
+            }
+        }
+        let release = hit["release"].as_str().filter(|r| !r.is_empty()).or(hit["file_name"].as_str()).unwrap_or("");
+        rows.push(vec![
+            hit["file_id"].to_string(),
+            hit["language"].as_str().unwrap_or("").to_string(),
+            hit["downloads"].to_string(),
+            notes.join(", "),
+            release.to_string(),
+        ]);
+    }
+    let widths: Vec<usize> = (0..5).map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0)).collect();
+    for row in rows {
+        let line: Vec<String> = row.iter().enumerate().map(|(c, cell)| format!("{cell:<w$}", w = widths[c])).collect();
+        println!("  {}", line.join("  ").trim_end());
     }
 }
 

@@ -227,7 +227,7 @@ function sizeText(bytes) {
 
 // The tracks in the Info dialog, in the order being set up: audio and subtitle tracks can be
 // moved up and down and the new order applied (one rewrite of the file per kind).
-const info = { file: null, order: {}, picked: {}, busy: false, subFile: '', defaultFirst: {}, edit: {}, keep: {} };
+const info = { downloaded: '', file: null, order: {}, picked: {}, busy: false, subFile: '', defaultFirst: {}, edit: {}, keep: {} };
 
 const KIND_TITLES = { video: 'Video', audio: 'Audio tracks', subtitles: 'Subtitle tracks' };
 
@@ -652,7 +652,113 @@ async function addSubtitle() {
     sub_file: info.subFile, lang, name: name || null },
   `Add ${baseName(info.subFile)} to ${info.file.name} as a subtitle track in ${language ? language.name : lang}`
     + `${name ? `, named "${name}"` : ''}? The file is rewritten.`);
-  if (r && r.status === 'changed') { info.subFile = ''; $('add-sub-name').value = ''; showSubFile(); }
+  if (r && r.status === 'changed') { dropDownloaded(); info.subFile = ''; $('add-sub-name').value = ''; showSubFile(); }
+}
+
+// Searching OpenSubtitles from the Edit dialog. A download goes to a temporary file and fills in the
+// "Add a subtitle file" form, so it is added (and checked) the usual way.
+const online = { opened: false, hits: [] };
+
+function dropDownloaded() {
+  if (info.downloaded) invoke('forget_subtitle', { path: info.downloaded });
+  info.downloaded = '';
+}
+
+function accountText(saved) {
+  const missing = [];
+  if (!saved.has_key) missing.push('an API key');
+  if (!saved.username || !saved.has_password) missing.push('a user name and password (to download)');
+  return missing.length ? `Not saved yet: ${missing.join(' and ')}.`
+    : `Saved: API key, and the login of ${saved.username}.`;
+}
+
+async function loadAccount() {
+  const saved = await invoke('subtitle_settings');
+  $('sub-account-status').textContent = accountText(saved);
+  $('sub-user').value = saved.username;
+  $('sub-key').placeholder = saved.has_key ? '(saved)' : '';
+  $('sub-pass').placeholder = saved.has_password ? '(saved)' : '';
+  if (!saved.has_key) $('sub-account').open = true;
+  return saved;
+}
+
+async function saveAccount() {
+  const value = (id) => ($(id).value === '' ? null : $(id).value);
+  try {
+    await invoke('save_subtitle_settings', { apiKey: value('sub-key'), username: $('sub-user').value, password: value('sub-pass') });
+    $('sub-key').value = ''; $('sub-pass').value = '';
+    await loadAccount();
+    $('sub-account-status').textContent = `Saved. ${$('sub-account-status').textContent}`;
+  } catch (error) {
+    $('sub-account-status').textContent = String(error);
+  }
+}
+
+async function openSubSearch() {
+  const box = $('sub-search');
+  box.hidden = !box.hidden;
+  if (box.hidden) return;
+  if (!online.opened || online.path !== info.file.path) {
+    online.opened = true; online.path = info.file.path;
+    const guess = await invoke('subtitle_guess', { path: info.file.path });
+    $('sub-q').value = guess.title;
+    $('sub-lang').value = $('add-sub-lang').value;
+    $('sub-hits-wrap').hidden = true;
+    $('sub-search-status').textContent = '';
+    await loadAccount();
+  }
+}
+
+function hitNotes(hit) {
+  const notes = [];
+  if (hit.exact) notes.push('made for this file');
+  if (hit.hearing_impaired) notes.push('hearing impaired');
+  if (hit.forced) notes.push('forced');
+  if (hit.machine_translated) notes.push('machine translated');
+  return notes.join(', ');
+}
+
+async function searchSubtitles() {
+  const status = $('sub-search-status');
+  status.textContent = 'Searching…';
+  $('sub-search-go').disabled = true;
+  try {
+    const lang = $('sub-lang').value;
+    online.hits = await invoke('search_subtitles', {
+      path: info.file.path, query: $('sub-q').value, languages: lang ? [lang] : [] });
+    const body = $('sub-hits').querySelector('tbody');
+    body.replaceChildren(...online.hits.map((hit, index) => {
+      const known = state.languages.find((l) => l.code === hit.language);
+      const use = el('button', { type: 'button' }, 'Use this…');
+      use.addEventListener('click', () => useSubtitle(index));
+      return el('tr', {}, el('td', {}, known ? known.name : hit.language),
+        el('td', {}, hit.release || hit.file_name), el('td', {}, hit.downloads), el('td', {}, hitNotes(hit)),
+        el('td', {}, use));
+    }));
+    $('sub-hits-wrap').hidden = !online.hits.length;
+    status.textContent = online.hits.length ? `${online.hits.length} found, the best first.` : 'Nothing found. Try another title or any language.';
+  } catch (error) {
+    $('sub-hits-wrap').hidden = true;
+    status.textContent = String(error);
+  } finally {
+    $('sub-search-go').disabled = false;
+  }
+}
+
+async function useSubtitle(index) {
+  const hit = online.hits[index];
+  const status = $('sub-search-status');
+  status.textContent = 'Downloading…';
+  try {
+    const path = await invoke('fetch_subtitle', { fileId: hit.file_id });
+    dropDownloaded();
+    info.downloaded = path; info.subFile = path; showSubFile();
+    if (state.languages.some((l) => l.code === hit.language)) $('add-sub-lang').value = hit.language;
+    $('add-sub-name').value = hit.hearing_impaired ? 'SDH' : (hit.forced ? 'Forced' : '');
+    status.textContent = 'Downloaded. Check the language and name above, then press "Add subtitle…".';
+  } catch (error) {
+    status.textContent = String(error);
+  }
 }
 
 const kindWord = (kind) => (kind === 'audio' ? 'audio' : 'subtitle');
@@ -696,7 +802,8 @@ async function showInfo(file) {
   fact('Tracks', counts || 'none');
   resetOrder(file);
   renderOrder();
-  info.subFile = ''; showSubFile();
+  dropDownloaded(); info.subFile = ''; showSubFile();
+  $('sub-search').hidden = true; online.opened = false;
   $('add-sub-name').value = '';
   $('info-add').hidden = file.container !== 'Matroska' && file.container !== 'MP4';
   $('info-add').open = false;
@@ -1110,6 +1217,8 @@ async function start() {
   state.languages = await invoke('languages');
   $('add-sub-lang').append(el('option', { value: '' }, '(choose)'),
     ...state.languages.map((l) => el('option', { value: l.code }, l.name)));
+  $('sub-lang').append(el('option', { value: '' }, '(any language)'),
+    ...state.languages.map((l) => el('option', { value: l.code }, l.name)));
   updateForm();
   updateButtons();
 
@@ -1147,5 +1256,10 @@ $('info-rename').addEventListener('submit', renameFile);
 $('add-sub-choose').addEventListener('click', chooseSubFile);
 $('add-sub-go').addEventListener('click', addSubtitle);
 $('info-close').addEventListener('click', () => $('info').close());
+$('info').addEventListener('close', dropDownloaded);
+$('sub-search-open').addEventListener('click', openSubSearch);
+$('sub-search-go').addEventListener('click', searchSubtitles);
+$('sub-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); searchSubtitles(); } });
+$('sub-save').addEventListener('click', saveAccount);
 
 start().catch((error) => { $('source').textContent = `Could not start: ${error}`; });

@@ -151,6 +151,9 @@ pub struct TaskSettings {
     pub lang: Option<String>,
     pub default: Option<String>,
     pub prefer: Option<Vec<String>>,
+    pub keep: Option<Vec<String>>,
+    pub codec: Option<String>,
+    pub channels: Option<usize>,
     pub track: Option<String>,
     pub kind: Option<Kind>,
     pub forced: Option<bool>,
@@ -163,6 +166,9 @@ pub struct TaskSettings {
     pub sub_file: Option<String>,
     pub sub_dir: Option<String>,
     pub output: Option<String>,
+    pub query: Option<String>,
+    pub online: Option<bool>,
+    pub sub_id: Option<i64>,
 }
 
 /// An action to run, with its argument and its own settings.
@@ -209,6 +215,19 @@ pub struct Config {
     /// A language, or "none" for no default subtitle track.
     pub default: String,
     pub prefer: Vec<String>,
+    /// For `preserve`: every language to keep (the tracks in all of them stay).
+    pub keep: Vec<String>,
+    /// For `search subtitle` and `add subtitle --online`: the title to search for (the name of the
+    /// media file says it when this is empty).
+    pub query: String,
+    /// For `add subtitle`: find the subtitle on OpenSubtitles instead of taking `sub_file`.
+    pub online: bool,
+    /// With `online`: the subtitle (file ID) a search listed; 0 means the best one for `lang`.
+    pub sub_id: i64,
+    /// For `delete match`: part of the codec name, as `--info` shows it (any case).
+    pub codec: String,
+    /// For `delete match`: the number of audio channels (0: not given).
+    pub channels: usize,
     pub track: String,
     /// The kind of track the actions work on: audio or subtitles.
     pub kind: Kind,
@@ -269,6 +288,12 @@ impl Config {
         if let Some(v) = &own.lang { config.lang = v.clone(); }
         if let Some(v) = &own.default { config.default = v.clone(); }
         if let Some(v) = &own.prefer { config.prefer = v.clone(); }
+        if let Some(v) = &own.keep { config.keep = v.clone(); }
+        if let Some(v) = &own.query { config.query = v.clone(); }
+        if let Some(v) = own.online { config.online = v; }
+        if let Some(v) = own.sub_id { config.sub_id = v; }
+        if let Some(v) = &own.codec { config.codec = v.clone(); }
+        if let Some(v) = own.channels { config.channels = v; }
         if let Some(v) = &own.track { config.track = v.clone(); }
         if let Some(v) = own.kind { config.kind = v; }
         if let Some(v) = own.forced { config.forced = v; }
@@ -296,6 +321,12 @@ impl Default for Config {
             lang: String::new(),
             default: String::new(),
             prefer: Vec::new(),
+            keep: Vec::new(),
+            query: String::new(),
+            online: false,
+            sub_id: 0,
+            codec: String::new(),
+            channels: 0,
             track: String::new(),
             kind: Kind::Audio,
             forced: false,
@@ -452,6 +483,7 @@ mod tests {
             default,
             forced: false,
             name: String::new(),
+            channels: 0,
         }
     }
 

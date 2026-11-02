@@ -145,6 +145,39 @@
       </div>
       <p class="muted">The subtitle becomes the last subtitle track, not default and not forced. The file is rewritten.
         MP4 files get the subtitle converted to text subtitles (no forced flag, no <code>.sup</code>).</p>
+      <div class="row add-sub">
+        <button id="sub-search-open" type="button">Search online (OpenSubtitles)…</button>
+      </div>
+      <div id="sub-search" hidden>
+        <p class="muted">A search sends the title guessed from the file name, and a hash of the file (made from 128 KB
+          of it), to opensubtitles.com. Nothing else about the file leaves this computer. Downloading needs a free
+          OpenSubtitles account.</p>
+        <div class="row add-sub">
+          <label>Title <input id="sub-q" type="text" size="30" placeholder="guessed from the file name"></label>
+          <label>Language <select id="sub-lang" aria-label="Language to search for"></select></label>
+          <button id="sub-search-go" type="button" class="primary">Search</button>
+        </div>
+        <p id="sub-search-status" class="muted" role="status"></p>
+        <div id="sub-hits-wrap" class="table-wrap" hidden>
+          <table id="sub-hits">
+            <thead><tr><th>Language</th><th>Release</th><th>Downloads</th><th>Notes</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <details id="sub-account">
+          <summary>OpenSubtitles account</summary>
+          <p class="muted">Searching needs an API key (free: make an account at opensubtitles.com, then add an
+            API consumer in its settings). Downloading also needs the account's user name and password. They are
+            kept in a file only you can read, in fml's data folder; leave a box empty to keep what is saved.</p>
+          <div class="row add-sub">
+            <label>API key <input id="sub-key" type="password" size="28" autocomplete="off" spellcheck="false"></label>
+            <label>User name <input id="sub-user" type="text" size="18" autocomplete="off" spellcheck="false"></label>
+            <label>Password <input id="sub-pass" type="password" size="18" autocomplete="off"></label>
+            <button id="sub-save" type="button">Save</button>
+          </div>
+          <p id="sub-account-status" class="muted" role="status"></p>
+        </details>
+      </div>
     </details>
     <details id="info-report-box">
       <summary>Full technical report (mediainfo)</summary>

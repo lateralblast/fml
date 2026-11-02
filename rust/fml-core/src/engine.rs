@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use crate::model::*;
 use crate::install::{detect_installer, Installer};
 use crate::mp4;
+use crate::online;
 use crate::detect;
 use crate::languages::resolve_language;
 use crate::subtitles;
@@ -1954,24 +1955,132 @@ impl Fml {
                 "deleting by language is only supported for MKV and MP4 files",
             ));
         }
-        let remove: Vec<Track> = self
-            .selected(media)?
-            .into_iter()
-            .filter(|t| t.language == self.config.lang)
-            .collect();
+        let tracks = self.selected(media)?;
+        let remove: Vec<Track> = match what {
+            // every track after the first of its language (subtitles: of its language and forced flag)
+            "dupes" => {
+                let mut seen: Vec<(String, bool)> = Vec::new();
+                tracks
+                    .into_iter()
+                    .filter(|t| {
+                        let key = (t.language.clone(), self.kind() == Kind::Subtitles && t.forced);
+                        if seen.contains(&key) {
+                            true
+                        } else {
+                            seen.push(key);
+                            false
+                        }
+                    })
+                    .collect()
+            }
+            // the tracks that fit every given language, codec (part of its name) and channel count
+            "match" => {
+                let codec = self.config.codec.to_lowercase();
+                tracks
+                    .into_iter()
+                    .filter(|t| {
+                        (self.config.lang.is_empty() || t.language == self.config.lang)
+                            && (codec.is_empty() || t.codec.to_lowercase().contains(&codec))
+                            && (self.config.channels == 0 || t.channels == self.config.channels)
+                    })
+                    .collect()
+            }
+            _ => tracks.into_iter().filter(|t| t.language == self.config.lang).collect(),
+        };
         self.remove_tracks(media, result, remove)
     }
 
     /// Add subtitle files to an MKV as new subtitle tracks, last among the subtitles, not default,
     /// with the language (and name) each was given. mkvmerge writes a copy with the files added,
     /// and the copy is read back before it replaces the original.
-    fn do_add(&self, media: &mut Media, _what: &str) -> Res<Outcome> {
+    fn do_add(&self, media: &mut Media, what: &str) -> Res<Outcome> {
+        if !self.config.online {
+            return self.add_subtitles(media, what, None);
+        }
+        // --online: find the subtitle on OpenSubtitles, then add it as any file would be
+        let mut result = self.result(media, "add");
+        if media.container == Container::Avi {
+            return Ok(skip(result, "adding a subtitle is only supported for MKV and MP4 files"));
+        }
+        let hits = match self.online_hits(&media.path) {
+            Ok(hits) => hits,
+            Err(error) => {
+                result.error(error);
+                return Ok(result);
+            }
+        };
+        let hit = if self.config.sub_id > 0 {
+            hits.iter().find(|h| h.file_id == self.config.sub_id)
+        } else {
+            online::best_hit(&hits, &self.config.lang)
+        };
+        let Some(hit) = hit else {
+            let message = if self.config.sub_id > 0 {
+                format!("the search found no subtitle with ID {} (list them with --search subtitle)", self.config.sub_id)
+            } else {
+                "OpenSubtitles has no suitable subtitle for this file (machine translated and forced ones are not picked for you)".to_string()
+            };
+            return Ok(skip(result, &message));
+        };
+        let lang = if self.config.lang.is_empty() { hit.language.clone() } else { self.config.lang.clone() };
+        let name = self.config.name.clone().unwrap_or_else(|| if hit.hearing_impaired { "SDH".to_string() } else { String::new() });
+        let from = if hit.release.is_empty() { hit.file_name.clone() } else { hit.release.clone() };
+        if self.config.dryrun {
+            // a dry run asks nothing of the download quota: it shows what would be added
+            let placeholder = SubSpec { file: format!("{}/OpenSubtitles-{}.srt", std::env::temp_dir().display(), hit.file_id), lang, name, forced: false };
+            let mut outcome = self.add_subtitles(media, what, Some(placeholder))?;
+            outcome.changes.push(format!("from OpenSubtitles: {from} (ID {})", hit.file_id));
+            return Ok(outcome);
+        }
+        let credentials = online::load_credentials();
+        let file = match online::download(&credentials, hit.file_id) {
+            Ok(path) => path,
+            Err(error) => {
+                result.error(error);
+                return Ok(result);
+            }
+        };
+        let spec = SubSpec { file: file.to_string_lossy().into_owned(), lang, name, forced: false };
+        let outcome = self.add_subtitles(media, what, Some(spec));
+        online::forget_download(&file);
+        let mut outcome = outcome?;
+        if outcome.status == Status::Changed {
+            outcome.changes.push(format!("from OpenSubtitles: {from} (ID {})", hit.file_id));
+        }
+        Ok(outcome)
+    }
+
+    /// The subtitles OpenSubtitles has for a file, for `--search` and `--add --online`.
+    fn online_hits(&self, path: &str) -> Result<Vec<online::Hit>, String> {
+        let languages: Vec<String> = if self.config.lang.is_empty() { Vec::new() } else { vec![self.config.lang.clone()] };
+        online::search(&online::load_credentials(), Path::new(path), &self.config.query, &languages)
+    }
+
+    /// List the subtitles OpenSubtitles has for a file. Nothing is changed.
+    fn do_search(&self, media: &mut Media) -> Res<Outcome> {
+        let mut result = self.result(media, "search");
+        match self.online_hits(&media.path) {
+            Ok(hits) => {
+                if hits.is_empty() {
+                    result.message = "no subtitles found".to_string();
+                }
+                result.data = json!({ "hits": hits });
+            }
+            Err(error) => result.error(error),
+        }
+        Ok(result)
+    }
+
+    /// Add subtitle files to an MKV or MP4 as new subtitle tracks (`online` is the one found by `--online`).
+    fn add_subtitles(&self, media: &mut Media, _what: &str, online: Option<SubSpec>) -> Res<Outcome> {
         let mut result = self.result(media, "add");
         if media.container == Container::Avi {
             return Ok(skip(result, "adding a subtitle is only supported for MKV and MP4 files"));
         }
         let from_folder = !self.config.sub_dir.is_empty();
-        let mut specs: Vec<SubSpec> = if from_folder {
+        let mut specs: Vec<SubSpec> = if let Some(found) = online {
+            vec![found]
+        } else if from_folder {
             match self.config.sub_matches.get(&media.path) {
                 Some(found) if !found.is_empty() => found.clone(),
                 _ => {
@@ -2023,6 +2132,7 @@ impl Fml {
                 default: false,
                 forced: spec.forced,
                 name: spec.name.clone(),
+                channels: 0,
             };
             let file_name = Path::new(&spec.file).file_name().map(|n| n.to_string_lossy().into_owned());
             result.changes.push(format!(
@@ -2108,6 +2218,7 @@ impl Fml {
                 default: false,
                 forced: false,
                 name: spec.name.clone(),
+                channels: 0,
             };
             let file_name = Path::new(&spec.file).file_name().map(|n| n.to_string_lossy().into_owned());
             result.changes.push(format!(
@@ -2236,9 +2347,23 @@ impl Fml {
             ));
         }
         let tracks = self.selected(media)?;
-        let languages = self.languages(&self.config.lang);
-        let keep = languages.iter().find(|lang| tracks.iter().any(|t| &t.language == *lang));
-        let Some(keep) = keep else {
+        let languages = if self.config.keep.is_empty() {
+            self.languages(&self.config.lang)
+        } else {
+            self.config.keep.clone()
+        };
+        // --keep keeps every language in the list; otherwise the first of them that is present
+        let kept: Vec<String> = if self.config.keep.is_empty() {
+            languages
+                .iter()
+                .find(|lang| tracks.iter().any(|t| &t.language == *lang))
+                .cloned()
+                .into_iter()
+                .collect()
+        } else {
+            languages.iter().filter(|lang| tracks.iter().any(|t| &t.language == *lang)).cloned().collect()
+        };
+        if kept.is_empty() {
             if !self.config.force {
                 let message = format!(
                     "{}, so nothing would be left (use --force to remove them all)",
@@ -2247,8 +2372,8 @@ impl Fml {
                 return Ok(skip(result, &message));
             }
             return self.remove_tracks(media, result, tracks);
-        };
-        let remove = tracks.into_iter().filter(|t| &t.language != keep).collect();
+        }
+        let remove = tracks.into_iter().filter(|t| !kept.contains(&t.language)).collect();
         self.remove_tracks(media, result, remove)
     }
 
@@ -2271,7 +2396,10 @@ impl Fml {
             self.note(&format!("Skipping {path}: not a supported media file"));
             return Ok(None);
         };
-        let tools = if matches!(task.name.as_str(), "info" | "get" | "extract" | "detect") {
+        let tools = if task.name == "search" {
+            // only curl is needed, and that is checked when the request is made
+            &[][..]
+        } else if matches!(task.name.as_str(), "info" | "get" | "extract" | "detect") {
             container.read_tools()
         } else {
             container.write_tools()
@@ -2292,6 +2420,7 @@ impl Fml {
             "info" => self.do_info(media),
             "get" => self.do_get(media),
             "detect" => self.do_detect(media),
+            "search" => self.do_search(media),
             "update" => self.do_update(media),
             "set" => self.do_set(media, &task.what),
             "add" => self.do_add(media, &task.what),

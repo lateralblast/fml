@@ -17,6 +17,7 @@ pub mod languages;
 mod install;
 mod language_table;
 pub mod model;
+pub mod online;
 pub mod mp4;
 pub mod subtitles;
 pub mod track;
@@ -32,4 +33,4 @@ pub use install::{detect_installer, linux_installer, Installer};
 pub use validate::{parse_order, validate};
 pub use track::{format_tracks, human_size, Kind, Track, TrackSpec};
 
-pub const VERSION: &str = "1.1.5";
+pub const VERSION: &str = "1.2.0";

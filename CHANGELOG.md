@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-11-02
+
+### Added
+- `--search subtitle` lists the subtitles OpenSubtitles has for a file (best first: made for exactly that file, then the most downloaded), with their IDs, languages, downloads and notes; `--format json` gives `data.hits`. `--lang` limits the language and `--query TEXT` searches for another title. The file is not changed.
+- `--add subtitle --online --lang L` finds the best subtitle in a language on OpenSubtitles (not a machine translated or forced one, and a hearing impaired one only when there is no other), downloads it and adds it as `--add subtitle --sub-file` does; `--sub-id N` adds the subtitle that `--search subtitle` listed with that ID. `--dir` finds one for each file by its own name, with a single login for the run. A hearing impaired subtitle is named `SDH`. `--dryrun` searches and says what it would add but downloads nothing; `--backup`, `--log` and `--undo` (from the backup) work, and the downloaded file is removed afterwards. `--online`, `--sub-id` and `--query` are new settings.
+- The key and login are the ones saved by the app, or `FML_OPENSUBTITLES_KEY`, `FML_OPENSUBTITLES_USER` and `FML_OPENSUBTITLES_PASSWORD`.
+
+### Changed
+- This is 1.2.0 because a patch number may not go past 9.
+
+## [1.1.9] - 2026-11-02
+
+### Added
+- Desktop app: the Edit dialog can search OpenSubtitles for subtitles. **Search online (OpenSubtitles)…**, under **Add a subtitle file**, searches by the title guessed from the file name (with the season and episode or the year) and the file's OpenSubtitles hash, in one language or any; the results show the language, release, downloads and notes, with the ones made for this very file first. **Use this…** downloads the subtitle to a temporary file and fills in the add-a-subtitle form (file, language, and the name `SDH` or `Forced`), so it is added, checked, the usual way; the temporary file is removed after it is added or the dialog is closed.
+- The search needs an OpenSubtitles API key and, to download, the account's user name and password, entered under **OpenSubtitles account** and kept in `opensubtitles.json` in fml's data folder in a file only the user can read (`FML_OPENSUBTITLES_KEY`, `FML_OPENSUBTITLES_USER` and `FML_OPENSUBTITLES_PASSWORD` take the place of what is saved). The requests are made with `curl` through a private config file, so no secret is on a command line. Nothing is sent until **Search** is pressed.
+- `fml-core` has `online` (the search, the download, the hash, the guess from the file name, and the saved settings); `FML_OPENSUBTITLES_URL` gives another address for the service.
+
+## [1.1.8] - 2026-11-02
+
+### Added
+- `--delete match` removes the tracks of `--kind` that fit every one of the `--lang`, `--codec` and `--channels` that are given (at least one is needed). `--codec` is part of the codec name as `--info` shows it, in any case (`ac-3` matches `AC-3` and `E-AC-3`), and `--channels` is a number of audio channels (audio only). It works like the other removals: a checked copy, the last audio track is never removed without `--force`, `--dryrun`, `--backup`, `--log` and `--undo` (from the backup) apply.
+- Tracks have a number of channels where the tool reports it (`mkvmerge`'s `audio_channels`, `mediainfo`'s `Channels`): the `--info` table has a **Ch** column (`-` when unknown), and the track in `--format json` has `channels` (left out when unknown, so the older output is unchanged).
+
+## [1.1.7] - 2026-11-02
+
+### Added
+- `--delete dupes` removes every track after the first one in its language, so each language keeps one track of the kind (`--kind sub` for subtitles, where a forced track and a full one in the same language are kept apart). A file with no duplicates is left unchanged. `--delete dupes` takes no `--lang`.
+
+## [1.1.6] - 2026-11-02
+
+### Added
+- `--keep LANGS` for `--preserve`: keep the tracks in every language of a list (`--preserve lang --keep eng,jpn,und`) and remove the rest, where `--lang` and `--prefer` keep only one language. Languages the file lacks are ignored; if it has none of them the file is left alone (`--force` removes them all), as with `--lang`. When the default track goes, the first track left becomes the default. `--keep` can't be given with `--lang` or `--prefer`, and only works with `--preserve`.
+
 ## [1.1.5] - 2026-11-02
 
 ### Changed

@@ -39,7 +39,7 @@ fn check_subtitle_file(file: &str) -> Result<(), String> {
 pub fn validate(args: &Config) -> Result<(), String> {
     let tasks: &[Task] = &args.tasks;
     if tasks.is_empty() {
-        return Err("no action given (use --check, --info, --detect, --update, --get, --set, \
+        return Err("no action given (use --check, --info, --detect, --update, --search, --get, --set, \
                     --add, --extract, --swap, --delete or --preserve)"
             .into());
     }
@@ -91,6 +91,25 @@ fn validate_task(args: &Config) -> Result<(), String> {
     }
     if !args.order.is_empty() && !tasks.iter().any(|t| t.name == "set" && t.what == "order") {
         return Err("--order only works with --set order".into());
+    }
+    let has_keep = !args.keep.is_empty();
+    if has_keep && !tasks.iter().any(|t| t.name == "preserve") {
+        return Err("--keep only works with --preserve".into());
+    }
+    if (!args.codec.is_empty() || args.channels > 0)
+        && !tasks.iter().any(|t| t.name == "delete" && t.what == "match")
+    {
+        return Err("--codec and --channels only work with --delete match".into());
+    }
+    let online_add = args.online && tasks.iter().any(|t| t.name == "add");
+    if args.online && !online_add {
+        return Err("--online only works with --add subtitle".into());
+    }
+    if args.sub_id != 0 && !online_add {
+        return Err("--sub-id only works with --add subtitle --online".into());
+    }
+    if !args.query.is_empty() && !online_add && !tasks.iter().any(|t| t.name == "search") {
+        return Err("--query only works with --search subtitle and --add subtitle --online".into());
     }
     if !args.output.is_empty() && !tasks.iter().any(|t| t.name == "extract") {
         return Err("--output only works with --extract subtitle".into());
@@ -166,7 +185,26 @@ fn validate_task(args: &Config) -> Result<(), String> {
                     .into());
             }
         }
-        if name == "add" {
+        if name == "add" && args.online {
+            if !args.sub_dir.is_empty() || !args.sub_file.is_empty() || !args.subtitles.is_empty() {
+                return Err("--online finds the subtitle itself: it takes no --sub-file or --sub-dir".into());
+            }
+            if args.lang.is_empty() && args.sub_id == 0 {
+                return Err("--add subtitle --online needs --lang (the language to find), or --sub-id (a subtitle \
+                            that --search subtitle listed)"
+                    .into());
+            }
+            if has_default || has_prefer || args.move_first || args.forced || !args.track.is_empty()
+                || !args.order.is_empty()
+            {
+                return Err("--add subtitle --online takes --lang, --name, --query and --sub-id, not --track, \
+                            --default, --prefer, --move, --forced or --order"
+                    .into());
+            }
+            if args.in_place {
+                return Err("--add subtitle rewrites the file, so it can't be used with --in-place".into());
+            }
+        } else if name == "add" {
             if !args.sub_dir.is_empty() {
                 if !args.sub_file.is_empty() || args.name.is_some() {
                     return Err("--sub-dir takes the files in a folder, not --sub-file or --name (the \
@@ -256,12 +294,28 @@ fn validate_task(args: &Config) -> Result<(), String> {
         if name == "swap" && args.kind != Kind::Audio {
             return Err("--swap only works on audio".into());
         }
+        if name == "preserve" && has_keep && (!args.lang.is_empty() || has_prefer) {
+            return Err("--preserve takes --keep (every language to keep), or --lang, or --prefer: \
+                        not more than one of them"
+                .into());
+        }
         let needs_lang = name == "preserve" || (name == "delete" && what == "lang");
-        if needs_lang && !(!args.lang.is_empty() || (name == "preserve" && has_prefer)) {
+        if needs_lang && !(!args.lang.is_empty() || (name == "preserve" && (has_prefer || has_keep))) {
             return Err(format!(
                 "--{name} {what} needs --lang{}",
-                if name == "preserve" { " or --prefer" } else { "" }
+                if name == "preserve" { " or --prefer (or --keep)" } else { "" }
             ));
+        }
+        if name == "delete" && what == "dupes" && !args.lang.is_empty() {
+            return Err("--delete dupes works on every language: it takes no --lang".into());
+        }
+        if name == "delete" && what == "match" {
+            if args.lang.is_empty() && args.codec.is_empty() && args.channels == 0 {
+                return Err("--delete match needs at least one of --lang, --codec and --channels".into());
+            }
+            if args.channels > 0 && args.kind != Kind::Audio {
+                return Err("--channels only applies to audio (leave out --kind sub)".into());
+            }
         }
         if !args.track.is_empty() {
             crate::track::TrackSpec::parse(&args.track)?;

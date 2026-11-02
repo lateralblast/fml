@@ -37,7 +37,7 @@ pub fn model_path() -> Option<PathBuf> {
 }
 
 /// The folder fml keeps its own files in: the user's application data folder.
-fn data_folder() -> Option<PathBuf> {
+pub(crate) fn data_folder() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
     if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)

@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.1.5
+Version 1.2.0
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -29,6 +29,7 @@ Version 1.1.5
   - [Moving and ordering tracks](#moving-and-ordering-tracks)
   - [Names, forced flags and other track settings](#names-forced-flags-and-other-track-settings)
   - [Adding subtitle files](#adding-subtitle-files)
+  - [Finding subtitles online](#finding-subtitles-online)
   - [Taking a subtitle track out to a file](#taking-a-subtitle-track-out-to-a-file)
   - [MP4 and AVI](#mp4-and-avi)
   - [Many files at once](#many-files-at-once)
@@ -234,8 +235,38 @@ that `--track id:N` uses, and under **Full technical report** everything `mediai
   **Extract…** for a subtitle track, which asks where to save the file.
 - **Add a subtitle file**: choose the file, its language (guessed from the file name when it holds one, as in
   `Film.ita.srt`) and an optional name.
+- **Search online**: under **Add a subtitle file**, **Search online (OpenSubtitles)…** looks for subtitles for the
+  file (see below).
 
 ![The Edit dialog, with "keep only English" previewed](docs/images/app-edit.png)
+
+#### Searching OpenSubtitles
+
+**Search online (OpenSubtitles)…** searches [opensubtitles.com](https://www.opensubtitles.com) for the file. The title
+is guessed from the file name (`Show.S01E03.1080p.mkv` is searched as the show, season 1, episode 3; `Film.2019.mkv`
+as a film from 2019) and can be changed, and the language can be limited. The results list the language, the release,
+the number of downloads and notes (hearing impaired, forced, machine translated), and a subtitle made for this very
+file is marked **made for this file** and listed first. **Use this…** downloads the subtitle to a temporary file and
+fills in **Add a subtitle file** (the file, the language, and the name `SDH` or `Forced` where it applies), so you
+check it and press **Add subtitle…**, and it is added the usual careful way. The temporary file is removed after the
+subtitle is added or the dialog is closed.
+
+![Searching OpenSubtitles from the Edit dialog](docs/images/app-online.png)
+
+What it needs and sends:
+
+- **An API key** to search (free: make an account at opensubtitles.com and add an API consumer in its settings), and
+  that account's **user name and password** to download (the free account is enough; the service limits downloads per
+  day). Enter them under **OpenSubtitles account**. They are kept in `opensubtitles.json` in fml's data folder
+  (`~/.local/share/fml` on Linux, `~/Library/Application Support/fml` on macOS, `%APPDATA%\fml` on Windows), in a file
+  only you can read. `FML_OPENSUBTITLES_KEY`, `FML_OPENSUBTITLES_USER` and `FML_OPENSUBTITLES_PASSWORD` take the place
+  of what is saved. They are never put on a command line.
+- **What leaves your computer**: the title guessed from the file name (or typed), the season and episode or year, the
+  languages, and the file's *OpenSubtitles hash* (a number made from its size and 128 KB of it, so the service can
+  recognise the exact file; none of the file itself is sent). The requests are made with `curl`, which must be
+  installed (it is on macOS, Windows 10 and later, and most Linux systems). The app does nothing online until you press
+  **Search**; the command line only when you use `--search subtitle` or `--add subtitle --online`.
+- `FML_OPENSUBTITLES_URL` gives another address for the service (a test server).
 
 ### Adding subtitles to many files
 
@@ -330,8 +361,38 @@ Remove all the English audio, or one audio track by number (`last` is the last o
 ./fml --delete track --track 2 --file video.mkv
 ```
 
+Keep several languages at once with `--keep` (a list, any order): the tracks in all of them stay and the rest
+go. Include `und` to keep tracks with no language:
+
+```
+./fml --preserve lang --keep eng,jpn,und --file video.mkv
+./fml --preserve lang --keep eng,ita --kind sub --dir /media/shows --recursive
+```
+
+A language the file lacks is just not there; it is only an error (the file is left as it is, unless `--force`) when
+the file has none of the languages. `--keep` replaces `--lang` and `--prefer` for `--preserve`: give one of the three.
+
+Remove the duplicates, so each language has one audio track left (the first of each, which suits a release with three
+English tracks), with `--delete dupes`. For subtitles a forced track and a full one in the same language are not
+duplicates of each other:
+
+```
+./fml --delete dupes --file video.mkv
+./fml --delete dupes --kind sub --dir /media/shows --recursive
+```
+
+Remove tracks by what they are with `--delete match`: every track that fits **all** of the `--lang`, `--codec`
+and `--channels` that are given (at least one is needed). `--codec` is part of the codec name as `--info` shows it,
+in any case (`ac-3` matches both `AC-3` and `E-AC-3`), and `--channels` is the number of audio channels (2 is stereo,
+6 is 5.1; the **Ch** column of `--info`, shown where the tool reports it):
+
+```
+./fml --delete match --channels 2 --lang eng --file video.mkv   # the stereo English track
+./fml --delete match --codec dts --dir /media/films --recursive
+```
+
 As a safeguard, `--preserve` and `--delete` refuse to leave a file with no audio at all, and
-`--preserve` refuses if the file has none of the language you asked to keep.
+`--preserve` refuses if the file has none of the language you asked to keep (with `--keep`, none of them).
 `--force` overrides both.
 
 If the track that is removed was the default, the first track left becomes the default, so the file always
@@ -529,6 +590,40 @@ reason. Files that match nothing are listed.
 ./fml --add subtitle --sub-dir ~/Subs --lang English --dir /media/Show.S01
 ```
 
+### Finding subtitles online
+
+`--search subtitle` lists the subtitles [OpenSubtitles](https://www.opensubtitles.com) has for a file, best first (the
+ones made for exactly that file, then the most downloaded), and changes nothing. `--add subtitle --online` finds one
+and adds it, as the app's search does:
+
+```
+./fml --search subtitle --file Show.S01E03.1080p.mkv
+./fml --search subtitle --lang Italian --query "Show Name" --file Show.S01E03.1080p.mkv
+./fml --add subtitle --online --lang Italian --file Show.S01E03.1080p.mkv
+./fml --add subtitle --online --sub-id 7123456 --file Show.S01E03.1080p.mkv
+./fml --add subtitle --online --lang Italian --dir /media/Show.S01 --dryrun
+```
+
+The title, season and episode (or year) are guessed from the file name, and the file's OpenSubtitles hash is sent so that
+a subtitle made for exactly that file is found; `--query TEXT` searches for another title, and `--lang` limits the
+language. The listing has each subtitle's **ID**, language, downloads, notes (made for this file, hearing impaired,
+forced, machine translated) and release.
+
+`--add subtitle --online` needs `--lang` (the language to find) or `--sub-id` (an ID from the listing). Without
+`--sub-id` it picks the best subtitle in that language: one made for the file first, then the most downloaded,
+preferring one that is not for the hearing impaired, and **never** a machine translated or forced one (it says so and
+adds nothing when there is only those). A hearing impaired one is added with the name `SDH`. It is downloaded to a
+temporary file and added the usual careful way (`--name`, `--dryrun`, `--backup`, `--log` and `--undo` from the backup
+all work, it can't be used with `--in-place`), then the temporary file is removed. It works for MKV and MP4 files. With
+`--dir` every file is searched for by its own name, so a season is done in one command, with one login. `--dryrun`
+searches, and says what it would add (`from OpenSubtitles: release (ID n)`), but downloads nothing, so it costs none of
+the daily download limit.
+
+It needs `curl`, an API key, and, to download, the login of a free account. Save them under **OpenSubtitles account**
+in the app's subtitle search (see [Searching OpenSubtitles](#searching-opensubtitles)), or set `FML_OPENSUBTITLES_KEY`,
+`FML_OPENSUBTITLES_USER` and `FML_OPENSUBTITLES_PASSWORD`. In `--format json` a search has `data.hits`, a list of
+`{file_id, language, release, file_name, downloads, hearing_impaired, forced, machine_translated, exact}`.
+
 ### Taking a subtitle track out to a file
 
 `--extract subtitle --track T [--output FILE|FOLDER]` writes a subtitle track to a file of its own and leaves the media
@@ -643,13 +738,13 @@ the first track. The same four steps work for any folder of MKV files.
    ```
    $ ./fml --info --file Show.1x01.mkv
    Show.1x01.mkv (Matroska)
-   Track        ID  Codec              Language  Default  Forced  Name
-   video:1      0   HEVC/H.265/MPEG-H  und       yes      -       HEVC
-   audio:1      1   AAC                ita       yes      -       By Pir8
-   audio:2      2   AAC                eng       -        -       Original Audio
-   subtitles:1  3   SubRip/SRT         ita       yes      yes     Sub Ita Forced
-   subtitles:2  4   SubRip/SRT         eng       -        -       Sub Eng Full
-   subtitles:3  5   SubRip/SRT         ita       -        -       Sub Ita Full
+   Track        ID  Codec              Language  Default  Forced  Ch  Name
+   video:1      0   HEVC/H.265/MPEG-H  und       yes      -       -   HEVC
+   audio:1      1   AAC                ita       yes      -       2   By Pir8
+   audio:2      2   AAC                eng       -        -       2   Original Audio
+   subtitles:1  3   SubRip/SRT         ita       yes      yes     -   Sub Ita Forced
+   subtitles:2  4   SubRip/SRT         eng       -        -       -   Sub Eng Full
+   subtitles:3  5   SubRip/SRT         ita       -        -       -   Sub Ita Full
    ```
 
 2. Preview the change for the whole folder. Nothing is changed:
@@ -802,7 +897,8 @@ checked, as the older ones depend on it.
 
 `data.layout` (from every change that rewrites or edits the tracks of a file: `--set`, `--delete`, `--preserve`,
 `--add` and `--swap`) holds the tracks of the file before and after the change, each as in `--info` (`type`,
-`number`, `id`, `codec`, `language`, `default`, `forced`, `name`). The desktop app shows them side by side in its
+`number`, `id`, `codec`, `language`, `default`, `forced`, `name`, and `channels` for an audio track whose number of
+channels the tool reports). The desktop app shows them side by side in its
 preview. In a dry run it is what the file is expected to be.
 
 `status` is one of `changed`, `unchanged`, `skipped` (nothing could be done, for example the file has no
@@ -859,25 +955,33 @@ actions (may be combined; they run in the order given):
           name: set the name of track --track to --name; forced, unforced: set or clear its forced flag (MKV); track: change the language (--lang), name (--name) and forced flag (--forced-flag) of track --track together; order: put the tracks of --kind in the order of --order; lang: make --default (or the first of --prefer) the default, or with --lang set the language of track --track (1); default: make track --track the default, and with --lang set its language
   -a, --add <{subtitle}>
           subtitle: add the subtitle file --sub-file to an MKV or MP4 as a new subtitle track in the language --lang (and the name --name); not default, not forced
+  -S, --search <{subtitle}>
+          subtitle: list the subtitles OpenSubtitles has for the file (in --lang if given, for the title in --query or the one the file name says); needs an API key (see the README); the file is not changed
   -x, --extract <{subtitle}>
           subtitle: write the subtitle track --track to a file (.srt, .ass, .vtt or .sup; an MP4's text subtitle as .srt), named after the media file unless --output says; the media file is not changed
   -s, --swap <{lang}>
           make the second audio track the default (the order is unchanged: see --move)
-  -z, --delete <{lang,track}>
-          remove the tracks in --lang, or track --track
+  -z, --delete <{lang,track,dupes,match}>
+          lang: remove the tracks in --lang; track: remove track --track; dupes: remove every track after the first in each language; match: remove the tracks that fit all of --lang, --codec and --channels
   -p, --preserve <{lang}>
-          remove all tracks that are not in --lang (or the first of --prefer that is present)
+          remove all tracks that are not in --lang (or the first of --prefer that is present, or all of --keep)
 
 settings:
   -k, --kind <{audio,sub}>      the kind of track the actions work on (default audio) [default: audio]
   -l, --lang <LANG>             language, by name or ISO 639 code (English, en, eng)
   -D, --default <LANG>          language to make the default (none turns the default subtitles off)
       --prefer <LANGS>          languages in order of preference, e.g. eng,jpn,fre: the first that a file has is used, so one command suits a mixed library
+      --keep <LANGS>            for --preserve, instead of --lang: every language to keep, e.g. eng,jpn,und: the tracks in all of them stay and the rest are removed
+      --codec <TEXT>            for --delete match: part of the codec name as --info shows it, in any case (ac-3 matches AC-3 and E-AC-3)
+      --channels <N>            for --delete match: audio tracks with N channels (2 is stereo, 6 is 5.1)
       --forced...               with --kind sub, pick the forced subtitle track
   -t, --track <N>               a track number from 1 (among tracks of the kind), last, or any track by audio:N, subtitles:N, id:N (the ID column of --info) or name:TEXT
   -f, --force                   allow removing every audio track
       --output <FILE>           for --extract subtitle: the file to write, or a folder to put the generated name (FILM.ita.srt) in; an existing file needs --force
       --sub-dir <DIR>           for --add subtitle, instead of --sub-file: add the subtitle files in DIR (and below it) to the files being processed, each matched by name (FILM.ita.srt goes with FILM.mkv, else the same season and episode); the language, Forced and SDH come from the name, --lang is used where it has none
+      --online...               for --add subtitle, instead of --sub-file: find the subtitle on OpenSubtitles (the best one in --lang, or the one --sub-id names) and add it; needs an API key and login (see the README)
+      --sub-id <ID>             with --add subtitle --online: the ID of a subtitle that --search subtitle listed
+      --query <TEXT>            for --search subtitle and --add subtitle --online: the title to search for, instead of the one the file name says
       --sub-file <FILE>         for --add subtitle: the subtitle file (.srt, .ass, .ssa, .vtt or .sup) to add; the file is rewritten
       --forced-flag <{yes,no}>  for --set track: set (yes) or clear (no) the forced flag of the track (MKV only)
       --order-lang <LANGS>      for --set order, instead of --order: languages in the order their tracks should come, e.g. ita,eng; tracks in other languages follow. Works on files whose tracks differ, so one command suits a whole season

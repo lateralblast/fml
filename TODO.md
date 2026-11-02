@@ -4,6 +4,9 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Open
 
+- [ ] Try the OpenSubtitles search against the real service with a real key and account (the code was checked against a stand-in server and the published API as a client library uses it); and other sites (SubDL, Podnapisi), if wanted.
+- [ ] Desktop app: choose `--keep`, `--delete dupes` and `--delete match` in the bulk change menu (the engine has them; the app does not offer them yet).
+- [ ] Ideas from similar tools, not built: other Matroska flags (hearing impaired, original language, commentary), the original language of a show from Sonarr or Radarr, adding external audio files.
 - [ ] Look at the first CI run on GitHub and fix whatever the runners show that a Mac and an Ubuntu container did not.
 - [ ] Run `cargo test` and the pytest suite on a Windows runner in CI too, once they are known to pass there (the `windows` job only compiles the code).
 - [ ] Run `--install` for real on Fedora, Arch and Windows (winget and Chocolatey): the package names were checked against the repositories and the commands are tested, but none of these installs has been run.
@@ -14,6 +17,9 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Done
 
+- [x] `--search subtitle` and `--add subtitle --online` on the command line (1.2.0). Tested against a stand-in server only.
+- [x] Desktop app: search OpenSubtitles from the Edit dialog (1.1.9). Tried against a stand-in server only, never the real service.
+- [x] Features seen in similar tools (Tdarr plugins, batch mkvmerge scripts): keep several languages (`--keep`, 1.1.6), remove duplicate tracks per language (`--delete dupes`, 1.1.7), remove tracks by codec or channel count (`--delete match`, 1.1.8).
 - [x] Run the checks automatically on every push: `.github/workflows/ci.yml` (1.0.5). The workflow has been checked with `actionlint` and its commands run locally and in an Ubuntu container; its first run on GitHub is still to see.
 - [x] Rust tests for the paths the pytest suite cannot reach through the binary: the free-space check, `--install` and `--check` with missing tools (1.0.4). The CI part is the next item.
 - [x] Match subtitle files to media by name from the command line too: `--add subtitle --sub-dir DIR` (1.0.3).

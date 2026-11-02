@@ -328,6 +328,80 @@ fn match_subtitle_files_now(media: Vec<String>, subs: Vec<String>) -> Value {
     })
 }
 
+/// What is saved for searching OpenSubtitles, without the secrets: whether there is a key and a
+/// password, and the user name.
+#[tauri::command]
+async fn subtitle_settings() -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let saved = fml_core::online::load_credentials();
+        json!({
+            "has_key": !saved.api_key.trim().is_empty(),
+            "username": saved.username,
+            "has_password": !saved.password.is_empty(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Save the key, user name and password. A value that is not given (null) is kept as it was;
+/// an empty one clears it.
+#[tauri::command]
+async fn save_subtitle_settings(
+    api_key: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut saved = fml_core::online::load_credentials();
+        if let Some(v) = api_key { saved.api_key = v.trim().to_string(); }
+        if let Some(v) = username { saved.username = v.trim().to_string(); }
+        if let Some(v) = password { saved.password = v; }
+        fml_core::online::save_credentials(&saved)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The title, season and episode (or year) that a media file's name says, to start a search from.
+#[tauri::command]
+fn subtitle_guess(path: String) -> Value {
+    let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let guess = fml_core::online::guess_query(&name);
+    json!({"title": guess.title, "year": guess.year, "season": guess.season, "episode": guess.episode})
+}
+
+/// Search OpenSubtitles for a media file: reads 128 KB of it for the hash and asks the service,
+/// so it runs off the window's thread.
+#[tauri::command]
+async fn search_subtitles(path: String, query: String, languages: Vec<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let credentials = fml_core::online::load_credentials();
+        let languages = languages.iter().map(|l| resolve_language(l)).collect::<Result<Vec<_>, _>>()?;
+        let hits = fml_core::online::search(&credentials, std::path::Path::new(&path), &query, &languages)?;
+        Ok(json!(hits))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Download a subtitle found by `search_subtitles` to the temporary folder; its path comes back.
+#[tauri::command]
+async fn fetch_subtitle(file_id: i64) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let credentials = fml_core::online::load_credentials();
+        fml_core::online::download(&credentials, file_id).map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Remove a subtitle that `fetch_subtitle` downloaded (anything else is left alone).
+#[tauri::command]
+fn forget_subtitle(path: String) {
+    fml_core::online::forget_download(std::path::Path::new(&path));
+}
+
 /// The path a file gets when it is renamed within its folder, or why it can't be.
 fn renamed_path(path: &std::path::Path, name: &str) -> Result<std::path::PathBuf, String> {
     let name = name.trim();
@@ -430,7 +504,9 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            scan, run, cancel, app_info, languages, file_details, rename_file, match_subtitle_files, classify_dropped, dev_report
+            scan, run, cancel, app_info, languages, file_details, rename_file, match_subtitle_files, classify_dropped,
+            subtitle_settings, save_subtitle_settings, subtitle_guess, search_subtitles, fetch_subtitle,
+            forget_subtitle, dev_report
         ])
         .setup(|app| {
             // Debug builds only: FML_GUI_SCRIPT names a script to run in the window, so the
