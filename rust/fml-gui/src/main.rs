@@ -214,9 +214,14 @@ fn cancel() {
     request_cancel();
 }
 
-/// The version, and which of the commands fml needs are installed.
+/// The version, and which of the commands fml needs are installed. Looks along `PATH` on the
+/// disk, so it runs off the window's thread like the other commands that touch files.
 #[tauri::command]
-fn app_info() -> Value {
+async fn app_info() -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(app_info_now).await.map_err(|e| e.to_string())
+}
+
+fn app_info_now() -> Value {
     let tools: Vec<Value> = REQUIRED_TOOLS
         .iter()
         .map(|(tool, package)| {
@@ -265,8 +270,15 @@ fn media_in(folder: &std::path::Path, out: &mut Vec<String>) {
 /// What was dropped on the window: one folder alone is worked on as a folder (with its filters
 /// and subfolders); anything else becomes a list of the media files among the files dropped and
 /// inside the folders dropped. `ignored` counts dropped files that are not media files.
+/// Walks the folders dropped, so it runs off the window's thread (see `classify_dropped_now`).
 #[tauri::command]
-fn classify_dropped(paths: Vec<String>) -> Value {
+async fn classify_dropped(paths: Vec<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || classify_dropped_now(paths))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn classify_dropped_now(paths: Vec<String>) -> Value {
     let (mut folders, mut files, mut ignored) = (Vec::new(), Vec::new(), 0usize);
     for text in &paths {
         let path = std::path::Path::new(text);
@@ -293,8 +305,15 @@ fn classify_dropped(paths: Vec<String>) -> Value {
 /// Match subtitle files to media files by name, for the "Add subtitles" dialog: which media
 /// file each belongs to and what its name says about its language, plus the files that match
 /// nothing.
+/// Reads the folders of the subtitle files, so it runs off the window's thread.
 #[tauri::command]
-fn match_subtitle_files(media: Vec<String>, subs: Vec<String>) -> Value {
+async fn match_subtitle_files(media: Vec<String>, subs: Vec<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || match_subtitle_files_now(media, subs))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+fn match_subtitle_files_now(media: Vec<String>, subs: Vec<String>) -> Value {
     let found = fml_core::subtitles::match_subtitles(&media, &subs);
     json!({
         "matches": found.matches.iter().map(|m| json!({
@@ -328,8 +347,15 @@ fn renamed_path(path: &std::path::Path, name: &str) -> Result<std::path::PathBuf
 /// Rename a file within its folder. Nothing is overwritten. Not while a run is going, which
 /// may be working on the file. The entries about the file in the log (the one the page is
 /// using, if any) are changed to the new name, so a later undo still finds it.
+/// Renames on the disk and rewrites the log, so it runs off the window's thread.
 #[tauri::command]
-fn rename_file(path: String, name: String, log: Option<String>) -> Result<Value, String> {
+async fn rename_file(path: String, name: String, log: Option<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || rename_file_now(path, name, log))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn rename_file_now(path: String, name: String, log: Option<String>) -> Result<Value, String> {
     if RUNNING.load(Ordering::SeqCst) {
         return Err("a run is going: wait for it, or stop it".into());
     }
@@ -465,15 +491,15 @@ mod tests {
         std::fs::write(extras.join("e.avi"), b"x").unwrap();
         let text = |p: &std::path::Path| p.to_string_lossy().into_owned();
         // one folder alone is a folder
-        let one = classify_dropped(vec![text(&season)]);
+        let one = classify_dropped_now(vec![text(&season)]);
         assert_eq!(one["folder"], text(&season));
         assert_eq!(one["files"], json!([]));
         // files, or a folder with files, are a list: media only, folders searched, no temp or backup files
-        let mixed = classify_dropped(vec![text(&season.join("b.mkv")), text(&season.join("notes.txt")), text(&extras)]);
+        let mixed = classify_dropped_now(vec![text(&season.join("b.mkv")), text(&season.join("notes.txt")), text(&extras)]);
         assert_eq!(mixed["folder"], Value::Null);
         assert_eq!(mixed["files"], json!([text(&season.join("b.mkv")), text(&extras.join("e.avi"))]));
         assert_eq!(mixed["ignored"], 1);
-        let two = classify_dropped(vec![text(&season), text(&extras)]);
+        let two = classify_dropped_now(vec![text(&season), text(&extras)]);
         let names: Vec<String> = two["files"].as_array().unwrap().iter()
             .map(|f| std::path::Path::new(f.as_str().unwrap()).file_name().unwrap().to_string_lossy().into_owned())
             .collect();
@@ -493,11 +519,11 @@ mod tests {
             ("", "empty"), ("  ", "empty"), ("x/y.mkv", "can't contain"), ("..", "can't contain"),
             ("a.mkv", "already the name"), ("b.mkv", "already exists"),
         ] {
-            let error = rename_file(a_str.clone(), name.to_string(), None).unwrap_err();
+            let error = rename_file_now(a_str.clone(), name.to_string(), None).unwrap_err();
             assert!(error.contains(why), "{name}: {error}");
         }
         assert_eq!(std::fs::read(&b).unwrap(), b"b");
-        let renamed = rename_file(a_str.clone(), " c d.mkv ".to_string(), None).unwrap();
+        let renamed = rename_file_now(a_str.clone(), " c d.mkv ".to_string(), None).unwrap();
         let new = renamed["path"].as_str().unwrap().to_string();
         assert_eq!(std::path::Path::new(&new), dir.join("c d.mkv"));
         assert_eq!(renamed["log_entries"], 0);
@@ -505,14 +531,14 @@ mod tests {
         // the entries about the file in a log follow it
         let log = dir.join("log.jsonl");
         std::fs::write(&log, format!("{{\"file\":{}}}\n", serde_json::json!(new))).unwrap();
-        let moved = rename_file(new.clone(), "d.mkv".to_string(), Some(log.to_string_lossy().into_owned())).unwrap();
+        let moved = rename_file_now(new.clone(), "d.mkv".to_string(), Some(log.to_string_lossy().into_owned())).unwrap();
         assert_eq!(moved["log_entries"], 1);
         assert!(std::fs::read_to_string(&log).unwrap().contains("d.mkv"));
         let new = moved["path"].as_str().unwrap().to_string();
         // a change of case only is allowed even where the disk ignores case
-        let upper = rename_file(new, "C D.mkv".to_string(), None).unwrap();
+        let upper = rename_file_now(new, "C D.mkv".to_string(), None).unwrap();
         assert!(dir.read_dir().unwrap().any(|e| e.unwrap().file_name() == "C D.mkv"), "{upper}");
-        assert!(rename_file(dir.join("gone.mkv").to_string_lossy().into_owned(), "z".into(), None).is_err());
+        assert!(rename_file_now(dir.join("gone.mkv").to_string_lossy().into_owned(), "z".into(), None).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -19,6 +19,7 @@
 
 ## Done
 
+- Desktop app shows "not responding" during a run on a busy disk, because some commands did disk work on the window's thread (fixed in 1.0.7: those commands now run off it)
 - `--install` only knew apt on Ubuntu and brew on macOS, and warned on other systems (fixed in 1.0.2: Debian, Fedora and Arch families, winget and Chocolatey; installs on those systems not yet run)
 - `--default none` was not supported for MP4 subtitles, because ffmpeg always enables the first track of the group (fixed in 1.0.1: the track header flag is changed in a copy of the file)
 - `--default`, `--lang`, `--track` and the other settings were shared by every action in one command, so two actions that needed different values had to be separate commands (fixed in 1.0.0: settings belong to the action they follow)

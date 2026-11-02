@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.0.6
+Version 1.0.8
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -79,6 +79,8 @@ have to be removed, are rewritten without re-encoding anything.
 ```
 
 `./fml` runs the build in this directory (see [Installing](#installing)); with `fml-cli` on your `PATH` use that name.
+Before it runs, `./fml` brings that build up to date with `cargo` (a quick check that does nothing when the sources have not
+changed), and `./fml --gui` does the same for the app. Set `FML_NO_BUILD=1` to skip the check and run what is built.
 
 ## Requirements
 
@@ -126,8 +128,8 @@ cargo build -p fml-gui --release     # the desktop app: rust/target/release/fml
 
 ### Put the commands on your PATH
 
-`./fml` in this directory runs the release build (or the debug build if there is no release one), and
-`./fml --gui` opens the desktop app. To get an `fml-cli` command on your `PATH` instead, copy the built files
+`./fml` in this directory runs the release build (or the debug build if there is no release one), rebuilding it first
+if its sources have changed, and `./fml --gui` opens the desktop app (rebuilt the same way). To get an `fml-cli` command on your `PATH` instead, copy the built files
 into a directory on it, the app beside the command (`fml-cli --gui` looks for the app, the program called `fml`, next to itself, then
 on `PATH` (skipping scripts, such as the archived Python `fml`), or at the path in `FML_GUI`):
 

@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-11-02
+
+### Added
+- The `./fml` script brings the Rust build up to date before it runs, with `cargo`: after a change to the code, the next `./fml` rebuilds what changed (and prints `fml: rebuilt fml-cli` when it did). `./fml --gui` does the same for the desktop app. A build that is already current costs only a quick check. A failed build stops the run with the cargo error, instead of running an old build. `FML_NO_BUILD=1` skips the check and runs what is built. The first build (nothing built yet) shows cargo's progress.
+
+## [1.0.7] - 2026-11-02
+
+### Fixed
+- Desktop app: GNOME (and other desktops) could show "the application is not responding" while a run was writing a large file, because some commands did disk work on the window's own thread. Dropping files or folders on the window, the subtitle matching in the Add subtitles dialog, renaming a file and the version and tool check at start-up now run off that thread, like scanning and the Info dialog already did. The results are the same.
+
 ## [1.0.6] - 2026-10-24
 
 ### Added
