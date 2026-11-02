@@ -177,7 +177,9 @@ stand-in tools as a smoke test. On Windows itself the installer's tools (Rust, t
 The app does everything the command line does on whole folders, and the Edit dialog works on one file. Open it with
 `./fml --gui` (or `fml-cli --gui`, or `fml.app` on a Mac), after building it as described in [Installing](#installing).
 It follows the system's light or dark appearance. It uses the same engine as the command line, so changes are made
-the same careful way, and the logs it writes can be used with `--undo` and the other way round.
+the same careful way, and the logs it writes can be used with `--undo` and the other way round. The chip at the top
+right lists the commands found (`mkvtoolnix, ffmpeg, mediainfo`, and `whisper-cli` when the optional language
+detection is installed); its tooltip has their paths.
 
 ### 1. Choose files
 
