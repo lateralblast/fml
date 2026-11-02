@@ -647,3 +647,44 @@ def test_avi_swap_undo_needs_a_backup(run: Callable[..., Ran], three_avi: Path,
     swapped = three_avi.read_bytes()
     ran = run("--undo", log)
     assert "can't be undone without the backup" in ran.err and three_avi.read_bytes() == swapped
+
+
+def avi_track_names(run: Callable[..., Ran], path: Path) -> list[str]:
+    """The names of the audio tracks of an AVI, in file order, as --info shows them."""
+    lines = run("--info", "-i", path).out.splitlines()
+    return [line.split()[-1] for line in lines if line.startswith("audio:")]
+
+
+@pytest.mark.skipif(not FML_BIN, reason="reordering an AVI with --set order is Rust only")
+def test_avi_two_audio_tracks_swap_with_set_order(
+    run: Callable[..., Ran], make: Callable[..., Path], tmp_path: Path
+) -> None:
+    two = make("two.avi", [("und", "first", False), ("und", "second", False)])
+    assert avi_track_names(run, two) == ["first", "second"]
+    ran = run("--set", "order", "--order", "2,1", "-i", two)
+    assert ran.code == 0, ran.err
+    assert ran.out.strip() == f"{two}: audio tracks 1 and 2 swapped"
+    assert avi_track_names(run, two) == ["second", "first"]
+    assert audio_streams(two) == 2
+    assert leftovers(tmp_path) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="reordering an AVI with --set order is Rust only")
+def test_avi_set_order_is_only_two_tracks(run: Callable[..., Ran], three_avi: Path) -> None:
+    before = three_avi.read_bytes()
+    ran = run("--set", "order", "--order", "2,1,3", "-i", three_avi)
+    assert ran.code == 0
+    assert "AVI files can only swap their two audio tracks (--order 2,1)" in ran.out + ran.err
+    assert three_avi.read_bytes() == before
+    assert leftovers(three_avi.parent) == []
+
+
+@pytest.mark.skipif(not FML_BIN, reason="reordering an AVI with --set order is Rust only")
+def test_avi_set_order_dry_run_changes_nothing(
+    run: Callable[..., Ran], make: Callable[..., Path]
+) -> None:
+    two = make("dry.avi", [("und", "first", False), ("und", "second", False)])
+    before = two.read_bytes()
+    ran = run("--set", "order", "--order", "2,1", "--dryrun", "-i", two)
+    assert ran.code == 0, ran.err
+    assert two.read_bytes() == before

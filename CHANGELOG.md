@@ -5,6 +5,48 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-11-02
+
+### Changed
+- Desktop app: the tools message at the top reads `mkvtoolnix, ffmpeg, mediainfo, whisper-cli found` when the optional whisper-cli is found (the same lookup as `--check`), and the usual `mkvtoolnix, ffmpeg, mediainfo found` when it is not. A missing whisper-cli is not reported as missing. Its path is in the tooltip either way.
+
+## [1.1.4] - 2026-11-02
+
+### Added
+- `--update` listens to the audio tracks as `--detect` does, then sets the language of each track whose label differs to the language it sounds like. It is a change like any other (`--dryrun` previews it, `--backup` and `--log` apply). A track already labelled with the language heard is left alone, AVI files are skipped (they have no language to set), and `--kind sub` is refused.
+- Desktop app: after a successful **Detect languages…**, the Edit dialog has **Update the languages…** when a track's label differs from the language heard. It asks first, then makes the change as the command line does. It is not offered for AVI files.
+
+## [1.1.3] - 2026-11-02
+
+### Added
+- `--check --install` downloads the whisper.cpp model that `--detect` reads, `ggml-base.bin` (148 MB), when there is none. The model goes to `FML_WHISPER_MODEL` if it is set, else to `ggml-base.bin` in fml's data folder. Before the download the disk is checked for that much room with a tenth to spare: if there is not enough, fml says so and downloads nothing. The download is checked against its published SHA-256 before it is kept. `--check --install --dryrun` says what it would download, and downloads nothing.
+- `--detect` finds the model in fml's data folder when `FML_WHISPER_MODEL` is not set.
+- `FML_WHISPER_MODEL_URL` gives another address for the model download (a mirror, or a test server).
+
+## [1.1.2] - 2026-11-02
+
+### Added
+- `--check` lists `whisper-cli` (whisper.cpp, which `--detect` runs) as an optional command, and `FML_WHISPER_MODEL` with the model file it finds. A missing optional command is reported as optional and is not an error, so `--check` still exits 0.
+- `--check --install` installs whisper.cpp where a package is known: `sudo apt install -y whisper.cpp` on Debian and Ubuntu, `brew install whisper-cpp` on macOS. On other systems it says to install it by hand. The model file is not downloaded (it is large), so `--check` still reports it missing.
+
+## [1.1.1] - 2026-11-02
+
+### Added
+- `--detect` guesses the language of each audio track (or of `--track N`) from its speech, with whisper.cpp: three 30-second clips of each track are cut with `ffmpeg` and whisper.cpp's language detection is run on them. It prints one line per track (`track 1 sounds like ita (93% sure, 3 of 3 clips; labelled und)`), and `--format json` gives `data.detected`. The file is not changed. It needs the program `whisper-cli` (or `whisper-cpp`) on `PATH`, or `FML_WHISPER` set to it, and the model file in `FML_WHISPER_MODEL`. Without them it says what is missing. `--kind sub` is refused.
+- Desktop app: the Edit dialog has **Detect languages…** for the audio tracks of a file, which shows what each one sounds like in a **Sounds like** column. The file is not changed.
+
+## [1.1.0] - 2026-11-02
+
+### Added
+- Desktop app: the Edit dialog has **Swap the two audio tracks…** when a file has exactly two audio tracks. It swaps them in one step (one rewrite of the file, for MKV, MP4 and AVI alike), so there is no need to move a track first and then apply the order. It is not offered while moves are pending.
+
+## [1.0.9] - 2026-11-02
+
+### Added
+- Desktop app: an AVI file with exactly two audio tracks can be reordered in the Edit dialog (pick a track, **Move up** or **Move down**, **Apply this order…**), which swaps the two tracks. Other AVI settings stay unavailable, as AVI has no flags, names or languages to set.
+- Desktop app: **Swap the two audio tracks** in the bulk change menu, offered when every ticked file has exactly two audio tracks. It reorders them, for MKV, MP4 and AVI files alike.
+- `--set order --order 2,1` now works on an AVI file with exactly two audio tracks (the same swap `--swap` makes in the file). AVI files with other numbers of tracks say so, and are left unchanged.
+
 ## [1.0.8] - 2026-11-02
 
 ### Added

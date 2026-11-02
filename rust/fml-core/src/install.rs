@@ -26,7 +26,11 @@ impl Installer {
     /// (`mkvtoolnix`, `mediainfo`, `ffmpeg`), under this package manager's own name for it.
     pub fn command(self, package: &str) -> Vec<String> {
         let words: Vec<&str> = match self {
-            Installer::Apt => vec!["sudo", "apt", "install", "-y", package],
+            Installer::Apt => {
+                // Debian and Ubuntu name whisper.cpp with a dot
+                let name = if package == "whisper-cpp" { "whisper.cpp" } else { package };
+                vec!["sudo", "apt", "install", "-y", name]
+            }
             Installer::Dnf => {
                 // Fedora's own ffmpeg is the free build; the full one needs RPM Fusion
                 let name = if package == "ffmpeg" { "ffmpeg-free" } else { package };
@@ -55,6 +59,13 @@ impl Installer {
             }
         };
         words.iter().map(|w| w.to_string()).collect()
+    }
+
+    /// Whether this package manager has a package for `package` (a name from `REQUIRED_TOOLS` or
+    /// `OPTIONAL_TOOLS`). whisper.cpp is in apt (as `whisper.cpp`) and in Homebrew (as `whisper-cpp`)
+    /// only: elsewhere it is installed by hand.
+    pub fn supports(self, package: &str) -> bool {
+        package != "whisper-cpp" || matches!(self, Installer::Apt | Installer::Brew)
     }
 
     /// What it is called in messages.
@@ -168,5 +179,16 @@ mod tests {
                 assert!(command.len() >= 3 && !command.iter().any(String::is_empty), "{installer:?} {package}");
             }
         }
+    }
+
+    #[test]
+    fn whisper_cpp_is_installed_by_apt_and_brew_and_by_hand_elsewhere() {
+        assert_eq!(Installer::Apt.command("whisper-cpp").join(" "), "sudo apt install -y whisper.cpp");
+        assert_eq!(Installer::Brew.command("whisper-cpp").join(" "), "brew install whisper-cpp");
+        assert!(Installer::Apt.supports("whisper-cpp") && Installer::Brew.supports("whisper-cpp"));
+        for installer in [Installer::Dnf, Installer::Pacman, Installer::Winget, Installer::Choco] {
+            assert!(!installer.supports("whisper-cpp"), "{installer:?}");
+        }
+        assert!(Installer::Dnf.supports("ffmpeg") && Installer::Winget.supports("mediainfo"));
     }
 }

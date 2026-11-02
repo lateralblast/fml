@@ -28,6 +28,7 @@ const ACTIONS = {
   'rename': { show: ['kind', 'name', 'track'] },
   'forced': { show: ['kind', 'forcedflag', 'track'] },
   'swap': { show: [] },
+  'swap-audio': { show: [] },
   'delete-lang': { show: ['kind', 'lang'] },
   'delete-track': { show: ['kind', 'track'] },
   'preserve': { show: ['kind', 'lang', 'prefer'] },
@@ -67,7 +68,7 @@ function fillLanguages() {
 function updateForm() {
   const action = $('action').value;
   const spec = ACTIONS[action];
-  const sub = $('kind').value === 'sub' && action !== 'swap';
+  const sub = $('kind').value === 'sub' && action !== 'swap' && action !== 'swap-audio';
   const visible = {
     kind: spec.show.includes('kind'),
     lang: spec.show.includes('lang'),
@@ -103,7 +104,7 @@ function commonRequest(dry) {
 
 function request(dry) {
   const action = $('action').value;
-  const kind = action === 'swap' ? 'audio' : $('kind').value;
+  const kind = action === 'swap' || action === 'swap-audio' ? 'audio' : $('kind').value;
   const r = { ...commonRequest(dry), kind };
   const lang = $('lang').value;
   const prefer = words($('prefer').value);
@@ -130,6 +131,11 @@ function request(dry) {
       break;
     case 'swap':
       r.tasks = [{ name: 'swap', what: 'lang' }];
+      break;
+    case 'swap-audio':
+      // reorders the two audio tracks (--set order --order 2,1), in MKV, MP4 and AVI alike
+      r.tasks = [{ name: 'set', what: 'order' }];
+      r.order = [2, 1];
       break;
     case 'delete-lang':
       r.tasks = [{ name: 'delete', what: 'lang' }]; r.lang = lang;
@@ -229,6 +235,7 @@ function resetOrder(file) {
   info.file = file;
   info.order = {}; info.picked = {}; info.defaultFirst = { audio: false, subtitles: false }; info.edit = {}; info.keep = { audio: '', subtitles: '' };
   for (const kind of ['audio', 'subtitles']) info.order[kind] = file.tracks.filter((t) => t.type === kind);
+  info.detected = null;
 }
 
 const orderChanged = (kind) => info.order[kind].some((t, i) => t.number !== i + 1);
@@ -385,24 +392,92 @@ function saveTrack(kind, track, edit, canForce) {
   return changeFile(request, `Change ${kindWord(kind)} track ${track.number} of ${info.file.name}: ${parts.join(', ')}?`);
 }
 
+// What each audio track sounds like, from Detect languages… (a guess: the file is not changed).
+function soundsLike(track) {
+  const found = info.detected && info.detected[track.number];
+  return found ? `${found.language} (${Math.round(found.confidence * 100)}%)` : '';
+}
+
+function detectRow() {
+  const button = el('button', { type: 'button' }, 'Detect languages…');
+  button.disabled = info.busy;
+  button.addEventListener('click', () => detectLanguages());
+  const row = el('div', { class: 'row order-tools' }, button,
+    el('span', { class: 'muted' }, 'Listens to a few places in each track with whisper.cpp; the file is not changed.'));
+  // after a successful detection: set the tracks' languages to what they sound like (not for AVI, which has none)
+  const changes = detectedChanges();
+  if (info.detected && changes.length && !isAvi(info.file)) {
+    const update = el('button', { type: 'button', class: 'primary' }, 'Update the languages…');
+    update.disabled = info.busy;
+    update.addEventListener('click', () => updateLanguages());
+    row.append(update);
+  }
+  return row;
+}
+
+const isAvi = (file) => file.container === 'AVI' || file.container === 'avi';
+
+// The tracks whose label is not the language heard (the ones an update would change).
+function detectedChanges() {
+  if (!info.detected) return [];
+  return Object.values(info.detected).filter((d) => d.language && d.language !== d.current);
+}
+
+function updateLanguages() {
+  const changes = detectedChanges();
+  const text = changes.map((d) => `track ${d.track}: ${d.current} → ${d.language}`).join(', ');
+  return changeFile({ kind: 'audio', tasks: [{ name: 'update', what: '' }] },
+    `Set the audio languages of ${info.file.name} to what they sound like (${text})?`);
+}
+
+async function detectLanguages() {
+  const file = info.file;
+  info.busy = true; setBusy(true); renderOrder();
+  $('info-status').textContent = 'Listening to the audio tracks…';
+  try {
+    const summary = await invoke('run', { request: {
+      ...commonRequest(true), paths: [file.path], kind: 'audio', tasks: [{ name: 'detect', what: '' }] } });
+    const r = summary.results[0];
+    const found = (r && r.data && r.data.detected) || [];
+    if (!r || r.status === 'error') {
+      info.detected = null;
+      $('info-status').textContent = r ? r.message : 'Nothing was done.';
+    } else {
+      info.detected = {};
+      for (const d of found) info.detected[d.track] = d;
+      $('info-status').textContent = found.map((d) => `Track ${d.track} sounds like ${d.language} `
+        + `(${Math.round(d.confidence * 100)}% sure, ${d.agreed} of ${d.clips} clips; labelled ${d.current}).`).join(' ')
+        || r.message || 'Nothing was detected.';
+    }
+  } catch (error) {
+    $('info-status').textContent = String(error);
+  } finally {
+    info.busy = false; setBusy(false); renderOrder();
+  }
+}
+
 function renderOrder() {
   const box = $('info-tracks');
   box.replaceChildren();
   const file = info.file;
-  const editable = file.container !== 'AVI' && file.container !== 'avi';
+  // AVI has no flags, names or languages to set: only its two audio tracks can be reordered (a swap)
+  const avi = file.container === 'AVI' || file.container === 'avi';
+  const editable = !avi || info.order.audio.length === 2;
   for (const kind of ['video', 'audio', 'subtitles']) {
     const tracks = kind === 'video' ? file.tracks.filter((t) => t.type === kind) : info.order[kind];
     if (!tracks.length) continue;
     const movable = kind !== 'video';
     const heading = el('h4', {}, KIND_TITLES[kind]);
     const keep = movable ? info.keep[kind] : '';
-    const head = ['#', ...(movable ? ['Was'] : []), 'ID', 'Codec', 'Language', 'Default', 'Forced', 'Name', ...(keep ? ['After'] : [])];
+    const sounds = kind === 'audio' && info.detected;
+    const head = ['#', ...(movable ? ['Was'] : []), 'ID', 'Codec', 'Language', 'Default', 'Forced', 'Name', ...(sounds ? ['Sounds like'] : []), ...(keep ? ['After'] : [])];
     const rows = tracks.map((t, i) => {
       const gone = Boolean(keep) && t.language !== keep;
       const row = el('tr', movable && editable ? { tabindex: '0', 'aria-selected': String(info.picked[kind] === t.number) } : {},
         el('td', {}, i + 1), ...(movable ? [el('td', { class: t.number === i + 1 ? 'muted' : '' }, t.number)] : []),
         el('td', {}, t.id), el('td', {}, t.codec), el('td', {}, t.language),
         el('td', {}, t.default ? 'yes' : '-'), el('td', {}, t.forced ? 'yes' : '-'), el('td', {}, t.name),
+        ...(sounds ? [el('td', {}, soundsLike(t))] : []),
         ...(keep ? [el('td', { class: gone ? 'gone-label' : 'muted' }, gone ? 'removed' : 'kept')] : []));
       if (gone) row.classList.add('removing');
       if (movable && editable) {
@@ -418,6 +493,7 @@ function renderOrder() {
     const table = el('table', { class: 'tracks' },
       el('thead', {}, el('tr', {}, ...head.map((h) => el('th', {}, h)))), el('tbody', {}, ...rows));
     box.append(heading);
+    if (kind === 'audio') box.append(detectRow());
     if (movable && editable) {
       const at = tracks.findIndex((t) => t.number === info.picked[kind]);
       const button = (label, onClick, disabled, cls = '') => {
@@ -427,13 +503,16 @@ function renderOrder() {
       box.append(el('div', { class: 'row order-tools' },
         button('Move up', () => moveTrack(kind, -1), at <= 0),
         button('Move down', () => moveTrack(kind, 1), at < 0 || at === tracks.length - 1),
-        button('Delete…', () => deleteTrack(kind), at < 0 || orderChanged(kind), 'danger'),
+        ...(avi ? [] : [button('Delete…', () => deleteTrack(kind), at < 0 || orderChanged(kind), 'danger')]),
         button('Reset', () => { info.order[kind] = file.tracks.filter((t) => t.type === kind); renderOrder(); }, !orderChanged(kind), 'quiet'),
         button('Apply this order…', () => applyOrder(kind), !orderChanged(kind) && !info.defaultFirst[kind], 'primary'),
-        defaultFirstBox(kind),
-        el('span', { class: 'muted' }, orderChanged(kind) ? 'Apply or reset the new order before deleting.' : 'Click a track, then move or delete it.')));
+        // two audio tracks: swap them in one step, from the file's own order (not while moves are pending)
+        ...(kind === 'audio' && tracks.length === 2
+          ? [button('Swap the two audio tracks…', () => swapAudioTracks(), orderChanged(kind))] : []),
+        ...(avi ? [] : [defaultFirstBox(kind)]),
+        el('span', { class: 'muted' }, orderChanged(kind) ? 'Apply or reset the new order before deleting.' : (avi ? 'Click a track, then move it.' : 'Click a track, then move or delete it.'))));
     }
-    if (movable && editable) {
+    if (movable && editable && !avi) {
       const selected = commonRequest(true).paths.length;
       const wide = (label, onClick, disabled, cls = '') => {
         const b = el('button', { type: 'button', class: cls }, label);
@@ -445,14 +524,16 @@ function renderOrder() {
         wide('Preview this order…', () => previewForAll(kind, 'order'), !orderChanged(kind) && !info.defaultFirst[kind]),
         wide('Preview removing this language…', () => previewForAll(kind, 'delete'), at < 0, 'danger')));
     }
-    if (movable && editable) box.append(keepRow(kind, tracks));
-    if (movable && editable) {
+    if (movable && editable && !avi) box.append(keepRow(kind, tracks));
+    if (movable && editable && !avi) {
       const picked = tracks.find((t) => t.number === info.picked[kind]);
       if (picked) box.append(trackEditor(kind, picked, file.container === 'Matroska'));
     }
     box.append(el('div', { class: 'table-wrap' }, table));
   }
-  if (!editable) box.append(el('p', { class: 'muted' }, 'AVI files have no track settings, so their order cannot be set here.'));
+  if (!editable) {
+    box.append(el('p', { class: 'muted' }, 'AVI files have no track settings. Their two audio tracks can be swapped, but only when there are exactly two.'));
+  }
 }
 
 // What the Edit dialog's arrangement of one file means for the other selected files: the
@@ -575,6 +656,13 @@ async function addSubtitle() {
 }
 
 const kindWord = (kind) => (kind === 'audio' ? 'audio' : 'subtitle');
+
+// Swap the two audio tracks of the file as it is (one rewrite), whatever the container.
+function swapAudioTracks() {
+  const list = info.file.tracks.filter((t) => t.type === 'audio');
+  return changeFile({ kind: 'audio', tasks: [{ name: 'set', what: 'order' }], order: [2, 1], default_first: false },
+    `Swap the two audio tracks of ${info.file.name} (${list.map((t) => t.language + (t.name ? ` (${t.name})` : '')).join(' and ')})?`);
+}
 
 function applyOrder(kind) {
   const list = info.order[kind];
@@ -734,7 +822,25 @@ function setBusy(busy, message) {
   updateButtons();
 }
 
+// "Swap the two audio tracks" is in the bulk menu only when every ticked file has exactly two
+// audio tracks: the swap means the same thing for each of them.
+function syncSwapAudioOption() {
+  const select = $('action');
+  const ticked = state.files.filter((f) => !f.error && state.selected.has(f.path));
+  const offered = ticked.length > 0
+    && ticked.every((f) => f.tracks.filter((t) => t.type === 'audio').length === 2);
+  const option = select.querySelector('option[value="swap-audio"]');
+  if (offered && !option) {
+    select.querySelector('option[value="swap"]').after(el('option', { value: 'swap-audio' }, 'Swap the two audio tracks'));
+  } else if (!offered && option) {
+    if (select.value === 'swap-audio') select.value = 'swap';
+    option.remove();
+    updateForm();
+  }
+}
+
 function updateButtons() {
+  syncSwapAudioOption();
   const chosen = state.files.some((f) => !f.error && state.selected.has(f.path));
   for (const id of ['preview', 'apply']) $(id).disabled = state.running || !chosen;
   for (const id of ['undo', 'add-folder', 'add-files', 'rescan']) $(id).disabled = state.running;
@@ -991,9 +1097,12 @@ async function runSubs(dry) {
 async function start() {
   const info = await invoke('app_info');
   $('version').textContent = `v${info.version}`;
-  const missing = info.tools.filter((t) => !t.path).map((t) => t.tool);
+  const missing = info.tools.filter((t) => !t.optional && !t.path).map((t) => t.tool);
   const chip = $('tools');
-  chip.textContent = missing.length ? `Missing: ${missing.join(', ')}` : 'mkvtoolnix, ffmpeg, mediainfo found';
+  // whisper-cli is named only when it is found (it is optional, for Detect languages…)
+  const found = ['mkvtoolnix', 'ffmpeg', 'mediainfo'];
+  if (info.tools.some((t) => t.tool === 'whisper-cli' && t.path)) found.push('whisper-cli');
+  chip.textContent = missing.length ? `Missing: ${missing.join(', ')}` : `${found.join(', ')} found`;
   chip.classList.add(missing.length ? 'bad' : 'good');
   chip.title = info.tools.map((t) => `${t.tool}: ${t.path || 'not found'}`).join('\n');
   state.home = info.home;

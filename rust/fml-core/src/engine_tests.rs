@@ -655,17 +655,21 @@ fn a_copy_that_would_not_fit_is_not_started() {
 #[test]
 fn check_says_which_commands_are_missing() {
     let (mut fml, _) = listening(Config::default());
+    fml.model = None; // the model is whatever is on this machine: not part of this test
     set_finder(&mut fml, &["mkvmerge", "ffmpeg"]);
-    let result = fml.check_tools();
+    let result = fml.check_tools().unwrap();
     assert_eq!(result.status, Status::Error);
     assert_eq!(result.message, "missing: mkvpropedit, mediainfo (use --install to install them)");
     let listed: Vec<(String, bool)> = result.data.as_array().unwrap().iter()
         .map(|e| (e["tool"].as_str().unwrap().to_string(), e["path"].is_string())).collect();
-    assert_eq!(listed, [("mkvmerge".into(), true), ("mkvpropedit".into(), false), ("mediainfo".into(), false), ("ffmpeg".into(), true)]);
+    // the required ones, then the optional whisper-cli (missing, but not an error) and the model
+    assert_eq!(listed, [("mkvmerge".into(), true), ("mkvpropedit".into(), false), ("mediainfo".into(), false), ("ffmpeg".into(), true), ("whisper-cli".into(), false), ("FML_WHISPER_MODEL".into(), false)]);
     assert_eq!(result.data[1]["package"], "mkvtoolnix");
+    assert_eq!(result.data[4]["optional"], true);
+    assert_eq!(result.data[4]["package"], "whisper-cpp");
     // everything there: nothing to say
     set_finder(&mut fml, &["mkvmerge", "mkvpropedit", "mediainfo", "ffmpeg"]);
-    assert_ne!(fml.check_tools().status, Status::Error);
+    assert_ne!(fml.check_tools().unwrap().status, Status::Error);
 }
 
 #[test]
@@ -674,9 +678,11 @@ fn check_with_install_shows_what_it_would_run_and_is_not_an_error_in_a_dry_run()
     let (mut fml, heard) = listening(config);
     set_finder(&mut fml, &["mkvmerge", "ffmpeg"]);
     fml.installer = Some(Installer::Apt);
-    let result = fml.check_tools();
+    let result = fml.check_tools().unwrap();
     assert_ne!(result.status, Status::Error, "{}", result.message);
-    assert_eq!(*heard.lock().unwrap(), ["Executing:\tsudo apt install -y mkvtoolnix", "Executing:\tsudo apt install -y mediainfo"]);
+    // (the model is also mentioned: a dry run only says that it would be downloaded)
+    let commands: Vec<String> = heard.lock().unwrap().iter().filter(|line| line.starts_with("Executing:")).cloned().collect();
+    assert_eq!(commands, ["Executing:\tsudo apt install -y mkvtoolnix", "Executing:\tsudo apt install -y mediainfo", "Executing:\tsudo apt install -y whisper.cpp"]);
 }
 
 #[test]
@@ -685,7 +691,8 @@ fn check_with_install_on_a_system_it_does_not_know_still_reports_the_commands_mi
     let (mut fml, heard) = listening(config);
     set_finder(&mut fml, &["mkvmerge", "mkvpropedit", "ffmpeg"]);
     fml.installer = None;
-    let result = fml.check_tools();
+    fml.model = None; // no model download in a test (that would fetch 148 MB)
+    let result = fml.check_tools().unwrap();
     assert_eq!(result.status, Status::Error);
     assert_eq!(result.message, "missing: mediainfo"); // no "(use --install ...)": it was asked for
     assert!(heard.lock().unwrap()[0].starts_with("warning: don't know how to install \"mediainfo\" on this OS"));

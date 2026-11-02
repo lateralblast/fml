@@ -10,6 +10,8 @@
 //! This crate does the work and prints nothing: a front end (the command line or the
 //! GUI) gives it a [`Config`] and an event sink, and shows what it is told.
 
+mod detect;
+pub use detect::whisper_path;
 mod engine;
 pub mod languages;
 mod install;
@@ -30,4 +32,4 @@ pub use install::{detect_installer, linux_installer, Installer};
 pub use validate::{parse_order, validate};
 pub use track::{format_tracks, human_size, Kind, Track, TrackSpec};
 
-pub const VERSION: &str = "1.0.8";
+pub const VERSION: &str = "1.1.5";

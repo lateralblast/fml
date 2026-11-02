@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.0.8
+Version 1.1.5
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -92,6 +92,16 @@ dependencies of its own. It needs these commands:
 | `mkvmerge`, `mkvpropedit` | mkvtoolnix | reading and editing MKV files |
 | `mediainfo`               | mediainfo  | reading MP4 and AVI files     |
 | `ffmpeg`                  | ffmpeg     | rewriting MP4 and AVI files   |
+
+Optional, for `--detect` (see [Guessing the language of a track](#guessing-the-language-of-a-track)):
+
+| Command                   | Package     | Used for                      |
+|---------------------------|-------------|-------------------------------|
+| `whisper-cli`             | whisper.cpp | guessing a track's language   |
+
+`--check` lists it and says it is optional, and `FML_WHISPER_MODEL` (the model file). `--check --install` installs
+`whisper.cpp` with apt (`whisper.cpp`) or Homebrew (`whisper-cpp`); on other systems it says to install it by hand.
+It also downloads the model, if there is none: see [Guessing the language of a track](#guessing-the-language-of-a-track).
 
 Check they are installed with `./fml --check`, and install any that are missing
 with `./fml --check --install`, which uses the package manager of the system:
@@ -182,7 +192,9 @@ Click a file's row for its track list. **Add subtitles…** adds subtitle files 
 
 Pick what to do and the tracks (audio or subtitles) to do it to: make a language the default, make a track the
 default, set the language of a track, rename a track, set or clear the forced flag, make the second audio track the
-default, remove the tracks in a language, remove a track, or keep only one language. **Safety and speed** has the
+default, remove the tracks in a language, remove a track, or keep only one language. When every ticked file has exactly
+two audio tracks, **Swap the two audio tracks** is also offered: it reorders them (`--set order --order 2,1`), in MKV,
+MP4 and AVI files alike. **Safety and speed** has the
 same choices as the command line: keep the original beside the file (`--backup`), edit MKV files in place, allow
 removing every audio track, how many files to do at once, and a log so that changes can be undone. **Preview** shows
 what would change, **Apply…** makes the change, **Stop** ends a run, and **Undo from a log…** reverses what a log
@@ -206,7 +218,12 @@ that `--track id:N` uses, and under **Full technical report** everything `mediai
   name, which the log records, so it is still found too.
 - **Reorder**: pick a track, **Move up** or **Move down**, and **Apply this order…**, with **Make the first track the
   default** if you want the flag to follow. **Delete…** removes the picked track (the last audio track only if
-  "Allow removing every audio track" is ticked).
+  "Allow removing every audio track" is ticked). With exactly two audio tracks, **Swap the two audio tracks…** swaps
+  them in one step, from the file as it is (not while moves are pending). **Detect languages…** listens to each audio
+  track and fills in a **Sounds like** column; **Update the languages…** then sets the tracks to those languages (see
+  [Guessing the language of a track](#guessing-the-language-of-a-track)).
+  An AVI file can only be reordered this way:
+  its two audio tracks are swapped, and nothing else in the dialog applies to AVI.
 - **Keep only** a language: choosing one marks, in the table, the tracks that would be removed (and which track becomes
   the default) before anything is changed, and **Remove the others…** makes the change.
 - **For all the ticked files**: **Preview this order…**, **Preview removing this language…** and **Preview for all
@@ -347,6 +364,46 @@ The other actions work the same way:
 ```
 
 Removing every subtitle track does not need `--force`.
+
+### Guessing the language of a track
+
+`--detect` listens to the speech of each audio track and says what language it is in, so that a track labelled
+`und` (or the wrong language) can be checked before it is named. It needs [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
+and one of its model files:
+
+- the program `whisper-cli` on `PATH` (or `whisper-cpp`), or the path to it in `FML_WHISPER`; `fml --check --install` installs it with apt or Homebrew;
+- the model file: `FML_WHISPER_MODEL`, or else `ggml-base.bin` in fml's data folder (`~/.local/share/fml` on Linux,
+  `~/Library/Application Support/fml` on macOS, `%APPDATA%\fml` on Windows).
+
+`fml --check --install` downloads the model (`ggml-base.bin`, 148 MB, from Hugging Face) when there is none. Before it
+does, it checks that the disk has that much room with a tenth to spare: if it doesn't, it says so and downloads
+nothing, and `--check` then reports the model missing. The download is checked against its published SHA-256 before it
+is kept, so a damaged or different file is thrown away. `--check --install --dryrun` only says what it would download.
+`FML_WHISPER_MODEL_URL` gives another address for the download (a mirror, or a test server).
+
+```
+./fml --detect --file video.mkv
+./fml --detect --track 2 --file video.mkv
+```
+
+For each track, three clips of 30 seconds are cut from the track (at 20%, 50% and 80% of its length, so an
+intro or a song does not decide it; a track shorter than about 45 seconds gets one clip from its start) and
+whisper.cpp's language detection is run on each. The output is one line
+per track, for example `video.mkv: track 1 sounds like ita (93% sure, 3 of 3 clips; labelled und)`. The
+confidence is the average probability over the clips. The file is **not changed**, and nothing is written to a
+log: to label a track, use `--set track` (or `--set lang`) with the language you want. The desktop app's Edit
+dialog has **Detect languages…** for the same thing, and shows the result in a **Sounds like** column.
+
+To label the tracks with what they sound like in one step, use `--update` (`--update --dryrun` previews it). It
+listens exactly as `--detect` does, then sets the language of each audio track (or of `--track`) whose label differs,
+with the change made as any other: a copy, checked, then replacing the file. A track already labelled with the language
+it sounds like is left alone. AVI files have no language to set, so they are skipped. `--update` works on audio tracks
+only (leave out `--kind sub`). The desktop app shows **Update the languages…** after a successful detection, when a
+track's label differs from the language heard, and asks before it changes the file.
+
+It is a guess: it is weaker on music, on dubs and on films where the speakers change language, and a model
+does not know the language of a track that has no speech. The output is only as good as the model. An error
+(no model, the program can't be run, or it gives no report) is reported and the file is left as it was.
 
 ### Languages
 
@@ -511,7 +568,9 @@ is checked to have them.
 
 AVI has no track metadata to edit, so these rewrite the file, which takes longer.
 
-Swap the first two audio tracks of an AVI file:
+Swap the first two audio tracks of an AVI file (`--swap` makes the second one the default flag, which AVI has no
+way to store, so it swaps the two tracks in the file as well). `--set order --order 2,1` does the same, and it is what
+the desktop app's Edit dialog and the bulk menu use when a file has exactly two audio tracks:
 
 ```
 ./fml --swap lang --file video.avi
@@ -745,7 +804,11 @@ checked, as the older ones depend on it.
 preview. In a dry run it is what the file is expected to be.
 
 `status` is one of `changed`, `unchanged`, `skipped` (nothing could be done, for example the file has no
-track in that language) or `error`. For `--info` and `--get`, `data` holds the tracks or languages.
+track in that language) or `error`. For `--info` and `--get`, `data` holds the tracks or languages. For `--detect`,
+`data.detected` is a list of `{track, id, current, language, confidence, clips, agreed}`: the track number, its ID,
+the language it is labelled with now (`current`), the language heard (`language`, as a three letter code), the
+average probability (`confidence`), the clips listened to and how many of them named that language (`agreed`).
+`--update` gives the same `data.detected`, next to the track layout of the file as `--set` gives it.
 
 ### Exit status
 
@@ -782,6 +845,10 @@ actions (may be combined; they run in the order given):
           check the required commands are installed
   -I, --info
           list the tracks of the file
+      --detect
+          guess the language of each audio track (or of --track) from its speech, with whisper.cpp (FML_WHISPER_MODEL names its model); the file is not changed
+      --update
+          set the language of each audio track (or of --track) to the language it sounds like, as --detect finds it (AVI files have no language to set); the file is changed
   -u, --undo <LOG>
           undo the changes recorded in a --log file, newest first, for the files that are still as they were left (limited to --file or --dir if given)
   -g, --get <{lang}>

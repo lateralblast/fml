@@ -408,7 +408,10 @@ def no_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_check_lists_what_is_missing(run: Callable[..., Ran], no_tools: Path) -> None:
     ran = run("--check")
     assert ran.code == 1
-    assert ran.out.splitlines() == [f"Missing:\t{tool}" for tool in fml.REQUIRED_TOOLS]
+    # the optional whisper-cli and FML_WHISPER_MODEL lines (Rust only) are not part of the list
+    lines = [line for line in ran.out.splitlines()
+             if "whisper" not in line and "FML_WHISPER" not in line]
+    assert lines == [f"Missing:\t{tool}" for tool in fml.REQUIRED_TOOLS]
     assert "missing: mkvmerge, mkvpropedit, mediainfo, ffmpeg (use --install" in ran.err
 
 
@@ -416,15 +419,17 @@ def test_check_json_lists_the_packages(run: Callable[..., Ran], no_tools: Path) 
     ran = run("--check", "-F", "json")
     (result,) = json.loads(ran.out)["results"]
     assert result["status"] == "error"
-    assert {entry["tool"]: entry["package"] for entry in result["data"]} == fml.REQUIRED_TOOLS
-    assert all(entry["path"] is None for entry in result["data"])
+    required = [entry for entry in result["data"] if not entry.get("optional")]
+    assert {entry["tool"]: entry["package"] for entry in required} == fml.REQUIRED_TOOLS
+    assert all(entry["path"] is None for entry in required)
 
 
 def test_install_dry_run_installs_each_package_once(run: Callable[..., Ran],
                                                     no_tools: Path) -> None:
     ran = run("--check", "--install", "-T", "-v")
     assert ran.code == 0
-    commands = [line.split("\t")[1] for line in ran.err.splitlines()]
+    # (the Rust binary also tries whisper.cpp, which is optional: it is left out here)
+    commands = [line.split("\t")[1] for line in ran.err.splitlines() if "whisper" not in line]
     # the Python tests pretend to be Ubuntu; the Rust binary installs the way the real system does
     install = "brew install" if FML_BIN and sys.platform == "darwin" else "sudo apt install -y"
     assert commands == [f"{install} mkvtoolnix", f"{install} mediainfo", f"{install} ffmpeg"]

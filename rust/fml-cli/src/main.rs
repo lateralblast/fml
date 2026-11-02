@@ -175,6 +175,26 @@ fn build_command() -> Command {
                 .help_heading(actions),
         )
         .arg(
+            Arg::new("detect")
+                .long("detect")
+                .action(ArgAction::SetTrue)
+                .help(
+                    "guess the language of each audio track (or of --track) from its speech, with \
+                     whisper.cpp (FML_WHISPER_MODEL names its model); the file is not changed",
+                )
+                .help_heading(actions),
+        )
+        .arg(
+            Arg::new("update")
+                .long("update")
+                .action(ArgAction::SetTrue)
+                .help(
+                    "set the language of each audio track (or of --track) to the language it sounds \
+                     like, as --detect finds it (AVI files have no language to set); the file is changed",
+                )
+                .help_heading(actions),
+        )
+        .arg(
             Arg::new("undo")
                 .short('u')
                 .long("undo")
@@ -530,7 +550,7 @@ fn explain(error: clap::Error) -> ! {
 /// given at (the settings that follow it belong to it).
 fn queued_tasks(matches: &ArgMatches) -> Vec<(usize, Task)> {
     let mut queue: Vec<(usize, Task)> = Vec::new();
-    for name in ["check", "info"] {
+    for name in ["check", "info", "detect", "update"] {
         if matches.get_flag(name) {
             for index in matches.indices_of(name).into_iter().flatten() {
                 queue.push((index, Task::new(name, "")));
@@ -670,8 +690,14 @@ fn print_result(result: &Outcome, config: &Config) {
     if result.action == "check" {
         for entry in result.data.as_array().into_iter().flatten() {
             let tool = entry["tool"].as_str().unwrap_or("");
+            let optional = entry["optional"].as_bool().unwrap_or(false);
             match entry["path"].as_str() {
                 Some(path) => println!("Found:\t\t{tool} ({path})"),
+                None if tool == "FML_WHISPER_MODEL" => println!(
+                    "Missing:\t{tool} (optional: --detect needs a whisper.cpp model file; \
+                     --check --install downloads ggml-base.bin if the disk has room for it)"
+                ),
+                None if optional => println!("Missing:\t{tool} (optional: needed by --detect)"),
                 None => println!("Missing:\t{tool}"),
             }
         }
@@ -679,6 +705,17 @@ fn print_result(result: &Outcome, config: &Config) {
     if matches!(result.status, Status::Error | Status::Skipped) {
         eprintln!("Warning: {name}{}", result.message);
     } else if result.action == "check" {
+    } else if result.action == "update" {
+        print_detected(result);
+        if result.changes.is_empty() {
+            println!("{name}{}", result.message);
+        }
+        let prefix = if result.dry_run { "[dry-run] " } else { "" };
+        for change in &result.changes {
+            println!("{prefix}{name}{change}");
+        }
+    } else if result.action == "detect" {
+        print_detected(result);
     } else if result.action == "info" {
         println!("{}", info_text(result));
     } else if result.action == "get" {
@@ -690,6 +727,25 @@ fn print_result(result: &Outcome, config: &Config) {
         }
     } else {
         println!("{name}{}", result.message);
+    }
+}
+
+/// One line per audio track: what it sounds like, how sure whisper.cpp was, and what the track
+/// is labelled now.
+fn print_detected(result: &Outcome) {
+    let found = result.data.get("detected").and_then(Value::as_array).cloned().unwrap_or_default();
+    for item in found {
+        let number = item["track"].as_u64().unwrap_or(0);
+        let language = item["language"].as_str().unwrap_or("?");
+        let current = item["current"].as_str().unwrap_or("?");
+        let percent = item["confidence"].as_f64().unwrap_or(0.0) * 100.0;
+        let agreed = item["agreed"].as_u64().unwrap_or(0);
+        let clips = item["clips"].as_u64().unwrap_or(0);
+        println!(
+            "{}: track {number} sounds like {language} ({percent:.0}% sure, {agreed} of {clips} clips; \
+             labelled {current})",
+            result.file
+        );
     }
 }
 

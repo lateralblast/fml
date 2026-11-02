@@ -39,8 +39,8 @@ fn check_subtitle_file(file: &str) -> Result<(), String> {
 pub fn validate(args: &Config) -> Result<(), String> {
     let tasks: &[Task] = &args.tasks;
     if tasks.is_empty() {
-        return Err("no action given (use --check, --info, --get, --set, --add, --extract, \
-                    --swap, --delete or --preserve)"
+        return Err("no action given (use --check, --info, --detect, --update, --get, --set, \
+                    --add, --extract, --swap, --delete or --preserve)"
             .into());
     }
     let has_target = !args.file.is_empty() || !args.dir.is_empty() || !args.paths.is_empty();
@@ -68,6 +68,10 @@ pub fn validate(args: &Config) -> Result<(), String> {
 /// The rules for one action's settings (`args` has just that one task).
 fn validate_task(args: &Config) -> Result<(), String> {
     let tasks: &[Task] = &args.tasks;
+
+    if tasks.iter().any(|t| t.name == "detect" || t.name == "update") && args.kind != Kind::Audio {
+        return Err("--detect and --update work on audio tracks (leave out --kind sub)".into());
+    }
 
     if args.forced && args.kind != Kind::Subtitles {
         return Err("--forced only applies to subtitles (use --kind sub)".into());

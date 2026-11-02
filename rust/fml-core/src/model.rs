@@ -15,6 +15,11 @@ pub const REQUIRED_TOOLS: &[(&str, &str)] = &[
     ("ffmpeg", "ffmpeg"),
 ];
 
+/// Commands that only some actions use, and the package that provides each. A missing one is not
+/// an error: `--check` reports it, and `--install` installs it where a package is known.
+/// `whisper-cli` (whisper.cpp) is what `--detect` runs.
+pub const OPTIONAL_TOOLS: &[(&str, &str)] = &[("whisper-cli", "whisper-cpp")];
+
 /// Temporary files are named after the file they replace, with this in the name.
 pub const TEMP_MARK: &str = ".fml-tmp";
 

@@ -151,7 +151,11 @@ def test_long_options_can_be_abbreviated(run: Callable[..., Ran], tmp_path: Path
 def test_check_needs_no_file(run: Callable[..., Ran], stubs: Stubs) -> None:
     ran = run("--check")
     assert ran.code == 0
-    assert ran.out.count("Found:") == 4
+    # the four required commands (whisper-cli and the model are optional, and are listed too)
+    required = [line for line in ran.out.splitlines()
+                if line.startswith("Found:")
+                and "whisper" not in line and "FML_WHISPER" not in line]
+    assert len(required) == 4
 
 
 def test_actions_run_in_the_order_given(run: Callable[..., Ran], fake_mkv: Path,

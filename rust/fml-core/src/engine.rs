@@ -16,6 +16,8 @@ use serde_json::{json, Value};
 use crate::model::*;
 use crate::install::{detect_installer, Installer};
 use crate::mp4;
+use crate::detect;
+use crate::languages::resolve_language;
 use crate::subtitles;
 use crate::track::{
     format_tracks, human_size, parse_mediainfo_tracks, parse_mkv_tracks, Kind, Track, TrackSpec,
@@ -77,6 +79,8 @@ pub struct Fml {
     sink: Sink,
     /// What `--install` uses on this system, if it is known.
     installer: Option<Installer>,
+    /// Where the whisper.cpp model is (see `detect::model_path`); `None` leaves the model alone.
+    model: Option<PathBuf>,
 }
 
 fn skip(mut result: Outcome, message: &str) -> Outcome {
@@ -88,6 +92,20 @@ fn skip(mut result: Outcome, message: &str) -> Outcome {
 fn mark_skipped(result: &mut Outcome, message: &str) {
     result.status = Status::Skipped;
     result.message = message.to_string();
+}
+
+/// Whether a command is one the tool needs for every action (not an optional one like `whisper-cli`).
+fn is_required(tool: &str) -> bool {
+    REQUIRED_TOOLS.iter().any(|(t, _)| *t == tool)
+}
+
+/// The commands not found: the required ones only, if `required_only`.
+fn missing_in(found: &[(String, Option<PathBuf>)], required_only: bool) -> Vec<String> {
+    found
+        .iter()
+        .filter(|(tool, path)| path.is_none() && (!required_only || is_required(tool)))
+        .map(|(tool, _)| tool.clone())
+        .collect()
 }
 
 /// An absolute, tidied path (without following links), like Python's `os.path.abspath`.
@@ -388,7 +406,13 @@ fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
 
 impl Fml {
     pub fn new(config: Config, sink: Sink) -> Fml {
-        Fml { config, shared: Arc::new(Shared::default()), sink, installer: detect_installer() }
+        Fml {
+            config,
+            shared: Arc::new(Shared::default()),
+            sink,
+            installer: detect_installer(),
+            model: detect::model_path(),
+        }
     }
 
     /// Match the subtitle files in `--sub-dir` to the media files that are going to be processed
@@ -440,6 +464,7 @@ impl Fml {
             shared: Arc::clone(&self.shared),
             sink: Arc::clone(&self.sink),
             installer: self.installer,
+            model: self.model.clone(),
         }
     }
 
@@ -452,6 +477,7 @@ impl Fml {
             shared: Arc::clone(&self.shared),
             sink: Arc::clone(&self.sink),
             installer: self.installer,
+            model: self.model.clone(),
         }
     }
 
@@ -528,6 +554,13 @@ impl Fml {
             self.warn(&format!("don't know how to install \"{package}\" on this OS{hint}"));
             return;
         };
+        if !installer.supports(package) {
+            self.warn(&format!(
+                "there is no \"{package}\" package for {}: install it by hand (see https://github.com/ggml-org/whisper.cpp)",
+                installer.name()
+            ));
+            return;
+        }
         let cmd = installer.command(package);
         self.note(&format!("Executing:\t{}", shell_join(&cmd)));
         if !self.config.dryrun {
@@ -540,7 +573,7 @@ impl Fml {
     fn install_missing(&self, missing: &[String]) {
         let mut done: Vec<&str> = Vec::new();
         for tool in missing {
-            if let Some(&(_, package)) = REQUIRED_TOOLS.iter().find(|(t, _)| t == tool) {
+            if let Some(&(_, package)) = REQUIRED_TOOLS.iter().chain(OPTIONAL_TOOLS.iter()).find(|(t, _)| t == tool) {
                 if !done.contains(&package) {
                     done.push(package);
                     self.install_package(package);
@@ -553,42 +586,158 @@ impl Fml {
         }
     }
 
-    /// Report which of the required commands are installed.
-    pub fn check_tools(&self) -> Outcome {
+    /// Where a tool is. `whisper-cli` is also looked for as `whisper-cpp`, and `FML_WHISPER` names
+    /// it when it is set (and then only that file is used, as `--detect` does).
+    fn find_tool(&self, tool: &str) -> Option<PathBuf> {
+        if tool != "whisper-cli" {
+            return self.find(tool);
+        }
+        match std::env::var("FML_WHISPER") {
+            Ok(path) if !path.trim().is_empty() => Some(PathBuf::from(path)).filter(|p| p.is_file()),
+            _ => self.find("whisper-cli").or_else(|| self.find("whisper-cpp")),
+        }
+    }
+
+    /// Report which of the commands are installed: the required ones, and the optional ones
+    /// (`whisper-cli`, which `--detect` runs). A missing optional one is reported but is not an
+    /// error. The model `--detect` reads (`FML_WHISPER_MODEL`) is reported too, and is not
+    /// installed: it is a large download.
+    pub fn check_tools(&self) -> Res<Outcome> {
         let find = || -> Vec<(String, Option<PathBuf>)> {
-            REQUIRED_TOOLS.iter().map(|(t, _)| (t.to_string(), self.find(t))).collect()
+            REQUIRED_TOOLS
+                .iter()
+                .chain(OPTIONAL_TOOLS.iter())
+                .map(|(t, _)| (t.to_string(), self.find_tool(t)))
+                .collect()
         };
         let mut found = find();
-        let missing_of = |found: &[(String, Option<PathBuf>)]| -> Vec<String> {
-            found.iter().filter(|(_, p)| p.is_none()).map(|(t, _)| t.clone()).collect()
-        };
-        let mut missing = missing_of(&found);
-        if !missing.is_empty() && self.config.install {
-            self.install_missing(&missing);
+        if !missing_in(&found, false).is_empty() && self.config.install {
+            self.install_missing(&missing_in(&found, false));
             if !self.config.dryrun {
                 found = find();
-                missing = missing_of(&found);
             }
         }
         let mut result = Outcome::new("", "check", self.config.dryrun);
-        result.data = Value::Array(
-            found
-                .iter()
-                .map(|(tool, path)| {
-                    let package = REQUIRED_TOOLS.iter().find(|(t, _)| t == tool).map(|(_, p)| *p);
-                    json!({"tool": tool, "path": path.as_ref().map(|p| p.to_string_lossy()),
-                           "package": package})
-                })
-                .collect(),
-        );
-        if !missing.is_empty() && !(self.config.install && self.config.dryrun) {
-            let mut message = format!("missing: {}", missing.join(", "));
+        if self.config.install {
+            self.install_model(&mut result)?;
+        }
+        let required_missing = missing_in(&found, true);
+        let mut entries: Vec<Value> = found
+            .iter()
+            .map(|(tool, path)| {
+                let package = REQUIRED_TOOLS
+                    .iter()
+                    .chain(OPTIONAL_TOOLS.iter())
+                    .find(|(t, _)| t == tool)
+                    .map(|(_, p)| *p);
+                json!({"tool": tool, "path": path.as_ref().map(|p| p.to_string_lossy()),
+                       "package": package, "optional": !is_required(tool)})
+            })
+            .collect();
+        let model = self.model.clone().filter(|p| p.is_file());
+        entries.push(json!({"tool": "FML_WHISPER_MODEL",
+                            "path": model.as_ref().map(|p| p.to_string_lossy()),
+                            "package": null, "optional": true}));
+        result.data = Value::Array(entries);
+        if !required_missing.is_empty() && !(self.config.install && self.config.dryrun) {
+            let mut message = format!("missing: {}", required_missing.join(", "));
             if !self.config.install {
                 message.push_str(" (use --install to install them)");
             }
             result.error(message);
         }
-        result
+        Ok(result)
+    }
+
+    /// `--install` also gets the model `--detect` reads, when there is none (see `detect::model_path`).
+    /// It is downloaded only when the disk has room for it, with a tenth to spare: otherwise the
+    /// user is told and nothing is downloaded. A dry run only says what it would do. The download
+    /// is checked against the published SHA-256 before it takes the place of anything.
+    fn install_model(&self, result: &mut Outcome) -> Res<()> {
+        let Some(path) = self.model.clone() else {
+            self.warn("no place to keep the whisper.cpp model: set FML_WHISPER_MODEL to a file");
+            return Ok(());
+        };
+        if path.is_file() {
+            return Ok(());
+        }
+        let megabytes = |bytes: u64| bytes / 1_000_000;
+        // the model goes on the disk of the nearest folder that exists
+        let mut folder = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        while !folder.exists() {
+            match folder.parent().filter(|p| !p.as_os_str().is_empty()) {
+                Some(parent) => folder = parent.to_path_buf(),
+                None => break,
+            }
+        }
+        let free = match crate::util::disk_free(&folder) {
+            Ok((free, _)) => free,
+            Err(error) => {
+                self.warn(&format!(
+                    "could not check the free space at {}, so the whisper.cpp model is not downloaded: {error}",
+                    folder.display()
+                ));
+                return Ok(());
+            }
+        };
+        if !detect::room_for(free, detect::MODEL_BYTES) {
+            self.warn(&format!(
+                "the whisper.cpp model needs {} MB free at {}, and {} MB are free: not downloaded \
+                 (free some space, or set FML_WHISPER_MODEL to a file on a disk with room)",
+                megabytes(detect::MODEL_BYTES),
+                folder.display(),
+                megabytes(free)
+            ));
+            return Ok(());
+        }
+        let url = std::env::var("FML_WHISPER_MODEL_URL")
+            .ok()
+            .filter(|url| !url.trim().is_empty())
+            .unwrap_or_else(|| detect::MODEL_URL.to_string());
+        if self.config.dryrun {
+            self.note(&format!(
+                "would download the whisper.cpp model ({} MB) from {url} to {}",
+                megabytes(detect::MODEL_BYTES),
+                path.display()
+            ));
+            return Ok(());
+        }
+        let temp = PathBuf::from(format!("{}{TEMP_MARK}", path.display()));
+        let temp_text = temp.to_string_lossy().into_owned();
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        self.pend(&temp_text);
+        self.note(&format!(
+            "Downloading the whisper.cpp model ({} MB) to {}",
+            megabytes(detect::MODEL_BYTES),
+            path.display()
+        ));
+        let cmd = args(&["curl", "--fail", "--location", "--silent", "--show-error", "--output", &temp_text, &url]);
+        if !self.apply(result, cmd, &[0])? {
+            let _ = fs::remove_file(&temp);
+            return Ok(());
+        }
+        match detect::file_sha256(&temp) {
+            Ok(hash) if hash == detect::MODEL_SHA256 => {
+                if let Err(error) = fs::rename(&temp, &path) {
+                    result.error(format!("could not put the model in place at {}: {error}", path.display()));
+                    let _ = fs::remove_file(&temp);
+                }
+            }
+            _ => {
+                let _ = fs::remove_file(&temp);
+                result.error(
+                    "the downloaded whisper.cpp model is not the published file (its SHA-256 differs), so it was thrown away"
+                        .to_string(),
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Make sure commands are installed, installing them if install was asked for.
@@ -1439,9 +1588,142 @@ impl Fml {
         Ok(result)
     }
 
+    /// Guess the language of the audio tracks (or of `--track`) from their speech, with
+    /// whisper.cpp (see `detect`). The file is not changed: the clips are cut into a temporary
+    /// folder, which is removed afterwards. The result's data lists what each track sounds like.
+    fn do_detect(&self, media: &mut Media) -> Res<Outcome> {
+        let mut result = self.result(media, "detect");
+        if self.kind() != Kind::Audio {
+            return Ok(skip(result, "--detect works on audio tracks"));
+        }
+        let tracks = if self.config.track.is_empty() {
+            self.selected(media)?
+        } else {
+            let Some(track) = self.resolve_track(media, &mut result)? else { return Ok(result) };
+            vec![track]
+        };
+        if tracks.is_empty() {
+            return Ok(skip(result, "has no audio tracks to detect"));
+        }
+        let Some(model) = self.model.clone().filter(|p| p.is_file()) else {
+            let place = self.model.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "(no folder)".into());
+            result.error(format!(
+                "--detect needs a whisper.cpp model, and there is none at {place}: run fml --check --install to download it, or set FML_WHISPER_MODEL to a model file"
+            ));
+            return Ok(result);
+        };
+        let model = model.to_string_lossy().into_owned();
+        let Some(program) = detect::whisper_program() else {
+            result.error("--detect needs whisper.cpp: install it so that whisper-cli is on PATH, or set FML_WHISPER to it".into());
+            return Ok(result);
+        };
+        let duration = self.duration(&media.path)?;
+        let starts = detect::clip_starts(duration);
+        let dir = match detect::ClipDir::new() {
+            Ok(dir) => dir,
+            Err(error) => {
+                result.error(format!("could not make a folder for the clips: {error}"));
+                return Ok(result);
+            }
+        };
+        let clip_seconds = format!("{}", detect::CLIP_SECONDS);
+        let mut found: Vec<Value> = Vec::new();
+        for track in &tracks {
+            let mut clips: Vec<(String, f64)> = Vec::new();
+            for (number, start) in starts.iter().enumerate() {
+                let clip = dir.0.join(format!("track{}-{number}.wav", track.number)).to_string_lossy().into_owned();
+                let start_text = format!("{start:.3}");
+                let map = format!("0:a:{}", track.number - 1);
+                let cut = args(&[
+                    "ffmpeg", "-v", "error", "-ss", &start_text, "-t", &clip_seconds, "-i", &media.path,
+                    "-map", &map, "-vn", "-sn", "-ac", "1", "-ar", "16000", &clip,
+                ]);
+                match self.query(&cut)? {
+                    Some(done) if done.code == 0 => {}
+                    _ => {
+                        result.error(format!("could not read the sound of track {} of {}", track.number, media.path));
+                        return Ok(result);
+                    }
+                }
+                let heard = args(&[&program, "-m", &model, "-f", &clip, "-dl"]);
+                let Some(done) = self.query(&heard)? else {
+                    result.error(format!("{program} could not be run"));
+                    return Ok(result);
+                };
+                let text = format!("{}\n{}", done.stdout, done.stderr);
+                match detect::parse_detected(&text) {
+                    Some(report) => clips.push(report),
+                    None => {
+                        let last = text.trim().lines().last().unwrap_or("").to_string();
+                        result.error(format!("{program} gave no language for track {}: {last}", track.number));
+                        return Ok(result);
+                    }
+                }
+            }
+            let Some(pick) = detect::pick_language(&clips) else { continue };
+            let language = resolve_language(&pick.language).unwrap_or_else(|_| pick.language.clone());
+            found.push(json!({
+                "track": track.number, "id": track.id, "current": track.language,
+                "language": language, "confidence": pick.confidence,
+                "clips": pick.clips, "agreed": pick.agreed,
+            }));
+        }
+        result.data = json!({ "detected": found });
+        Ok(result)
+    }
+
+    /// Set the language of the audio tracks (or of `--track`) to the language they sound like, as
+    /// `--detect` finds it. A track already labelled with that language is left alone; an AVI file
+    /// has no language to set. The change is made like any other (a copy, checked, then replacing
+    /// the file), and a dry run shows it.
+    fn do_update(&self, media: &mut Media) -> Res<Outcome> {
+        let mut heard = self.do_detect(media)?;
+        heard.action = "update".to_string();
+        if heard.status == Status::Error || heard.status == Status::Skipped {
+            return Ok(heard);
+        }
+        let mut result = self.result(media, "update");
+        result.data = heard.data.clone();
+        if media.container == Container::Avi {
+            return Ok(skip(result, "AVI files have no language to set"));
+        }
+        let tracks = self.selected(media)?;
+        let mut edits: Vec<Edit> = Vec::new();
+        for item in heard.data["detected"].as_array().into_iter().flatten() {
+            let number = item["track"].as_u64().unwrap_or(0) as usize;
+            let language = item["language"].as_str().unwrap_or("").to_string();
+            let Some(track) = tracks.iter().find(|t| t.number == number) else { continue };
+            if language.is_empty() || crate::languages::normalise_language(Some(&track.language)) == language {
+                continue;
+            }
+            let mut edit = Edit::new(track);
+            edit.language = Some(language);
+            edits.push(edit);
+        }
+        let mut done = self.edit_tracks(media, result, edits, "every track already has the language it sounds like")?;
+        // the edit's data is the track layout: keep what was heard next to it
+        let mut data = match std::mem::take(&mut done.data) {
+            Value::Object(map) => map,
+            _ => serde_json::Map::new(),
+        };
+        data.insert("detected".to_string(), heard.data["detected"].clone());
+        done.data = Value::Object(data);
+        Ok(done)
+    }
+
+    /// The length of the file in seconds, from `ffprobe` (`None` if it can't be read).
+    fn duration(&self, path: &str) -> Res<Option<f64>> {
+        let probe = args(&["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path]);
+        Ok(self
+            .query(&probe)?
+            .filter(|done| done.code == 0)
+            .and_then(|done| done.stdout.trim().parse::<f64>().ok()))
+    }
+
     fn do_set(&self, media: &mut Media, what: &str) -> Res<Outcome> {
         let mut result = self.result(media, "set");
-        if media.container == Container::Avi {
+        // AVI has no flags or names to set, but its two audio tracks can be swapped (see swap_avi_audio)
+        if media.container == Container::Avi && !(what == "order" && self.kind() == Kind::Audio) {
             return Ok(skip(result, "set is only supported for MKV and MP4 files"));
         }
         let tracks = self.selected(media)?;
@@ -1466,6 +1748,13 @@ impl Fml {
                     self.word()
                 );
                 return Ok(skip(result, &message));
+            }
+            if media.container == Container::Avi {
+                if tracks.len() != 2 || wanted != [2, 1] {
+                    let message = "AVI files can only swap their two audio tracks (--order 2,1)";
+                    return Ok(skip(result, message));
+                }
+                return self.swap_avi_audio(media, result);
             }
             let mut edits: Vec<Edit> = Vec::new();
             for (place, number) in wanted.iter().enumerate() {
@@ -1599,7 +1888,7 @@ impl Fml {
     }
 
     fn do_swap(&self, media: &mut Media) -> Res<Outcome> {
-        let mut result = self.result(media, "swap");
+        let result = self.result(media, "swap");
         let audio = self.selected(media)?;
         if audio.len() < 2 {
             return Ok(skip(result, "needs at least two audio tracks to swap"));
@@ -1610,6 +1899,13 @@ impl Fml {
             let edits = default_edits(&audio, Some(&audio[1]), "", false);
             return self.edit_tracks(media, result, edits, &unchanged);
         }
+        self.swap_avi_audio(media, result)
+    }
+
+    /// Swaps the first two audio tracks of an AVI file, which has no flags to set: the streams are
+    /// reordered in a copy with `ffmpeg`, read back, and then replace the file. Used by `--swap`,
+    /// and by `--set order --order 2,1` (the reorder of two tracks in the app's Edit dialog).
+    fn swap_avi_audio(&self, media: &mut Media, mut result: Outcome) -> Res<Outcome> {
         if !self.check_space(&mut result, &media.path, "rewrite the file") {
             return Ok(result);
         }
@@ -1975,7 +2271,7 @@ impl Fml {
             self.note(&format!("Skipping {path}: not a supported media file"));
             return Ok(None);
         };
-        let tools = if matches!(task.name.as_str(), "info" | "get" | "extract") {
+        let tools = if matches!(task.name.as_str(), "info" | "get" | "extract" | "detect") {
             container.read_tools()
         } else {
             container.write_tools()
@@ -1995,6 +2291,8 @@ impl Fml {
         match task.name.as_str() {
             "info" => self.do_info(media),
             "get" => self.do_get(media),
+            "detect" => self.do_detect(media),
+            "update" => self.do_update(media),
             "set" => self.do_set(media, &task.what),
             "add" => self.do_add(media, &task.what),
             "extract" => self.do_extract(media, &task.what),
@@ -2273,7 +2571,7 @@ impl Fml {
     fn run_tasks(&self, results: &mut Vec<Outcome>) -> Res<()> {
         for task in &self.config.tasks {
             if task.name == "check" {
-                let outcome = self.check_tools();
+                let outcome = self.check_tools()?;
                 self.report(results, outcome);
                 continue;
             }

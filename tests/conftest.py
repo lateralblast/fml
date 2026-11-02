@@ -49,6 +49,16 @@ class Ran(NamedTuple):
 
 
 @pytest.fixture(autouse=True)
+def isolate_model(tmp_path_factory: pytest.TempPathFactory,
+                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test touches the user's data folder or downloads the whisper.cpp model: the data
+    folder is a temporary one, and the model address is a closed local port (a download there
+    fails at once)."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("data")))
+    monkeypatch.setenv("FML_WHISPER_MODEL_URL", "http://127.0.0.1:9/no-model")
+
+
+@pytest.fixture(autouse=True)
 def isolate(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Make runs repeatable: a known OS, and put back the SIGTERM handler fml installs."""
     monkeypatch.setattr(fml, "detect_distro", lambda: "Ubuntu")

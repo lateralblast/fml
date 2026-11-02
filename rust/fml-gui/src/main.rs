@@ -13,7 +13,7 @@ use fml_core::languages::resolve_language;
 use fml_core::util::which;
 use fml_core::{
     request_cancel, reset_cancel, validate, Config, Event, Fml, Kind, Outcome, Sink, SubSpec, Task,
-    REQUIRED_TOOLS, VERSION,
+    whisper_path, OPTIONAL_TOOLS, REQUIRED_TOOLS, VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -222,13 +222,18 @@ async fn app_info() -> Result<Value, String> {
 }
 
 fn app_info_now() -> Value {
-    let tools: Vec<Value> = REQUIRED_TOOLS
+    // the optional whisper-cli (for Detect languages…) is listed too, found as --check finds it
+    let mut tools: Vec<Value> = REQUIRED_TOOLS
         .iter()
         .map(|(tool, package)| {
-            json!({"tool": tool, "package": package,
+            json!({"tool": tool, "package": package, "optional": false,
                    "path": which(tool).map(|p| p.to_string_lossy().into_owned())})
         })
         .collect();
+    for (tool, package) in OPTIONAL_TOOLS {
+        let path = whisper_path().map(|p| p.to_string_lossy().into_owned());
+        tools.push(json!({"tool": tool, "package": package, "optional": true, "path": path}));
+    }
     json!({"version": VERSION, "tools": tools, "home": std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()})
 }
 
