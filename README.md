@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.3.1
+Version 1.3.2
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -172,6 +172,17 @@ else), and leaves them in `dist/`. `docker/windows/smoke.sh` then runs the built
 stand-in tools as a smoke test. On Windows itself the installer's tools (Rust, tauri-cli) are needed and
 `./build.sh --target windows` builds there. The Windows build has not been run on a real Windows machine yet; the
 `mkvtoolnix`, `mediainfo` and `ffmpeg` commands must be on `PATH` there too.
+
+### Building on GitHub instead
+
+`./build.sh --target <t> --ci` (`<t>` is `linux`, `deb`, `rpm`, `mac` or `windows`, with the same `--package` and
+`--arch`) builds on GitHub's runners instead of here, through the **Build** workflow (`.github/workflows/build.yml`), and
+puts the files in `dist/`. Without `--ci` the build is local; with neither `--local` nor `--ci` a terminal is asked which
+to use. The branch must be committed and pushed, with nothing uncommitted, since the runners build what is on GitHub;
+the workflow must also be on the default branch, because GitHub only starts a manual workflow from there. The command
+needs `gh`, logged in, starts the run, follows it, and downloads its artifacts. `--dry-run` runs the checks and prints
+the commands without starting anything. The Windows job builds on Windows itself and has not been run yet, and a
+`windows tests` job runs `cargo test` there for information (it does not fail the run).
 
 ## The desktop app
 

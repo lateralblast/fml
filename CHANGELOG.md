@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-11-05
+
+### Added
+- `./build.sh --target <t> --ci` builds the installers on GitHub's runners instead of this machine, through the new **Build** workflow (`.github/workflows/build.yml`, started by hand: linux, mac or windows, with `--package` and `--arch` as the local build takes them). It checks that the working tree is clean and the branch pushed, follows the run, and downloads its files into `dist/`. `--local` builds here, as before; with neither flag a terminal is asked which to use. `--dry-run` runs the checks and prints the commands without starting anything.
+- The **Build** workflow also has a `windows tests` job that runs `cargo test` on Windows. It is informational: it does not fail the run.
+
 ## [1.3.1] - 2026-11-05
 
 ### Added

@@ -6,8 +6,8 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 - [ ] Try the OpenSubtitles search against the real service with a real key and account (the code was checked against a stand-in server and the published API as a client library uses it); and other sites (SubDL, Podnapisi), if wanted. Until this is done the search is off by default, behind `--enable search` (1.3.0).
 - [ ] Ideas from similar tools, not built: other Matroska flags (hearing impaired, original language, commentary), the original language of a show from Sonarr or Radarr, adding external audio files.
-- [ ] Look at the first CI run on GitHub and fix whatever the runners show that a Mac and an Ubuntu container did not.
-- [ ] Run `cargo test` and the pytest suite on a Windows runner in CI too, once they are known to pass there (the `windows` job only compiles the code).
+- [ ] Look at the first CI run on GitHub and fix whatever the runners show that a Mac and an Ubuntu container did not. `./build.sh --ci` (1.3.2) can start the **Build** workflow on GitHub; it still needs its first run.
+- [ ] Run `cargo test` and the pytest suite on a Windows runner in CI too, once they are known to pass there (the `windows` job only compiles the code). The **Build** workflow has a `windows tests` job that runs `cargo test` there (informational, 1.3.2); pytest is not run there yet.
 - [ ] Run `--install` for real on Fedora, Arch and Windows (winget and Chocolatey): the package names were checked against the repositories and the commands are tested, but none of these installs has been run.
 - [ ] Saved presets for bulk changes in the app, and a watch-folder mode that applies a preset to new files (careful with files still being written).
 - [ ] Edit video track names and chapters (probably out of scope unless fml becomes a general MKV editor).

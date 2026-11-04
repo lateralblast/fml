@@ -14,6 +14,12 @@
 # A target can only be built on its own platform (the app links the system web view).
 # Needs the Rust toolchain and tauri-cli (cargo install tauri-cli --version '^2'). The interface in rust/fml-gui/ui is plain
 # HTML, CSS and JavaScript, so there is no Node step. On Linux the app also needs libwebkit2gtk-4.1-dev and libgtk-3-dev.
+#   ./build.sh --target <t> --ci [--package <p>] [--arch <a>] [--dry-run]
+# --ci builds the same installers on GitHub's runners instead (.github/workflows/build.yml): the branch you are on
+# is built as it is on GitHub, so it must be committed and pushed, with nothing left uncommitted. The run is started,
+# followed until it ends, and its files are downloaded into dist/. It needs `gh`, logged in. --local builds here, as
+# above. With --target and neither flag, a terminal is asked which to use (local is the default; without a terminal
+# it is local). --dry-run checks the above and prints the commands, but starts nothing.
 #   ./build.sh [--target <t>] --release [<version>] [--commit <ref>] [--draft] [--yes] [--dry-run]
 #   ./build.sh --delete-release [<version>] [--keep-tag] [--yes] [--dry-run]
 # --release tags the commit v<version> (version from rust/Cargo.toml), pushes the tag and creates the GitHub release with the
@@ -33,19 +39,21 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--package deb|rpm|appimage|all] [--no-cli]"
+  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--package deb|rpm|appimage|all] [--no-cli] [--local|--ci] [--dry-run]"
   echo "       $0 [--target <t>] --release [<version>] [--commit <ref>] [--draft] [--yes] [--dry-run]"
   echo "       $0 --delete-release [<version>] [--keep-tag] [--yes] [--dry-run]"
   exit "${1:-1}"
 }
 
-target="" arch="" package="" cli=1 delete=0 del_version="" rel_version="" rel_commit="" keep_tag=0 release=0 draft=0 yes=0 dry=0
+target="" arch="" package="" cli=1 delete=0 del_version="" rel_version="" rel_commit="" keep_tag=0 release=0 draft=0 yes=0 dry=0 where=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) target="${2:-}"; shift 2 ;;
     --arch) arch="${2:-}"; shift 2 ;;
     --package|--format) package="${2:-}"; shift 2 ;;
     --no-cli) cli=0; shift ;;
+    --local) where=local; shift ;;
+    --ci) where=ci; shift ;;
     --release)
       release=1; shift
       case "${1:-}" in -*|"") ;; *) rel_version="${1#v}"; shift ;;
@@ -64,6 +72,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$target" ] || [ "$release" = 1 ] || [ "$delete" = 1 ] || usage
+[ -z "$where" ] || [ -n "$target" ] || { echo "--local and --ci build a --target: give one" >&2; exit 1; }
+if [ "$where" = ci ] && { [ "$release" = 1 ] || [ "$delete" = 1 ]; }; then
+  echo "--ci only builds a --target: it cannot be combined with --release or --delete-release" >&2; exit 1
+fi
 [ -z "$rel_version" ] || [ -z "$target" ] || { echo "--release <version> cannot be combined with --target: build that version first" >&2; exit 1; }
 [ "$delete" = 0 ] || { [ "$release" = 0 ] && [ -z "$target" ]; } || { echo "--delete-release cannot be combined with --release or --target" >&2; exit 1; }
 
@@ -268,6 +280,58 @@ build_target() {
   echo "done: $dist"
 }
 
+# Build on GitHub's runners (.github/workflows/build.yml) and bring the files back into dist/. The runners build the
+# commit the branch points at on GitHub, so the working tree must be clean and that commit pushed; nothing is committed
+# or pushed here. The run is started, its URL printed, followed until it ends, and its artifacts downloaded.
+ci_build() {
+  die() { echo "ci: $*" >&2; exit 1; }
+  # a real start is refused here, but a dry run runs the same checks and only reports them
+  run() { if [ "$dry" = 1 ]; then echo "  [dry-run] $*"; else "$@"; fi; }
+  command -v gh >/dev/null || die "gh (the GitHub CLI) not found: install it from https://cli.github.com, then gh auth login"
+  gh auth status >/dev/null 2>&1 || die "gh is not logged in to GitHub: run gh auth login"
+  cd "$root"
+  # GitHub only starts a manual workflow it has on the default branch: push .github/workflows/build.yml there first
+  gh workflow view build.yml >/dev/null 2>&1 || die "GitHub has no build.yml workflow yet: merge .github/workflows/build.yml to the default branch and push it"
+  branch=$(git symbolic-ref --quiet --short HEAD) || die "HEAD is not on a branch: check out the branch to build"
+  [ -z "$(git status --porcelain)" ] || die "there are uncommitted changes: commit them and push, since the runners build what is on GitHub"
+  upstream=$(git rev-parse --quiet --verify "@{u}") || die "branch $branch has no upstream: push it first (git push -u origin $branch)"
+  [ "$(git rev-parse HEAD)" = "$upstream" ] || die "branch $branch is not the same as its upstream: push it first"
+  case "$target" in
+    deb|rpm) ci_target=linux; package="$target" ;;
+    linux) ci_target=linux ;;
+    mac|macos) ci_target=mac ;;
+    windows|win) ci_target=windows ;;
+    *) die "unknown target: $target (mac, linux, deb, rpm, windows)" ;;
+  esac
+  [ -z "$package" ] || [ "$ci_target" = linux ] || die "--package only applies to --target linux"
+  [ -z "$arch" ] || [ "$ci_target" = mac ] || die "--arch only applies to --target mac"
+  # the runs of this workflow on this branch: the one we start is the first newer than the last one seen
+  last=$(gh run list --workflow build.yml --branch "$branch" --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+  echo "== building $ci_target on GitHub from $branch ($(git rev-parse --short HEAD)) =="
+  run gh workflow run build.yml --ref "$branch" -f "target=$ci_target" -f "package=${package:-}" -f "arch=${arch:-}"
+  if [ "$dry" = 1 ]; then echo "dry run: nothing was started"; return; fi
+  id=0
+  for _ in $(seq 1 30); do
+    id=$(gh run list --workflow build.yml --branch "$branch" --limit 1 --json databaseId --jq '.[0].databaseId // 0')
+    [ "$id" -gt "$last" ] && break
+    sleep 2
+  done
+  [ "$id" -gt "$last" ] || die "the run did not appear: see gh run list --workflow build.yml"
+  echo "  run $id: $(gh run view "$id" --json url --jq .url)"
+  if ! gh run watch "$id" --exit-status; then
+    die "the run failed: gh run view $id --log-failed shows why"
+  fi
+  tmp=$(mktemp -d)
+  gh run download "$id" -D "$tmp"
+  mkdir -p "$dist"
+  echo "done: the files of run $id, in $dist:"
+  find "$tmp" -type f | sort | while IFS= read -r f; do
+    cp "$f" "$dist/"
+    echo "  $dist/$(basename "$f")"
+  done
+  rm -rf "$tmp"
+}
+
 release_it() {
   die() { echo "release: $*" >&2; exit 1; }
   # run a command, or only show it with --dry-run
@@ -388,5 +452,19 @@ delete_release() {
 }
 
 if [ "$delete" = 1 ]; then delete_release; exit 0; fi
+if [ -n "$target" ] && [ -z "$where" ]; then
+  if [ -t 0 ]; then
+    printf 'Build locally or on GitHub CI? [local/ci] (local): '
+    answer=""; read -r answer || true
+    case "$answer" in
+      ci|CI|c|C) where=ci ;;
+      ""|local|LOCAL|l|L) where=local ;;
+      *) echo "answer local or ci" >&2; exit 1 ;;
+    esac
+  else
+    where=local
+  fi
+fi
+if [ -n "$target" ] && [ "$where" = ci ]; then ci_build; exit 0; fi
 if [ -n "$target" ]; then build_target; fi
 if [ "$release" = 1 ]; then release_it; fi
