@@ -22,6 +22,20 @@ use tauri::{AppHandle, Emitter};
 /// Only one run at a time: two would fight over the same files and the stop request.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
+/// Whether the online subtitle search is on: only when the app was started with `--enable search`.
+static SEARCH_ENABLED: AtomicBool = AtomicBool::new(false);
+
+const SEARCH_OFF: &str = "the online subtitle search is off: start fml with --enable search to use it";
+
+/// Refuses the online search unless it was turned on when the app started.
+fn search_allowed() -> Result<(), String> {
+    if SEARCH_ENABLED.load(Ordering::SeqCst) {
+        Ok(())
+    } else {
+        Err(SEARCH_OFF.into())
+    }
+}
+
 #[derive(Deserialize)]
 struct TaskRequest {
     name: String,
@@ -51,6 +65,11 @@ struct Request {
     lang: String,
     default: String,
     prefer: Vec<String>,
+    /// For `preserve` with several languages: every language to keep (the tracks in all of them stay).
+    keep: Vec<String>,
+    /// For `delete match`: part of the codec name, and the number of channels (0: any).
+    codec: String,
+    channels: usize,
     track: String,
     kind: String,
     forced: bool,
@@ -94,6 +113,7 @@ impl Request {
             language(&self.default)?
         };
         let prefer = self.prefer.iter().map(|l| resolve_language(l)).collect::<Result<_, _>>()?;
+        let keep = self.keep.iter().map(|l| resolve_language(l)).collect::<Result<_, _>>()?;
         Ok(Config {
             paths: self.paths.clone(),
             dir: self.dir.clone(),
@@ -103,8 +123,14 @@ impl Request {
             lang: language(&self.lang)?,
             default,
             prefer,
+            keep,
+            codec: self.codec.clone(),
+            channels: self.channels,
             track: self.track.clone(),
-            kind: Kind::parse(&self.kind).unwrap_or(Kind::Audio),
+            kind: match self.kind.trim() {
+                "" => Kind::Audio,
+                text => Kind::parse(text).ok_or_else(|| format!("\"{text}\" is not audio or sub (subtitles)"))?,
+            },
             forced: self.forced,
             force: self.force,
             in_place: self.in_place,
@@ -234,7 +260,8 @@ fn app_info_now() -> Value {
         let path = whisper_path().map(|p| p.to_string_lossy().into_owned());
         tools.push(json!({"tool": tool, "package": package, "optional": true, "path": path}));
     }
-    json!({"version": VERSION, "tools": tools, "home": std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()})
+    json!({"version": VERSION, "tools": tools, "search_enabled": SEARCH_ENABLED.load(Ordering::SeqCst),
+           "home": std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()})
 }
 
 /// The languages the page offers, by name.
@@ -375,6 +402,7 @@ fn subtitle_guess(path: String) -> Value {
 /// so it runs off the window's thread.
 #[tauri::command]
 async fn search_subtitles(path: String, query: String, languages: Vec<String>) -> Result<Value, String> {
+    search_allowed()?;
     tauri::async_runtime::spawn_blocking(move || {
         let credentials = fml_core::online::load_credentials();
         let languages = languages.iter().map(|l| resolve_language(l)).collect::<Result<Vec<_>, _>>()?;
@@ -388,6 +416,7 @@ async fn search_subtitles(path: String, query: String, languages: Vec<String>) -
 /// Download a subtitle found by `search_subtitles` to the temporary folder; its path comes back.
 #[tauri::command]
 async fn fetch_subtitle(file_id: i64) -> Result<String, String> {
+    search_allowed()?;
     tauri::async_runtime::spawn_blocking(move || {
         let credentials = fml_core::online::load_credentials();
         fml_core::online::download(&credentials, file_id).map(|p| p.to_string_lossy().into_owned())
@@ -501,6 +530,11 @@ fn dev_report(_text: String) {}
 fn main() {
     // an app started from Finder has a bare PATH on macOS: find Homebrew's commands anyway
     fml_core::util::add_tool_folders();
+    // the online subtitle search is off unless started with `--enable search` (`fml-cli --gui` passes it on)
+    let args: Vec<String> = std::env::args().collect();
+    let enabled = args.windows(2).any(|pair| pair[0] == "--enable" && pair[1] == "search")
+        || args.iter().any(|arg| arg == "--enable=search");
+    SEARCH_ENABLED.store(enabled, Ordering::SeqCst);
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -657,6 +691,38 @@ mod tests {
     fn no_default_subtitles_is_kept_as_none() {
         let config = request(json!({"default": " None "})).config().unwrap();
         assert_eq!(config.default, "none");
+    }
+
+    #[test]
+    fn the_keep_languages_are_resolved_and_the_match_fields_passed_on() {
+        let config = request(json!({
+            "paths": ["a.mkv"], "keep": ["English", "it"], "codec": "ac-3", "channels": 6,
+            "tasks": [{"name": "delete", "what": "match"}],
+        }))
+        .config()
+        .unwrap();
+        assert_eq!(config.keep, ["eng", "ita"]);
+        assert_eq!(config.codec, "ac-3");
+        assert_eq!(config.channels, 6);
+        assert!(request(json!({"keep": ["Klingonese"]})).config().is_err());
+    }
+
+    #[test]
+    fn an_unknown_kind_is_an_error_and_a_missing_one_is_audio() {
+        assert_eq!(request(json!({})).config().unwrap().kind, Kind::Audio);
+        assert_eq!(request(json!({"kind": " Sub "})).config().unwrap().kind, Kind::Subtitles);
+        let error = request(json!({"kind": "video"})).config().unwrap_err();
+        assert!(error.contains("\"video\" is not audio or sub"), "{error}");
+    }
+
+    #[test]
+    fn the_online_search_is_refused_unless_it_was_enabled() {
+        // the test binary starts without --enable search, so the search and the download are refused
+        let search = tauri::async_runtime::block_on(search_subtitles("a.mkv".into(), String::new(), Vec::new()));
+        assert_eq!(search.unwrap_err(), SEARCH_OFF);
+        let fetch = tauri::async_runtime::block_on(fetch_subtitle(1));
+        assert_eq!(fetch.unwrap_err(), SEARCH_OFF);
+        assert_eq!(app_info_now()["search_enabled"], false);
     }
 
     #[test]

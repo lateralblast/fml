@@ -53,8 +53,11 @@ def isolate_model(tmp_path_factory: pytest.TempPathFactory,
                   monkeypatch: pytest.MonkeyPatch) -> None:
     """No test touches the user's data folder or downloads the whisper.cpp model: the data
     folder is a temporary one, and the model address is a closed local port (a download there
-    fails at once)."""
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path_factory.mktemp("data")))
+    fails at once). macOS keeps the data folder under HOME (Library/Application Support) and
+    Linux under XDG_DATA_HOME, so both are pointed at the temporary folder."""
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(home / "data"))
     monkeypatch.setenv("FML_WHISPER_MODEL_URL", "http://127.0.0.1:9/no-model")
 
 

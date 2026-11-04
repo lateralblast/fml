@@ -18,6 +18,16 @@ pytestmark = [pytest.mark.real, requires_tools,
 SUBTITLE = "1\n00:00:00,000 --> 00:00:01,000\nCiao\n"
 
 
+@pytest.fixture
+def online(run: Callable[..., Ran]) -> Callable[..., Ran]:
+    """fml with the online search turned on: it is off by default (see the off test below)."""
+
+    def turned_on(*args: object) -> Ran:
+        return run("--enable", "search", *args)
+
+    return turned_on
+
+
 def hit(file_id: int, language: str, downloads: int, **flags: bool) -> dict[str, Any]:
     return {"attributes": {"language": language, "download_count": downloads,
                            "release": f"Show.S01E01.release{file_id}",
@@ -85,11 +95,23 @@ def episode(make: Callable[..., Path]) -> Path:
     return make("Show.S01E01.1080p.mkv", [("eng", None, True)], [("eng", False, True)])
 
 
-def test_search_lists_the_subtitles_best_first(run: Callable[..., Ran], service: Service,
+@pytest.mark.parametrize("args", [
+    ["--search", "subtitle"],
+    ["--add", "subtitle", "--online", "--lang", "ita"],
+])
+def test_the_online_search_is_off_unless_enabled(run: Callable[..., Ran], service: Service,
+                                                 episode: Path, args: list[str]) -> None:
+    before = mkv_layout(episode)
+    ran = run(*args, "-i", episode)
+    assert ran.code == 2 and "--enable search" in ran.err
+    assert service.requests == [] and mkv_layout(episode) == before
+
+
+def test_search_lists_the_subtitles_best_first(online: Callable[..., Ran], service: Service,
                                                episode: Path) -> None:
     service.hits = [hit(11, "it", 50), hit(12, "en", 900, moviehash_match=True),
                     hit(13, "it", 700, hearing_impaired=True)]
-    ran = run("--search", "subtitle", "-i", episode)
+    ran = online("--search", "subtitle", "-i", episode)
     assert ran.code == 0
     rows = [line.split() for line in ran.out.splitlines()]
     assert rows[0] == [f"{episode}:"]
@@ -100,10 +122,10 @@ def test_search_lists_the_subtitles_best_first(run: Callable[..., Ran], service:
     assert service.count("POST") == 0  # a search needs no login
 
 
-def test_search_with_a_language_and_a_title(run: Callable[..., Ran], service: Service,
+def test_search_with_a_language_and_a_title(online: Callable[..., Ran], service: Service,
                                             episode: Path) -> None:
     service.hits = [hit(11, "it", 50)]
-    ran = run("--search", "subtitle", "--lang", "Italian", "--query", "Other Show",
+    ran = online("--search", "subtitle", "--lang", "Italian", "--query", "Other Show",
               "--format", "json", "-i", episode)
     assert "languages=it" in service.requests[0] and "query=other%20show" in service.requests[0]
     assert "season_number" not in service.requests[0]  # those belong to the guessed title
@@ -112,29 +134,30 @@ def test_search_with_a_language_and_a_title(run: Callable[..., Ran], service: Se
     assert data["hits"][0]["language"] == "ita"
 
 
-def test_search_that_finds_nothing_says_so(run: Callable[..., Ran], service: Service,
+def test_search_that_finds_nothing_says_so(online: Callable[..., Ran], service: Service,
                                            episode: Path) -> None:
-    ran = run("--search", "subtitle", "-i", episode)
+    ran = online("--search", "subtitle", "-i", episode)
     assert ran.code == 0 and "no subtitles found" in ran.out
 
 
-def test_search_without_a_key_is_an_error(run: Callable[..., Ran], service: Service, episode: Path,
-                                          monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_search_without_a_key_is_an_error(online: Callable[..., Ran], service: Service,
+                                          episode: Path, monkeypatch: pytest.MonkeyPatch,
+                                          tmp_path: Path) -> None:
     monkeypatch.setenv("FML_OPENSUBTITLES_KEY", "")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "nodata"))
     monkeypatch.setenv("HOME", str(tmp_path / "nohome"))
-    ran = run("--search", "subtitle", "-i", episode)
+    ran = online("--search", "subtitle", "-i", episode)
     assert ran.code == 1 and "no OpenSubtitles API key" in ran.err
     assert service.requests == []
 
 
-def test_add_online_takes_the_best_subtitle_in_the_language(run: Callable[..., Ran],
+def test_add_online_takes_the_best_subtitle_in_the_language(online: Callable[..., Ran],
                                                             service: Service, episode: Path,
                                                             tmp_path: Path) -> None:
     service.hits = [hit(21, "it", 10, machine_translated=True),
                     hit(22, "it", 30, hearing_impaired=True),
                     hit(23, "it", 20), hit(24, "en", 999)]
-    ran = run("--add", "subtitle", "--online", "--lang", "ita", "-i", episode)
+    ran = online("--add", "subtitle", "--online", "--lang", "ita", "-i", episode)
     assert ran.code == 0 and "ID 23" in ran.out
     assert mkv_layout(episode) == ["a:eng*", "s:eng*", "s:ita"]
     assert mkv_names(episode)[-1] == ""
@@ -144,19 +167,19 @@ def test_add_online_takes_the_best_subtitle_in_the_language(run: Callable[..., R
     assert not leftovers(episode)
 
 
-def test_add_online_by_id_names_a_hearing_impaired_one(run: Callable[..., Ran], service: Service,
+def test_add_online_by_id_names_a_hearing_impaired_one(online: Callable[..., Ran], service: Service,
                                                        episode: Path) -> None:
     service.hits = [hit(31, "fr", 5, hearing_impaired=True), hit(32, "fr", 50)]
-    run("--add", "subtitle", "--online", "--sub-id", "31", "-i", episode)
+    online("--add", "subtitle", "--online", "--sub-id", "31", "-i", episode)
     assert mkv_layout(episode) == ["a:eng*", "s:eng*", "s:fre"]
     assert mkv_names(episode)[-1] == "SDH"
 
 
-def test_add_online_dry_run_downloads_nothing(run: Callable[..., Ran], service: Service,
+def test_add_online_dry_run_downloads_nothing(online: Callable[..., Ran], service: Service,
                                               episode: Path) -> None:
     service.hits = [hit(41, "it", 5)]
     before = mkv_layout(episode)
-    ran = run("--add", "subtitle", "--online", "--lang", "ita", "--dryrun", "-i", episode)
+    ran = online("--add", "subtitle", "--online", "--lang", "ita", "--dryrun", "-i", episode)
     assert ran.code == 0 and "[dry-run]" in ran.out and "ID 41" in ran.out
     assert mkv_layout(episode) == before
     assert service.count("POST") == 0 and service.count("/file/") == 0
@@ -168,33 +191,33 @@ def test_add_online_dry_run_downloads_nothing(run: Callable[..., Ran], service: 
     ([hit(53, "en", 5)], [], "no suitable subtitle"),
     ([hit(54, "it", 5)], ["--sub-id", "999"], "no subtitle with ID 999"),
 ])
-def test_add_online_with_nothing_suitable_leaves_the_file(run: Callable[..., Ran], service: Service,
-                                                          episode: Path, hits: list[dict[str, Any]],
-                                                          id_args: list[str], message: str) -> None:
+def test_add_online_with_nothing_suitable_leaves_the_file(
+        online: Callable[..., Ran], service: Service, episode: Path, hits: list[dict[str, Any]],
+        id_args: list[str], message: str) -> None:
     service.hits = hits
     before = mkv_layout(episode)
-    ran = run("--add", "subtitle", "--online", "--lang", "ita", *id_args, "-i", episode)
+    ran = online("--add", "subtitle", "--online", "--lang", "ita", *id_args, "-i", episode)
     assert ran.code == 0 and message in ran.err
     assert mkv_layout(episode) == before and service.count("POST") == 0
 
 
 def test_add_online_logs_in_once_for_a_folder_and_can_be_undone(
-        run: Callable[..., Ran], service: Service, make: Callable[..., Path],
+        online: Callable[..., Ran], service: Service, make: Callable[..., Path],
         tmp_path: Path) -> None:
     folder = tmp_path / "season"
     files = [make(f"Show.S01E0{n}.mkv", [("eng", None, True)], [], where=folder) for n in (1, 2)]
     service.hits = [hit(61, "it", 5)]
     log = tmp_path / "log.jsonl"
-    ran = run("--add", "subtitle", "--online", "--lang", "ita", "--backup", "--log", log,
+    ran = online("--add", "subtitle", "--online", "--lang", "ita", "--backup", "--log", log,
               "-d", folder)
     assert ran.code == 0
     assert [mkv_layout(f) for f in files] == [["a:eng*", "s:ita"]] * 2
     assert service.count("POST /api/v1/login") == 1 and service.count("POST /api/v1/download") == 2
-    run("--undo", log)
+    online("--undo", log)
     assert [mkv_layout(f) for f in files] == [["a:eng*"]] * 2
 
 
-def test_add_online_a_download_failure_changes_nothing(run: Callable[..., Ran], service: Service,
+def test_add_online_a_download_failure_changes_nothing(online: Callable[..., Ran], service: Service,
                                                        episode: Path,
                                                        monkeypatch: pytest.MonkeyPatch) -> None:
     service.hits = [hit(71, "it", 5)]
@@ -202,7 +225,7 @@ def test_add_online_a_download_failure_changes_nothing(run: Callable[..., Ran], 
     monkeypatch.setenv("XDG_DATA_HOME", "/nonexistent")
     monkeypatch.setenv("HOME", "/nonexistent")
     before = mkv_layout(episode)
-    ran = run("--add", "subtitle", "--online", "--lang", "ita", "-i", episode)
+    ran = online("--add", "subtitle", "--online", "--lang", "ita", "-i", episode)
     assert ran.code == 1 and "needs an OpenSubtitles login" in ran.err
     assert mkv_layout(episode) == before and not leftovers(episode)
 
@@ -220,7 +243,7 @@ def test_add_online_a_download_failure_changes_nothing(run: Callable[..., Ran], 
     (["--add", "subtitle", "--online", "--lang", "ita", "--sub-id", "0"], "is not a subtitle ID"),
     (["--search", "movie"], "invalid choice"),
 ])
-def test_online_argument_rules(run: Callable[..., Ran], episode: Path, args: list[str],
+def test_online_argument_rules(online: Callable[..., Ran], episode: Path, args: list[str],
                                message: str) -> None:
-    ran = run(*args, "-i", episode)
+    ran = online(*args, "-i", episode)
     assert ran.code == 2 and message in ran.err

@@ -60,6 +60,9 @@
             <option value="delete-lang">Remove the tracks in a language</option>
             <option value="delete-track">Remove a track</option>
             <option value="preserve">Keep only one language</option>
+            <option value="keep-langs">Keep several languages</option>
+            <option value="delete-dupes">Remove duplicate tracks (every one after the first in a language)</option>
+            <option value="delete-match">Remove tracks that match a language, codec or channel count</option>
           </select>
         </label>
         <label data-for="kind">Tracks
@@ -73,6 +76,15 @@
         </label>
         <label data-for="track">Track number <span class="muted">(from 1, or “last”)</span>
           <input id="track" type="text" value="1" size="6">
+        </label>
+        <label data-for="keep">Languages to keep <span class="muted">(comma list, any order)</span>
+          <input id="keep" type="text" placeholder="eng, ita, und">
+        </label>
+        <label data-for="codec">Codec <span class="muted">(part of the name, any case)</span>
+          <input id="codec" type="text" placeholder="ac-3, aac, subrip">
+        </label>
+        <label data-for="channels">Channels <span class="muted">(audio, empty is any)</span>
+          <input id="channels" type="number" min="1" max="16" placeholder="any" size="5">
         </label>
         <label data-for="name">Name
           <input id="name" type="text" placeholder="empty removes the name">
@@ -132,6 +144,7 @@
     <dl id="info-facts" class="facts"></dl>
     <div id="info-tracks"></div>
     <p id="info-status" class="muted" role="status"></p>
+    <div class="row"><button id="info-stop" type="button" class="danger" hidden>Stop</button></div>
     <details id="info-add" hidden>
       <summary>Add a subtitle file</summary>
       <div class="row add-sub">

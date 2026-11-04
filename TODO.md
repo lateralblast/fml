@@ -4,8 +4,7 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Open
 
-- [ ] Try the OpenSubtitles search against the real service with a real key and account (the code was checked against a stand-in server and the published API as a client library uses it); and other sites (SubDL, Podnapisi), if wanted.
-- [ ] Desktop app: choose `--keep`, `--delete dupes` and `--delete match` in the bulk change menu (the engine has them; the app does not offer them yet).
+- [ ] Try the OpenSubtitles search against the real service with a real key and account (the code was checked against a stand-in server and the published API as a client library uses it); and other sites (SubDL, Podnapisi), if wanted. Until this is done the search is off by default, behind `--enable search` (1.3.0).
 - [ ] Ideas from similar tools, not built: other Matroska flags (hearing impaired, original language, commentary), the original language of a show from Sonarr or Radarr, adding external audio files.
 - [ ] Look at the first CI run on GitHub and fix whatever the runners show that a Mac and an Ubuntu container did not.
 - [ ] Run `cargo test` and the pytest suite on a Windows runner in CI too, once they are known to pass there (the `windows` job only compiles the code).
@@ -17,6 +16,7 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Done
 
+- [x] Desktop app: the bulk change menu offers `--keep` (keep several languages), `--delete dupes` and `--delete match` (1.3.1).
 - [x] `--search subtitle` and `--add subtitle --online` on the command line (1.2.0). Tested against a stand-in server only.
 - [x] Desktop app: search OpenSubtitles from the Edit dialog (1.1.9). Tried against a stand-in server only, never the real service.
 - [x] Features seen in similar tools (Tdarr plugins, batch mkvmerge scripts): keep several languages (`--keep`, 1.1.6), remove duplicate tracks per language (`--delete dupes`, 1.1.7), remove tracks by codec or channel count (`--delete match`, 1.1.8).

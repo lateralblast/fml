@@ -111,6 +111,12 @@ fn validate_task(args: &Config) -> Result<(), String> {
     if !args.query.is_empty() && !online_add && !tasks.iter().any(|t| t.name == "search") {
         return Err("--query only works with --search subtitle and --add subtitle --online".into());
     }
+    let searching = online_add || tasks.iter().any(|t| t.name == "search");
+    if searching && !args.enabled("search") {
+        return Err("the online subtitle search is off: add --enable search to use --search subtitle or \
+                    --add subtitle --online (it has not been tested fully yet)"
+            .into());
+    }
     if !args.output.is_empty() && !tasks.iter().any(|t| t.name == "extract") {
         return Err("--output only works with --extract subtitle".into());
     }
@@ -348,6 +354,24 @@ mod tests {
         assert!(validate(&c).is_ok());
         c.in_place = true;
         assert!(validate(&c).unwrap_err().contains("can't be used with --in-place"));
+    }
+
+    #[test]
+    fn the_online_search_needs_enable_search() {
+        let mut search = config(&[("search", "subtitle")]);
+        assert!(validate(&search).unwrap_err().contains("--enable search"));
+        search.enable = vec!["search".into()];
+        assert!(validate(&search).is_ok());
+        let mut online = config(&[("add", "subtitle")]);
+        online.online = true;
+        online.lang = "ita".into();
+        assert!(validate(&online).unwrap_err().contains("--enable search"));
+        online.enable = vec!["search".into()];
+        assert!(validate(&online).is_ok());
+        // a file added from disk needs no search, so it is not held back
+        let mut from_disk = config(&[("add", "subtitle")]);
+        from_disk.enable.clear();
+        assert!(validate(&from_disk).unwrap_err().contains("needs --sub-file"));
     }
 
     #[test]

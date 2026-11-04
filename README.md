@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.2.0
+Version 1.3.1
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -195,7 +195,10 @@ Click a file's row for its track list. **Add subtitles…** adds subtitle files 
 
 Pick what to do and the tracks (audio or subtitles) to do it to: make a language the default, make a track the
 default, set the language of a track, rename a track, set or clear the forced flag, make the second audio track the
-default, remove the tracks in a language, remove a track, or keep only one language. When every ticked file has exactly
+default, remove the tracks in a language, remove a track, keep only one language, keep several languages (a list, as
+`--keep`), remove duplicate tracks (every one after the first in a language, as `--delete dupes`), or remove the tracks
+that match a language, a codec part and a channel count (as `--delete match`; give at least one of them, and the
+channel count applies to audio only). When every ticked file has exactly
 two audio tracks, **Swap the two audio tracks** is also offered: it reorders them (`--set order --order 2,1`), in MKV,
 MP4 and AVI files alike. **Safety and speed** has the
 same choices as the command line: keep the original beside the file (`--backup`), edit MKV files in place, allow
@@ -236,11 +239,17 @@ that `--track id:N` uses, and under **Full technical report** everything `mediai
 - **Add a subtitle file**: choose the file, its language (guessed from the file name when it holds one, as in
   `Film.ita.srt`) and an optional name.
 - **Search online**: under **Add a subtitle file**, **Search online (OpenSubtitles)…** looks for subtitles for the
-  file (see below).
+  file (see below). It is off unless the app is started with `--enable search` (`./fml --gui --enable search`); without
+  it the button is not shown.
 
 ![The Edit dialog, with "keep only English" previewed](docs/images/app-edit.png)
 
 #### Searching OpenSubtitles
+
+The online search is **off by default**, because it has not been tested fully yet. Turn it on with `--enable search`:
+`./fml --gui --enable search` shows the button, and the command line needs `--enable search` for `--search subtitle` and
+`--add subtitle --online` (without it they are refused, and nothing is sent). Adding a subtitle file from disk is not
+affected.
 
 **Search online (OpenSubtitles)…** searches [opensubtitles.com](https://www.opensubtitles.com) for the file. The title
 is guessed from the file name (`Show.S01E03.1080p.mkv` is searched as the show, season 1, episode 3; `Film.2019.mkv`
@@ -594,14 +603,15 @@ reason. Files that match nothing are listed.
 
 `--search subtitle` lists the subtitles [OpenSubtitles](https://www.opensubtitles.com) has for a file, best first (the
 ones made for exactly that file, then the most downloaded), and changes nothing. `--add subtitle --online` finds one
-and adds it, as the app's search does:
+and adds it, as the app's search does. Both need `--enable search`, because the online search is **off by default**
+until it has been tested fully: without the switch they are refused before anything is sent.
 
 ```
-./fml --search subtitle --file Show.S01E03.1080p.mkv
-./fml --search subtitle --lang Italian --query "Show Name" --file Show.S01E03.1080p.mkv
-./fml --add subtitle --online --lang Italian --file Show.S01E03.1080p.mkv
-./fml --add subtitle --online --sub-id 7123456 --file Show.S01E03.1080p.mkv
-./fml --add subtitle --online --lang Italian --dir /media/Show.S01 --dryrun
+./fml --enable search --search subtitle --file Show.S01E03.1080p.mkv
+./fml --enable search --search subtitle --lang Italian --query "Show Name" --file Show.S01E03.1080p.mkv
+./fml --enable search --add subtitle --online --lang Italian --file Show.S01E03.1080p.mkv
+./fml --enable search --add subtitle --online --sub-id 7123456 --file Show.S01E03.1080p.mkv
+./fml --enable search --add subtitle --online --lang Italian --dir /media/Show.S01 --dryrun
 ```
 
 The title, season and episode (or year) are guessed from the file name, and the file's OpenSubtitles hash is sent so that
@@ -725,7 +735,7 @@ action's own settings are added on top of them (a setting given twice for one ac
 The settings that go with an action are `--lang`, `--default`, `--prefer`, `--track`, `--kind`, `--forced`, `--move`,
 `--name`, `--order`, `--order-lang`, `--default-first`, `--forced-flag`, `--sub-file`, `--sub-dir` and `--output`. The rest
 (`--file`, `--dir`, `--recursive`, `--include`, `--exclude`, `--dryrun`, `--backup`, `--log`, `--jobs`, `--force`,
-`--in-place`, `--format` and `--verbose`) are for the whole command, wherever they are given. Each action is checked
+`--in-place`, `--format`, `--verbose` and `--enable`) are for the whole command, wherever they are given. Each action is checked
 with its own settings, so a mistake is reported for the action it is in.
 
 ### A whole season
@@ -956,7 +966,7 @@ actions (may be combined; they run in the order given):
   -a, --add <{subtitle}>
           subtitle: add the subtitle file --sub-file to an MKV or MP4 as a new subtitle track in the language --lang (and the name --name); not default, not forced
   -S, --search <{subtitle}>
-          subtitle: list the subtitles OpenSubtitles has for the file (in --lang if given, for the title in --query or the one the file name says); needs an API key (see the README); the file is not changed
+          subtitle: list the subtitles OpenSubtitles has for the file (in --lang if given, for the title in --query or the one the file name says); needs --enable search, an API key (see the README); the file is not changed
   -x, --extract <{subtitle}>
           subtitle: write the subtitle track --track to a file (.srt, .ass, .vtt or .sup; an MP4's text subtitle as .srt), named after the media file unless --output says; the media file is not changed
   -s, --swap <{lang}>
@@ -979,7 +989,7 @@ settings:
   -f, --force                   allow removing every audio track
       --output <FILE>           for --extract subtitle: the file to write, or a folder to put the generated name (FILM.ita.srt) in; an existing file needs --force
       --sub-dir <DIR>           for --add subtitle, instead of --sub-file: add the subtitle files in DIR (and below it) to the files being processed, each matched by name (FILM.ita.srt goes with FILM.mkv, else the same season and episode); the language, Forced and SDH come from the name, --lang is used where it has none
-      --online...               for --add subtitle, instead of --sub-file: find the subtitle on OpenSubtitles (the best one in --lang, or the one --sub-id names) and add it; needs an API key and login (see the README)
+      --online...               for --add subtitle, instead of --sub-file: find the subtitle on OpenSubtitles (the best one in --lang, or the one --sub-id names) and add it; needs --enable search, an API key and login (see the README)
       --sub-id <ID>             with --add subtitle --online: the ID of a subtitle that --search subtitle listed
       --query <TEXT>            for --search subtitle and --add subtitle --online: the title to search for, instead of the one the file name says
       --sub-file <FILE>         for --add subtitle: the subtitle file (.srt, .ass, .ssa, .vtt or .sup) to add; the file is rewritten
@@ -994,9 +1004,10 @@ settings:
       --backup                  keep the original beside the changed file, as NAME.fml-bak (a hard link where possible, so it costs no space)
       --in-place                edit MKV files directly instead of a copy that replaces them if it worked: quicker and needs no free space, but an interruption can leave the file damaged
   -T, --dryrun                  show what would change without changing anything
+      --enable <FEATURE>        turn on an optional feature that is off by default: search (the online subtitle search on OpenSubtitles; not fully tested yet)
   -v, --verbose                 show the commands that are run
   -F, --format <format>         output format (default text) [default: text]
-      --gui                     open the desktop app (fml) instead; takes no other options
+      --gui                     open the desktop app (fml) instead; takes no other options than --enable search
       --install                 install missing commands (apt, dnf, pacman, brew, winget or choco, by system)
 
 

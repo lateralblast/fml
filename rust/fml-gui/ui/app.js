@@ -32,6 +32,10 @@ const ACTIONS = {
   'delete-lang': { show: ['kind', 'lang'] },
   'delete-track': { show: ['kind', 'track'] },
   'preserve': { show: ['kind', 'lang', 'prefer'] },
+  'keep-langs': { show: ['kind', 'keep'] },
+  'delete-dupes': { show: ['kind'] },
+  // any language is allowed here: the match can be on codec or channels alone
+  'delete-match': { show: ['kind', 'lang', 'codec', 'channels'], anyLang: true },
 };
 
 function el(tag, props = {}, ...children) {
@@ -57,12 +61,13 @@ function fillLanguages() {
   const before = select.value;
   select.replaceChildren();
   if (spec.keep) select.append(el('option', { value: '' }, '(leave as it is)'));
+  if (spec.anyLang) select.append(el('option', { value: '' }, '(any language)'));
   if ($('action').value === 'default-lang' && $('kind').value === 'sub') {
     select.append(el('option', { value: 'none' }, '(none: no default subtitles)'));
   }
   for (const { code, name } of state.languages) select.append(el('option', { value: code }, name));
   select.value = [...select.options].some((o) => o.value === before)
-    ? before : (spec.keep ? '' : 'eng');
+    ? before : (spec.keep || spec.anyLang ? '' : 'eng');
 }
 
 function updateForm() {
@@ -77,13 +82,18 @@ function updateForm() {
     name: spec.show.includes('name'),
     forcedflag: spec.show.includes('forcedflag'),
     move: spec.show.includes('move'),
+    keep: spec.show.includes('keep'),
+    codec: spec.show.includes('codec'),
+    // channels count audio tracks only
+    channels: spec.show.includes('channels') && $('kind').value !== 'sub',
     forcedtrack: action === 'default-lang' && sub,
   };
   for (const node of document.querySelectorAll('[data-for]')) {
     node.hidden = !visible[node.dataset.for];
   }
   $('lang-label').textContent = action === 'delete-lang' ? 'Remove this language'
-    : action === 'preserve' ? 'Keep this language' : 'Language';
+    : action === 'preserve' ? 'Keep this language'
+    : action === 'delete-match' ? 'Language (or any)' : 'Language';
   fillLanguages();
   $('move').disabled = $('lang').value === 'none';
 }
@@ -146,6 +156,19 @@ function request(dry) {
     case 'preserve':
       r.tasks = [{ name: 'preserve', what: 'lang' }];
       if (prefer.length) r.prefer = prefer; else r.lang = lang;
+      break;
+    case 'keep-langs':
+      r.tasks = [{ name: 'preserve', what: 'lang' }];
+      r.keep = words($('keep').value);
+      break;
+    case 'delete-dupes':
+      r.tasks = [{ name: 'delete', what: 'dupes' }];
+      break;
+    case 'delete-match':
+      r.tasks = [{ name: 'delete', what: 'match' }];
+      r.lang = lang;
+      r.codec = $('codec').value.trim();
+      r.channels = parseInt($('channels').value, 10) || 0;
       break;
   }
   return r;
@@ -490,8 +513,10 @@ function renderOrder() {
       }
       return row;
     });
-    const table = el('table', { class: 'tracks' },
-      el('thead', {}, el('tr', {}, ...head.map((h) => el('th', {}, h)))), el('tbody', {}, ...rows));
+    // rows that can be picked (aria-selected) are a grid, so assistive tech reads the selection
+    const pickable = movable && editable;
+    const table = el('table', { class: 'tracks', ...(pickable ? { role: 'grid', 'aria-label': `${KIND_TITLES[kind]}: click a track to choose it` } : {}) },
+      el('thead', {}, el('tr', {}, ...head.map((h) => el('th', { scope: 'col' }, h)))), el('tbody', {}, ...rows));
     box.append(heading);
     if (kind === 'audio') box.append(detectRow());
     if (movable && editable) {
@@ -543,21 +568,26 @@ async function previewForAll(kind, what) {
   const list = info.order[kind];
   const r = { ...commonRequest(true), kind: kind === 'audio' ? 'audio' : 'sub', in_place: false };
   if (!r.paths.length) { $('info-status').textContent = 'No files are ticked in the list.'; return; }
+  let label;
   if (what === 'order') {
     r.tasks = [{ name: 'set', what: 'order' }];
     r.order_lang = [...new Set(list.map((t) => t.language))];
     r.default_first = info.defaultFirst[kind];
+    label = `Set the ${kindWord(kind)} tracks in this order: ${r.order_lang.join(', ')}`;
   } else if (what === 'keep') {
     r.tasks = [{ name: 'preserve', what: 'lang' }];
     r.lang = info.keep[kind];
+    const known = state.languages.find((l) => l.code === r.lang);
+    label = `Keep only ${known ? known.name : r.lang} among the ${kindWord(kind)} tracks`;
   } else {
     const track = list.find((t) => t.number === info.picked[kind]);
     if (!track) return;
     r.tasks = [{ name: 'delete', what: 'lang' }];
     r.lang = track.language;
+    label = `Remove the ${track.language} ${kindWord(kind)} tracks`;
   }
   $('info').close();
-  await go(true, r);
+  await go(true, r, label);
 }
 
 // Rename the file within its folder, then keep the list (and what is ticked) pointing at it.
@@ -606,7 +636,9 @@ async function changeFile(request, question) {
       log: $('use-log').checked ? $('log').value.trim() : '', ...request } });
     const r = summary.results[0];
     const lines = r && r.changes.length ? r.changes.join('; ') : (r && r.message) || '';
-    $('info-status').textContent = r ? `${statusLabel(r)}${lines ? `: ${lines}` : ''}` : 'Nothing was done.';
+    const stopped = summary.code === 130 ? 'Stopped. ' : '';
+    $('info-status').textContent = r ? `${stopped}${statusLabel(r)}${lines ? `: ${lines}` : ''}`
+      : (stopped || 'Nothing was done.');
     done = r;
     const scanned = await invoke('scan', { request: { kind: 'audio', paths: [file.path] } });
     const fresh = scanned.results.find((x) => x.action === 'info' && x.data);
@@ -893,7 +925,13 @@ async function addFiles() {
 // Dropping files or a folder on the window -------------------------------------------------
 
 async function handleDrop(paths) {
-  if (state.running || document.querySelector('dialog[open]')) return;
+  if (state.running || document.querySelector('dialog[open]')) {
+    // the drop is not used while a run or a dialog is open: say so, rather than doing nothing
+    $('source').textContent = state.running
+      ? 'A run is going, so the dropped files were not added. Wait for it, or press Stop, then drop them again.'
+      : 'A dialog is open, so the dropped files were not added. Close it, then drop them again.';
+    return;
+  }
   const found = await invoke('classify_dropped', { paths });
   if (found.folder) {
     state.dir = found.folder; state.paths = []; state.removed.clear();
@@ -926,6 +964,8 @@ function setBusy(busy, message) {
   state.running = busy;
   if (busy && message) $('source').textContent = message;
   $('cancel').hidden = !busy;
+  // the Edit dialog covers the window, so it has its own Stop while a change runs there
+  $('info-stop').hidden = !busy;
   updateButtons();
 }
 
@@ -959,6 +999,9 @@ function updateButtons() {
 function confirmApply(text) {
   $('confirm-text').textContent = text;
   const dialog = $('confirm');
+  // Escape closes a dialog without setting its return value, so a value left from the last
+  // confirmation would count as "apply": start from nothing each time.
+  dialog.returnValue = '';
   return new Promise((resolve) => {
     dialog.addEventListener('close', () => resolve(dialog.returnValue === 'apply'), { once: true });
     dialog.showModal();
@@ -967,7 +1010,7 @@ function confirmApply(text) {
 
 function statusLabel(r) {
   if (r.status === 'changed' && r.dry_run) return 'would change';
-  return r.status === 'ok' ? 'done' : r.status;
+  return r.status;
 }
 
 // One track as a short text for the before and after tables: language, * default, forced, name.
@@ -1048,13 +1091,49 @@ function showSummary(results, dry) {
   return changed;
 }
 
-async function go(dry, req = null) {
-  await goMany([req || request(dry)], dry);
+async function go(dry, req = null, label = null) {
+  await goMany([req || request(dry)], dry, label || describeChange());
+}
+
+// The change the form asks for, in words, for the confirmation: "Make English the default subtitle track".
+function describeChange() {
+  const action = $('action').value;
+  const kind = kindWord($('kind').value);
+  const prefer = words($('prefer').value);
+  const langOption = $('lang').selectedOptions[0];
+  const lang = langOption ? langOption.textContent : '';
+  const track = $('track').value.trim();
+  const who = prefer.length ? `the first of ${prefer.join(', ')}` : lang;
+  switch (action) {
+    case 'default-lang':
+      if ($('lang').value === 'none' && !prefer.length) return 'Turn off the default subtitle track';
+      return `Make ${who} the default ${kind} track`;
+    case 'track-default': return `Make ${kind} track ${track} the default`;
+    case 'set-lang': return `Set the language of ${kind} track ${track} to ${lang}`;
+    case 'rename': return `Name ${kind} track ${track} "${$('name').value.trim()}"`;
+    case 'forced': return `${$('forcedflag').value === 'forced' ? 'Set' : 'Clear'} the forced flag of ${kind} track ${track}`;
+    case 'swap': return 'Make the second audio track the default';
+    case 'swap-audio': return 'Swap the two audio tracks';
+    case 'delete-lang': return `Remove the ${lang} ${kind} tracks`;
+    case 'delete-track': return `Remove ${kind} track ${track}`;
+    case 'preserve': return `Keep only ${prefer.length ? prefer.join(', ') : lang} among the ${kind} tracks`;
+    case 'keep-langs': return `Keep the ${kind} tracks in ${words($('keep').value).join(', ') || '(no languages given)'}`;
+    case 'delete-dupes': return `Remove the duplicate ${kind} tracks (every one after the first in each language)`;
+    case 'delete-match': {
+      const parts = [];
+      if ($('lang').value) parts.push(`language ${lang}`);  // the name, when a language is chosen
+      if ($('codec').value.trim()) parts.push(`codec ${$('codec').value.trim()}`);
+      if (parseInt($('channels').value, 10) > 0) parts.push(`${$('channels').value} channels`);
+      return `Remove the ${kind} tracks with ${parts.join(', ') || '(nothing to match)'}`;
+    }
+  }
+  return 'Make this change';
 }
 
 // Run one request after another (a change that is not the same for every file, such as
 // subtitles each with its own file, is one request per file), showing them as one run.
-async function goMany(requests, dry) {
+// `label` says the change in words, for "Apply these changes…" after a preview.
+async function goMany(requests, dry, label = '') {
   const total = requests.reduce((n, r) => n + r.paths.length, 0);
   if (!total && !requests.some((r) => r.tasks.some((t) => t.name === 'undo'))) return;
   $('results-card').hidden = false;
@@ -1067,6 +1146,7 @@ async function goMany(requests, dry) {
   bar.max = Math.max(1, total); bar.value = 0; bar.hidden = total === 0;
   $('results-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   setBusy(true);
+  let rescan = false;
   try {
     const results = [];
     let code = 0;
@@ -1080,9 +1160,10 @@ async function goMany(requests, dry) {
     if (code === 130) $('summary').textContent += ' (stopped)';
     if (dry && changed > 0) {
       state.again = requests.map((r) => ({ ...r, dryrun: false }));
+      state.againLabel = label;
       $('apply-preview').hidden = false;
     }
-    if (!dry) await scan();
+    rescan = !dry;
   } catch (error) {
     $('summary').textContent = String(error);
   } finally {
@@ -1090,14 +1171,18 @@ async function goMany(requests, dry) {
     clearProgress();
     setBusy(false);
   }
+  // after the run is over (the buttons are back), so the scan's own busy state does not end it early
+  if (rescan) await scan();
 }
 
 async function apply(req) {
   const requests = Array.isArray(req) ? req : [req || request(false)];
   const paths = requests.reduce((n, r) => n + r.paths.length, 0);
+  // after a preview, the change is the one that was previewed; otherwise it is the form as it is now
+  const label = req ? state.againLabel : describeChange();
   const what = requests.some((r) => r.tasks.some((t) => t.name === 'undo'))
     ? 'Undo the changes recorded in the log?'
-    : `Change ${paths} file${paths === 1 ? '' : 's'}?`;
+    : `${label} in ${paths} file${paths === 1 ? '' : 's'}?`;
   if (!(await confirmApply(what))) return;
   await goMany(requests, false);
 }
@@ -1196,7 +1281,8 @@ async function runSubs(dry) {
     if (!(await confirmApply(`Add ${n} subtitle file${n === 1 ? '' : 's'} to ${requests.length} file${requests.length === 1 ? '' : 's'}? Each file is rewritten once.`))) return;
   }
   $('subs').close();
-  await goMany(requests, dry);
+  const added = requests.reduce((n, r) => n + r.subtitles.length, 0);
+  await goMany(requests, dry, `Add ${added} subtitle file${added === 1 ? '' : 's'} to ${requests.length} file${requests.length === 1 ? '' : 's'}`);
 }
 
 // Start up ----------------------------------------------------------------------
@@ -1204,6 +1290,8 @@ async function runSubs(dry) {
 async function start() {
   const info = await invoke('app_info');
   $('version').textContent = `v${info.version}`;
+  // the online subtitle search is off unless the app was started with --enable search
+  $('sub-search-open').hidden = !info.search_enabled;
   const missing = info.tools.filter((t) => !t.optional && !t.path).map((t) => t.tool);
   const chip = $('tools');
   // whisper-cli is named only when it is found (it is optional, for Detect languages…)
@@ -1256,6 +1344,7 @@ $('info-rename').addEventListener('submit', renameFile);
 $('add-sub-choose').addEventListener('click', chooseSubFile);
 $('add-sub-go').addEventListener('click', addSubtitle);
 $('info-close').addEventListener('click', () => $('info').close());
+$('info-stop').addEventListener('click', () => invoke('cancel'));
 $('info').addEventListener('close', dropDownloaded);
 $('sub-search-open').addEventListener('click', openSubSearch);
 $('sub-search-go').addEventListener('click', searchSubtitles);

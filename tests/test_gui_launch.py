@@ -82,7 +82,21 @@ def test_gui_finds_an_installed_app_bundle(program: Path, tmp_path: Path) -> Non
     assert empty.returncode == 1 and "was not found" in empty.stderr
 
 
-def test_gui_takes_no_other_options(program: Path) -> None:
-    done = launch(program, "--gui", "--dryrun")
-    assert done.returncode == 2 and "takes no other options" in done.stderr
+@pytest.mark.parametrize("args", [
+    ["--gui", "--enable", "search"],
+    ["--enable", "search", "--gui"],
+    ["--gui", "--enable=search"],
+])
+def test_gui_passes_enable_search_on_to_the_app(program: Path, args: list[str]) -> None:
+    # the stand-in is the CLI, which is given the same options: with no action it reports that
+    # the option was read (and no action was asked for), rather than printing its usage
+    stand_in(program.parent / "fml")
+    done = launch(program, *args)
+    assert done.returncode == 2 and "no action given" in done.stderr
+
+
+@pytest.mark.parametrize("args", [["--gui", "--dryrun"], ["--gui", "--enable", "dupes"]])
+def test_gui_takes_no_other_options(program: Path, args: list[str]) -> None:
+    done = launch(program, *args)
+    assert done.returncode == 2 and "takes no other options than --enable search" in done.stderr
     assert not os.path.exists(program.parent / "fml")

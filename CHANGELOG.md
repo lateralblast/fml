@@ -5,6 +5,62 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-11-05
+
+### Added
+- Desktop app: the bulk change menu offers three more changes, the same as on the command line, with the same checks. **Keep several languages** keeps the tracks in every language listed in **Languages to keep** (as `--keep`). **Remove duplicate tracks** removes every track after the first in each language (as `--delete dupes`). **Remove tracks that match** removes the tracks that fit a language (or any language), a part of the codec name and a channel count, of which at least one must be given (as `--delete match`); the channel count applies to audio only.
+
+## [1.3.0] - 2026-11-05
+
+### Added
+- `--enable search` turns on the online subtitle search. It is needed for `--search subtitle` and `--add subtitle --online` (the switch is shared by the whole command, like `--dryrun`).
+- `fml-cli --gui --enable search` (or `./fml --gui --enable search`) opens the desktop app with the search on. The app takes no other option than `--enable search`.
+
+### Changed
+- The online subtitle search is **off by default**, because it has not been tested fully yet. Without `--enable search`, `--search subtitle` and `--add subtitle --online` are refused before anything is sent, with a message that says what to add. In the desktop app, **Search online (OpenSubtitles)…** is hidden unless the app is started with `--enable search`. Adding subtitle files from disk is not affected.
+- The `--help` text of `--search`, `--add subtitle --online` and `--gui` says what they need.
+
+## [1.2.9] - 2026-11-05
+
+### Changed
+- Desktop app: removed a status check that nothing could trigger (`ok`, which the engine never reports), so the status shown after a change is the engine's status as it is. No change to what is shown.
+
+## [1.2.8] - 2026-11-05
+
+### Fixed
+- The test suite could read the real data folder on macOS, where the data folder is under `HOME` and the test isolation only set `XDG_DATA_HOME`. A test that expects no whisper model found the user's model and failed. Tests now use a temporary `HOME` too. No change to the app.
+
+## [1.2.7] - 2026-11-05
+
+### Fixed
+- Desktop app: the track tables in the Edit dialog that can be picked (audio and subtitle tracks, not video) are now marked as a grid with column headers, the role that rows which can be focused and selected need. Not tried with a screen reader.
+
+## [1.2.6] - 2026-11-05
+
+### Fixed
+- Desktop app: after a change was applied, the list was read again while the run was still on screen: the run's progress bar and Stop button stayed up during the re-read, and the re-read's own busy state was switched on and off inside the run's. The list is now read once the run has been cleaned up.
+
+## [1.2.5] - 2026-11-05
+
+### Fixed
+- Desktop app: a track kind that is not `audio` or `sub` was quietly taken as audio. The app now reports it as an error, with the same wording as the command line (`"video" is not audio or sub (subtitles)`); a missing kind is still audio.
+
+## [1.2.4] - 2026-11-05
+
+### Fixed
+- Desktop app: files dropped on the window while a run or a dialog was open were ignored without a word. The window now says why they were not added and what to do.
+
+## [1.2.3] - 2026-11-05
+
+### Added
+- Desktop app: a **Stop** button in the Edit dialog while a change, a subtitle extraction or a language detection is running there. The dialog covers the window, so the main Stop button could not be reached; a stopped change says so, and the file is left as it was.
+
+### Changed
+- Desktop app: the confirmation for a bulk change says what it does, such as "Make English the default audio track in 12 files?" or "Remove the Italian subtitle tracks in 3 files?", instead of only "Change 12 files?". After a preview, "Apply these changes…" asks the same question about the previewed change, and the order, keep and remove previews from the Edit dialog and adding subtitles say what they do too.
+
+### Fixed
+- Desktop app: a confirmation dialog that was closed with Escape could apply the change anyway, because it kept the answer of the previous confirmation (Apply). Each confirmation now starts with no answer, so Escape always cancels.
+
 ## [1.2.0] - 2026-11-02
 
 ### Added

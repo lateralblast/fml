@@ -243,7 +243,7 @@ fn build_command() -> Command {
         (
             "search",
             'S',
-            "subtitle: list the subtitles OpenSubtitles has for the file (in --lang if given, for the title in --query or the one the file name says); needs an API key (see the README); the file is not changed",
+            "subtitle: list the subtitles OpenSubtitles has for the file (in --lang if given, for the title in --query or the one the file name says); needs --enable search, an API key (see the README); the file is not changed",
         ),
         (
             "extract",
@@ -411,7 +411,7 @@ fn build_command() -> Command {
                 .long("online")
                 .action(ArgAction::Count)
                 .help(
-                    "for --add subtitle, instead of --sub-file: find the subtitle on OpenSubtitles (the best one in --lang, or the one --sub-id names) and add it; needs an API key and login (see the README)",
+                    "for --add subtitle, instead of --sub-file: find the subtitle on OpenSubtitles (the best one in --lang, or the one --sub-id names) and add it; needs --enable search, an API key and login (see the README)",
                 )
                 .help_heading(settings),
         )
@@ -561,6 +561,15 @@ fn build_command() -> Command {
                 .help_heading(settings),
         )
         .arg(
+            Arg::new("enable")
+                .long("enable")
+                .action(ArgAction::Append)
+                .value_name("FEATURE")
+                .value_parser(|text: &str| choice_arg(text, &["search"]))
+                .help("turn on an optional feature that is off by default: search (the online subtitle search on OpenSubtitles; not fully tested yet)")
+                .help_heading(settings),
+        )
+        .arg(
             Arg::new("verbose")
                 .short('v')
                 .long("verbose")
@@ -581,7 +590,7 @@ fn build_command() -> Command {
             Arg::new("gui")
                 .long("gui")
                 .action(ArgAction::SetTrue)
-                .help("open the desktop app (fml) instead; takes no other options")
+                .help("open the desktop app (fml) instead; takes no other options than --enable search")
                 .help_heading(settings),
         )
         .arg(
@@ -750,6 +759,7 @@ fn config_from(matches: &ArgMatches) -> Config {
         forced: base.forced.unwrap_or(false),
         verbose: matches.get_flag("verbose"),
         dryrun: matches.get_flag("dryrun"),
+        enable: many(matches, "enable"),
         install: matches.get_flag("install"),
         force: matches.get_flag("force"),
         in_place: matches.get_flag("in-place"),
@@ -996,23 +1006,28 @@ fn find_app_bundle(own_dir: Option<&Path>) -> Option<PathBuf> {
 
 /// Start the app: on Unix this program becomes it; on Windows (no `exec`) it is started and
 /// this program ends. Only returns if it could not be started.
-fn start_app(gui: &Path) -> Result<(), std::io::Error> {
+fn start_app(gui: &Path, args: &[String]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        Err(std::process::Command::new(gui).exec())
+        Err(std::process::Command::new(gui).args(args).exec())
     }
     #[cfg(not(unix))]
     {
-        std::process::Command::new(gui).spawn().map(|_| ())
+        std::process::Command::new(gui).args(args).spawn().map(|_| ())
     }
 }
 
-/// `fml-cli --gui`: open the desktop app.
+/// `fml-cli --gui`: open the desktop app. The only option it takes is `--enable search`, which
+/// the app gets as well (the online subtitle search is off without it).
 fn open_gui() -> ExitCode {
-    if std::env::args().len() > 2 {
-        usage_error("--gui opens the app and takes no other options");
-    }
+    let rest: Vec<String> = std::env::args().skip(1).filter(|arg| arg != "--gui").collect();
+    let forwarded = match rest.as_slice() {
+        [] => Vec::new(),
+        [flag, value] if flag == "--enable" && value == "search" => rest.clone(),
+        [arg] if arg == "--enable=search" => rest.clone(),
+        _ => usage_error("--gui opens the app and takes no other options than --enable search"),
+    };
     let own_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
     let found = find_gui(own_dir.as_deref(), std::env::var("FML_GUI").ok().as_deref())
         .or_else(|| find_app_bundle(own_dir.as_deref()));
@@ -1024,7 +1039,7 @@ fn open_gui() -> ExitCode {
         );
         return ExitCode::from(1);
     };
-    match start_app(&gui) {
+    match start_app(&gui, &forwarded) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("fml-cli: could not start {}: {error}", gui.display());

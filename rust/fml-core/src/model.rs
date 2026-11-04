@@ -224,6 +224,9 @@ pub struct Config {
     pub online: bool,
     /// With `online`: the subtitle (file ID) a search listed; 0 means the best one for `lang`.
     pub sub_id: i64,
+    /// Optional features that are off unless named with `--enable`: `search` (the online
+    /// subtitle search on OpenSubtitles).
+    pub enable: Vec<String>,
     /// For `delete match`: part of the codec name, as `--info` shows it (any case).
     pub codec: String,
     /// For `delete match`: the number of audio channels (0: not given).
@@ -280,6 +283,11 @@ pub struct Config {
 }
 
 impl Config {
+    /// Whether an optional feature named with `--enable` is on.
+    pub fn enabled(&self, feature: &str) -> bool {
+        self.enable.iter().any(|name| name == feature)
+    }
+
     /// The settings for one action: these, with the action's own settings on top. Its only task
     /// is that action.
     pub fn for_task(&self, task: &Task) -> Config {
@@ -325,6 +333,7 @@ impl Default for Config {
             query: String::new(),
             online: false,
             sub_id: 0,
+            enable: Vec::new(),
             codec: String::new(),
             channels: 0,
             track: String::new(),
