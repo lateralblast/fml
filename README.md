@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.3.3
+Version 1.3.4
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -183,7 +183,8 @@ the workflow must also be on the default branch, because GitHub only starts a ma
 signs and notarises the `.dmg` when the repository has these secrets and variables (none is needed for an unsigned
 build): the secrets `APPLE_CERTIFICATE` (the Developer ID Application certificate exported as a `.p12`, base64-encoded),
 `APPLE_CERTIFICATE_PASSWORD` (its export password) and `APPLE_API_KEY_P8` (the App Store Connect `.p8` key, base64-encoded),
-and the variables `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY` (the key ID) and `APPLE_API_ISSUER`. The command
+and the variables `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY` (the key ID) and `APPLE_API_ISSUER`. With the notary key, the job
+also notarises the disk image itself, staples its ticket, and checks it with `stapler` and `spctl`. The command
 needs `gh`, logged in, starts the run, follows it, and downloads its artifacts. `--dry-run` runs the checks and prints
 the commands without starting anything. The Windows job builds on Windows itself and has not been run yet, and a
 `windows tests` job runs `cargo test` there for information (it does not fail the run).
