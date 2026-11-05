@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.5.1
+Version 1.5.2
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -1136,9 +1136,10 @@ The app's **About** button (top right), or **About fml** in the app menu on a Ma
 icon, the version and `ABOUT.md`, which is compiled into the app, so the window and the file in the repository are the same.
 Its web links open in your browser.
 
-fml is free software under the GNU General Public License, version 3 or (at your option) any later version: see
-[LICENSE](LICENSE), or https://www.gnu.org/licenses/gpl-3.0.html. It comes with no warranty. The command-line tools that the
-sandboxed Mac app bundles (mkvtoolnix, under GPL-2.0-or-later, and ffmpeg, under GPL-3.0-or-later) keep their own licences.
+fml is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE), or https://www.apache.org/licenses/LICENSE-2.0.
+It comes with no warranty. Versions up to 1.3.x were licensed under CC BY-NC-SA 4.0, and 1.5.1 and earlier under
+GPL-3.0-or-later; those versions keep the licence they were released under. The command-line tools that the sandboxed Mac
+app bundles (mkvtoolnix, under GPL-2.0-or-later, and ffmpeg, under GPL-3.0-or-later) keep their own licences.
 
 Fund me here: https://ko-fi.com/richardatlateralblast
 

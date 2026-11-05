@@ -6,7 +6,7 @@ Richard Spindler, Lateral Blast Pty Ltd
 
 <a href="https://ko-fi.com/richardatlateralblast" title="Show your appreciation on ko-fi">Show your appreciation on ko-fi</a>
 
-Licence: <a href="https://www.gnu.org/licenses/gpl-3.0.html" title="GNU General Public License, version 3">GPL-3.0-or-later</a>, the GNU General Public License version 3 or (at your option) any later version. The licence text is in LICENSE.
+Licence: <a href="https://www.apache.org/licenses/LICENSE-2.0" title="Apache License, version 2.0">Apache-2.0</a>. The licence text is in LICENSE.
 
 Attributions:
 

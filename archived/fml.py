@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 # Name:         fml (Fix Media Language etc)
-# Version:      1.5.1
+# Version:      1.5.2
 # Release:      1
-# License:      GPL-3.0-or-later (GNU General Public License, version 3 or later)
-#               https://www.gnu.org/licenses/gpl-3.0.html
+# License:      Apache-2.0
+#               https://www.apache.org/licenses/LICENSE-2.0
 # Group:        System
 # Source:       N/A
 # URL:          https://github.com/lateralblast/fml
@@ -41,7 +41,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
-__version__ = "1.5.1"
+__version__ = "1.5.2"
 
 # Commands the script runs and the package that provides each
 REQUIRED_TOOLS = {

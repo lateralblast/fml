@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Fix the default audio and subtitle languages, and the tracks, of media files (MKV, MP4, AVI)"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "GPL-3.0-or-later"}
+license = {text = "Apache-2.0"}
 authors = [{name = "Richard Spindler", email = "richard@lateralblast.com.au"}]
 keywords = ["mkv", "mp4", "avi", "audio", "subtitles", "language", "default track", "mkvtoolnix"]
 classifiers = [
