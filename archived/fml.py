@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # Name:         fml (Fix Media Language etc)
-# Version:      1.5.2
+# Version:      1.5.6
 # Release:      1
 # License:      Apache-2.0
 #               https://www.apache.org/licenses/LICENSE-2.0
@@ -41,7 +41,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
-__version__ = "1.5.2"
+__version__ = "1.5.6"
 
 # Commands the script runs and the package that provides each
 REQUIRED_TOOLS = {
@@ -368,7 +368,6 @@ class Config:
     dryrun: bool = False
     install: bool = False
     force: bool = False
-    in_place: bool = False  # edit MKV files directly rather than a copy of them
     backup: bool = False  # keep the original beside the changed file
     log: str = ""  # a file to record each change in, so that --undo can reverse it
     include: list[str] = field(default_factory=list)  # only the files that match one of these
@@ -712,7 +711,7 @@ class Fml:
 
     def start_copy(self, result: Result, path: str, temp_file: str) -> bool:
         """Copy a file, so the copy can be changed and swapped in if that works."""
-        if not self.check_space(result, path, "copy the file (use --in-place to edit it directly)"):
+        if not self.check_space(result, path, "copy the file"):
             return False
         self.pending.append(temp_file)
         self.note(f"Copying:\t{path} -> {temp_file}")
@@ -916,8 +915,8 @@ class Fml:
                     unchanged: str) -> Result:
         """Apply edits to a file.
 
-        An MKV is edited with mkvpropedit, on a copy that replaces the file if it worked
-        (or in place with --in-place). If a track has to be moved, or the file is an MP4,
+        An MKV is edited with mkvpropedit, on a copy that replaces the file if it worked.
+        If a track has to be moved, or the file is an MP4,
         the file is rewritten instead, with mkvmerge or ffmpeg. Either way the result is
         read back and checked before it replaces the original.
         """
@@ -964,11 +963,6 @@ class Fml:
                 args += ["--set", f"name={edit.name}"] if edit.name else ["--delete", "name"]
             if edit.forced is not None:
                 args += ["--set", f"flag-forced={int(edit.forced)}"]
-        if self.config.in_place:
-            if self.config.backup and not self.keep_original(result, media.path, link=False):
-                return result
-            self.apply(result, ["mkvpropedit", media.path, *args])
-            return self.finish(result)
         temp_file = f"{media.path}{TEMP_MARK}"
         if not self.start_copy(result, media.path, temp_file):
             return result
@@ -1645,10 +1639,6 @@ def build_parser() -> argparse.ArgumentParser:
     options.add_argument("--backup", action="store_true",
                          help="keep the original beside the changed file, as NAME.fml-bak "
                               "(a hard link where possible, so it costs no space)")
-    options.add_argument("--in-place", action="store_true",
-                         help="edit MKV files directly instead of a copy that replaces them if "
-                              "it worked: quicker and needs no free space, but an interruption "
-                              "can leave the file damaged")
     options.add_argument("-T", "--dryrun", action="store_true",
                          help="show what would change without changing anything")
     options.add_argument("-v", "--verbose", action="store_true",
@@ -1679,8 +1669,6 @@ def check_arguments(parser: argparse.ArgumentParser, args: argparse.Namespace) -
         parser.error("--forced only applies to subtitles (use --kind sub)")
     if args.name is not None and not any(t.name == "set" and t.what == "name" for t in tasks):
         parser.error("--name only works with --set name")
-    if args.move and args.in_place:
-        parser.error("--move rewrites the file, so it can't be used with --in-place")
     if args.move and not any(
             task.name == "set" and (task.what == "default" or args.default or args.prefer)
             for task in tasks):
@@ -1747,7 +1735,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         lang=args.lang or "", default=args.default or "", track=args.track or "",
         kind=args.kind, forced=args.forced, prefer=args.prefer or [],
         verbose=args.verbose, dryrun=args.dryrun, install=args.install, force=args.force,
-        in_place=args.in_place, backup=args.backup, log=args.log or "", move=args.move,
+        backup=args.backup, log=args.log or "", move=args.move,
         name=args.name, include=args.include or [], exclude=args.exclude or [], jobs=args.jobs,
         format=args.format,
         tasks=args.tasks)

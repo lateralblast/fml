@@ -12,10 +12,15 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 - [ ] Saved presets for bulk changes in the app, and a watch-folder mode that applies a preset to new files (careful with files still being written).
 - [ ] Edit video track names and chapters (probably out of scope unless fml becomes a general MKV editor).
 - [ ] Run the `.dmg` build (`./build.sh --target mac`) and the app from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed. `build.sh` signs and notarises by default (`--notarize`, 1.3.5), and `--nonotarize` signs only. Checked so far: a signed `--nonotarize` build (1.3.4), and the earlier notarised disk image (1.3.3, by hand). Still to run: a `--notarize` build end to end, the app from Finder, and the real-file tests (the CLI and app build and `cargo test` pass on macOS 27, Apple silicon).
+- [ ] Add the licence texts that the sandboxed app still lacks: Qt's own exception (Qt-GPL-exception-1.0) and GFDL-1.3-no-invariants-only, and BSD-3-Clause for the Qt parts, all named by the Qt package (qtbase, which mkvmerge, mkvextract and mkvpropedit link). The collector warns about them and `NOTICE.txt` says they are missing. Add them to `packaging/notices/standard` from the Qt source.
+- [ ] Make the `--no-mkvtoolnix` build pass the whole pytest suite: 21 tests in `test_stubs.py`, `test_mkv.py`, `test_signals.py` and `test_cli.py` expect `mkvmerge` or `mkvpropedit` to run, so they fail there (with Homebrew's ffmpeg and with the LGPL one alike). They need the same marking as the `real` tests, or a version of the suite for that build.
 - [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `fml-cli.exe` smoke-tested under Wine with stand-in tools.
 
 ## Done
 
+- [x] Licence notices for the packages the sandboxed app bundles: each package's own licence files, or the standard text of its licence, with `NOTICE.txt` giving each package's version and source address (1.5.6). Qt's texts are not all there yet: see the open item above.
+- [x] Remove `--in-place` from `archived/fml.py` (1.5.5). It went from the Rust command line in 1.5.1.
+- [x] An LGPL build of the sandboxed Mac app: `./build.sh --target mac --lgpl` builds ffmpeg 9.0.2 from source as LGPL-only (no GPL, no nonfree, no x264 or x265), bundles it in place of Homebrew's GPL build, leaves mkvtoolnix out, and carries the licence and source notice (1.5.3, 1.5.4). Checked: the suite passes and fails the same tests with it as with Homebrew's ffmpeg; the bundled tools run with an empty environment. Not run from Finder, and not notarised.
 - [x] Desktop app: the bulk change menu offers `--keep` (keep several languages), `--delete dupes` and `--delete match` (1.3.1).
 - [x] `--search subtitle` and `--add subtitle --online` on the command line (1.2.0). Tested against a stand-in server only.
 - [x] Desktop app: search OpenSubtitles from the Edit dialog (1.1.9). Tried against a stand-in server only, never the real service.

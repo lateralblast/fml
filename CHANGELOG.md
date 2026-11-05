@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2026-11-06
+
+### Added
+- The sandboxed Mac app (both `--sandboxed` and `--lgpl`) carries the licence of each package its tools come from, in `Contents/Resources/licences/<package>/`, with a `NOTICE.txt` that lists every package with its version, the source it was built from (the URL and SHA-256 from Homebrew) and the files it supplies. `packaging/mac/collect_notices.py` builds it from the list of files `packaging/mac/bundle_tools.py` copies.
+- A package that ships no licence file (boost, glib) gets the standard text of its licence, from `packaging/notices/standard`. Licences with no text there (Qt's own exception and GFDL, and BSD-3-Clause for Qt) are a warning in the build, and `NOTICE.txt` says they are not in the app.
+
+## [1.5.5] - 2026-11-06
+
+### Removed
+- `--in-place` is gone from `archived/fml.py`, as it has been from the Rust command line since 1.5.1, so the archived reference and the README agree. Changes are still made on a copy that replaces the file once it is checked.
+
+## [1.5.4] - 2026-11-06
+
+### Added
+- The `--lgpl` app carries ffmpeg's licence text (`COPYING.LGPLv2.1`) and a `SOURCE.txt` (where its source is, its SHA-256 and the configure options) in `Contents/Resources/licences`, as the LGPL asks for a library that ships with an app.
+
+## [1.5.3] - 2026-11-06
+
+### Added
+- `./build.sh --target mac --lgpl` builds the sandboxed Mac app with an LGPL-only ffmpeg and ffprobe in place of Homebrew's GPL build, and without mkvtoolnix, which is GPL. `packaging/ffmpeg/build-lgpl.sh` builds ffmpeg 9.0.2 from the source at ffmpeg.org, checked against its SHA-256, with no `--enable-gpl`, no nonfree code and no external codec libraries such as x264 or x265. Its shared libraries go into the app. The disk image is named `-lgpl.dmg`. It is for a local build on a Mac.
+
+### Changed
+- The test suite makes its sample media with ffmpeg's own encoders (`mpeg4`, `aac`, `mp2`) rather than `libx264` and `libmp3lame`, so it runs against an LGPL ffmpeg as well as the Homebrew one.
+
 ## [1.5.2] - 2026-11-06
 
 ### Changed

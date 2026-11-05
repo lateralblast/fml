@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.5.2
+Version 1.5.6
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -180,9 +180,19 @@ from Homebrew by `packaging/mac/bundle_tools.py`, their references are rewritten
 inherit entitlement (`packaging/mac/tool.entitlements`), so it runs under the sandbox of the app that starts it. The app itself
 is sandboxed (`packaging/mac/app.entitlements`: files the user chooses, and network access). It uses the bundled tools in
 preference to any installed ones. The disk image is named `fml_<version>_<arch>-sandboxed.dmg`, so it sits in `dist/` beside
-the usual one. It is for a Mac with the tools installed (`mkvtoolnix`, `mediainfo`, `ffmpeg`) to build from, and it is
+the usual one. The app carries the licence of each package its tools come from, with a `NOTICE.txt` (see "License and
+support"). It is for a Mac with the tools installed (`mkvtoolnix`, `mediainfo`, `ffmpeg`) to build from, and it is
 signed and notarised like the usual build. The tools' licences (GPL, for mkvtoolnix and ffmpeg) apply to the app when it is
 distributed this way.
+
+**An LGPL build.** `./build.sh --target mac --lgpl` builds the sandboxed app above without mkvtoolnix (which is GPL-licensed),
+and with ffmpeg and ffprobe built from source as LGPL-only tools. `packaging/ffmpeg/build-lgpl.sh` downloads ffmpeg 9.0.2 from
+ffmpeg.org, checks it against its SHA-256 and builds it with `--disable-gpl --disable-nonfree --enable-shared` and no external
+codec libraries. It is built once, into `rust/target/lgpl-ffmpeg`: delete that folder to build it again. fml needs nothing that is
+GPL-only: it copies streams, and its subtitle conversions use encoders built into ffmpeg (`srt`, `mov_text`, `pcm_s16le`). The
+disk image is named `-lgpl.dmg`. It is for a local build on a Mac, with Xcode's command line tools to compile ffmpeg. The app
+carries ffmpeg's licence text and a `SOURCE.txt` (where its source is, its SHA-256, and how it was configured) in
+`Contents/Resources/licences`.
 
 **Signing and notarising.** When the login keychain holds a *Developer ID Application* certificate, the build signs the app
 with it, and by default (`--notarize`) it also notarises the app and the `.dmg`, staples the ticket, and checks it with
@@ -1139,7 +1149,12 @@ Its web links open in your browser.
 fml is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE), or https://www.apache.org/licenses/LICENSE-2.0.
 It comes with no warranty. Versions up to 1.3.x were licensed under CC BY-NC-SA 4.0, and 1.5.1 and earlier under
 GPL-3.0-or-later; those versions keep the licence they were released under. The command-line tools that the sandboxed Mac
-app bundles (mkvtoolnix, under GPL-2.0-or-later, and ffmpeg, under GPL-3.0-or-later) keep their own licences.
+app bundles keep their own licences. In the default sandboxed build these are mkvtoolnix (GPL-2.0-or-later) and ffmpeg from
+Homebrew (GPL-3.0-or-later). The `--lgpl` build leaves mkvtoolnix out and builds ffmpeg under LGPL-2.1-or-later (see
+"An LGPL build"). Every other bundled package keeps its licence too, and the app carries it: `Contents/Resources/licences/`
+has a folder per package with its licence files (from the package, or the standard text of its licence), and `NOTICE.txt`
+lists each package with its version and the address of its source. Qt's own exception and GFDL texts are not in the app yet
+(see TODO.md).
 
 Fund me here: https://ko-fi.com/richardatlateralblast
 

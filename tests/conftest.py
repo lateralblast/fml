@@ -165,9 +165,10 @@ def make_media(out: Path, audio: list[tuple[str, str | None, bool]],
                 "-attach", str(work / "attachment.bin"),
                 "-metadata:s:t", "mimetype=application/octet-stream"]
     if kind == "avi":
-        cmd += ["-c:v", "mpeg4", "-c:a", "mp3"]
+        cmd += ["-c:v", "mpeg4", "-c:a", "mp2"]
     else:
-        cmd += ["-c:v", "libx264", "-c:a", "aac", "-c:s", "mov_text" if kind == "mp4" else "srt"]
+        # ffmpeg's own encoders, not libx264 or libmp3lame, so an LGPL ffmpeg can run the suite
+        cmd += ["-c:v", "mpeg4", "-c:a", "aac", "-c:s", "mov_text" if kind == "mp4" else "srt"]
     for index, (language, title, default) in enumerate(audio):
         cmd += [f"-metadata:s:a:{index}", f"language={language}"]
         if title:

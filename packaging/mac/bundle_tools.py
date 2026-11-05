@@ -94,15 +94,20 @@ def main(argv: list[str]) -> None:
     (out / "bin").mkdir(parents=True, exist_ok=True)
     (out / "lib").mkdir(parents=True, exist_ok=True)
     bundled: dict[str, str] = {}
+    sources: list[str] = []
     for tool in tools:
         real = tool.resolve()
         target = out / "bin" / tool.name
         shutil.copy2(real, target)
         target.chmod(0o755)
         bundle(out, real, target, "@loader_path/../lib/", bundled)
+        sources.append(str(real))
         print(f"  bin/{tool.name} (from {real})")
     for real, base in sorted(bundled.items(), key=lambda item: item[1]):
         print(f"  lib/{base} (from {real})")
+    # the real path of every file copied, for collect_notices.py (it finds each package's licence)
+    sources += [str(real) for real in bundled]
+    (out / "sources.txt").write_text("\n".join(sorted(set(sources))) + "\n")
     total = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
     print(f"{len(tools)} tools, {len(bundled)} libraries, {total / 1048576:.1f} MB in {out}")
 

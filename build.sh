@@ -10,6 +10,13 @@
 #                                                                 mkvpropedit, mkvextract, mediainfo, ffmpeg, ffprobe, and whisper-cli if
 #                                                                 installed) with their libraries inside it, and names its .dmg with
 #                                                                 -sandboxed, so the two builds can sit in dist/ together.
+#                                                                 The app's Resources/licences has the licence of each package the
+#                                                                 tools come from, and NOTICE.txt (packaging/mac/collect_notices.py).
+#                                                                 --lgpl is the sandboxed build without mkvtoolnix (which is GPL),
+#                                                                 with ffmpeg and ffprobe built from source as LGPL-only tools
+#                                                                 (packaging/ffmpeg/build-lgpl.sh, into rust/target/lgpl-ffmpeg)
+#                                                                 in place of Homebrew's GPL build. Its .dmg is named -lgpl. Local
+#                                                                 builds only, for --target mac.
 #   ./build.sh --target linux [--package deb|rpm|appimage|all]               (comma list allowed, e.g. deb,rpm; default: the
 #                                                                 distribution's own package: deb on Debian/Ubuntu, rpm on
 #                                                                 RHEL/Fedora/Alma/Rocky/SUSE, else appimage;
@@ -48,14 +55,14 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--notarize|--nonotarize] [--package deb|rpm|appimage|all] [--no-cli] [--local|--ci] [--dry-run]"
+  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--notarize|--nonotarize] [--package deb|rpm|appimage|all] [--no-cli] [--lgpl] [--local|--ci] [--dry-run]"
   echo "       $0 [--target <t>] --release [<version>] [--commit <ref>] [--draft] [--yes] [--dry-run]"
   echo "       $0 --delete-release [<version>] [--keep-tag] [--yes] [--dry-run]"
   exit "${1:-1}"
 }
 
 target="" arch="" package="" cli=1 delete=0 del_version="" rel_version="" rel_commit="" keep_tag=0 release=0 draft=0 yes=0 dry=0 where=""
-notarize=1 notarize_set=0 notarizing=0 sandboxed=0 nomkv=0
+notarize=1 notarize_set=0 notarizing=0 sandboxed=0 nomkv=0 lgpl=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) target="${2:-}"; shift 2 ;;
@@ -66,6 +73,7 @@ while [ $# -gt 0 ]; do
     --nonotarize) notarize=0; notarize_set=1; shift ;;
     --sandboxed) sandboxed=1; shift ;;
     --no-mkvtoolnix) nomkv=1; shift ;;
+    --lgpl) lgpl=1; shift ;;
     --local) where=local; shift ;;
     --ci) where=ci; shift ;;
     --release)
@@ -93,6 +101,14 @@ fi
 if [ "$sandboxed" = 1 ] && [ "$target" != mac ] && [ "$target" != macos ]; then
   echo "--sandboxed only applies to --target mac" >&2; exit 1
 fi
+if [ "$lgpl" = 1 ] && [ "$target" != mac ] && [ "$target" != macos ]; then
+  echo "--lgpl only applies to --target mac" >&2; exit 1
+fi
+if [ "$lgpl" = 1 ] && { [ "$where" = ci ] || [ "$release" = 1 ] || [ "$delete" = 1 ]; }; then
+  echo "--lgpl is for a local build of --target mac: it cannot be combined with --ci, --release or --delete-release" >&2; exit 1
+fi
+# --lgpl is the sandboxed build without mkvtoolnix, carrying the LGPL ffmpeg
+if [ "$lgpl" = 1 ]; then sandboxed=1; nomkv=1; fi
 if [ "$nomkv" = 1 ] && [ "$where" = ci ]; then
   echo "--no-mkvtoolnix is not yet available on the GitHub runners: build it locally" >&2; exit 1
 fi
@@ -274,14 +290,29 @@ notarise_disk_image() {
 # packaging/mac/bundle_tools.py), and sign them inside out with the inherit entitlement, so that each one runs under the
 # sandbox of the app that starts it. Each is signed with the Developer ID identity when there is one (for notarising),
 # else ad-hoc (a local test only).
+# --lgpl: the LGPL ffmpeg is built once, into rust/target/lgpl-ffmpeg. Its licences/SOURCE.txt is written last, so a build
+# that failed part way is built again. Delete that folder to build it again.
+lgpl_ffmpeg() {
+  local prefix="$root/rust/target/lgpl-ffmpeg"
+  if [ ! -f "$prefix/licences/SOURCE.txt" ]; then
+    "$root/packaging/ffmpeg/build-lgpl.sh" "$prefix"
+  fi
+  echo "== using the LGPL ffmpeg in $prefix =="
+}
+
 sandbox_stage() {
   local tools="$root/rust/target/sandbox-tools" tool path identity file
   local found=()
   command -v python3 >/dev/null || { echo "python3 not found: needed to bundle the tools" >&2; exit 1; }
+  if [ "$lgpl" = 1 ]; then lgpl_ffmpeg; fi
   for tool in mkvmerge mkvpropedit mkvextract mediainfo ffmpeg ffprobe; do
     # the build without mkvtoolnix does not use (or carry) its commands
     if [ "$nomkv" = 1 ] && [ "${tool#mkv}" != "$tool" ]; then continue; fi
-    path=$(command -v "$tool") || { echo "$tool not found: install mkvtoolnix, mediainfo and ffmpeg (fml-cli --check --install)" >&2; exit 1; }
+    if [ "$lgpl" = 1 ] && { [ "$tool" = ffmpeg ] || [ "$tool" = ffprobe ]; }; then
+      path="$root/rust/target/lgpl-ffmpeg/bin/$tool"
+    else
+      path=$(command -v "$tool") || { echo "$tool not found: install mkvtoolnix, mediainfo and ffmpeg (fml-cli --check --install)" >&2; exit 1; }
+    fi
     found+=("$path")
   done
   if path=$(command -v whisper-cli); then
@@ -292,6 +323,17 @@ sandbox_stage() {
   rm -rf "$tools"
   echo "== bundling the tools =="
   python3 "$root/packaging/mac/bundle_tools.py" "$tools" "${found[@]}"
+  # the licences of the packages the tools come from, with NOTICE.txt (collect_notices.py), for the app's Resources
+  python3 "$root/packaging/mac/collect_notices.py" "$tools/licences" "$tools/sources.txt"
+  rm -f "$tools/sources.txt"
+  if [ "$lgpl" = 1 ]; then
+    cp "$root/rust/target/lgpl-ffmpeg/licences/"* "$tools/licences/"
+    cat >> "$tools/licences/NOTICE.txt" <<NOTE
+ffmpeg and ffprobe (and the libav* and libsw* libraries) are not from Homebrew: they are built from source as LGPL-only
+tools for this app (build.sh --lgpl). Their licence is COPYING.LGPLv2.1 and their source is described in SOURCE.txt,
+both beside this file.
+NOTE
+  fi
   identity="${APPLE_SIGNING_IDENTITY:--}"
   echo "== signing the bundled tools ($identity) =="
   for file in "$tools"/lib/* "$tools"/bin/*; do
@@ -313,7 +355,8 @@ sandbox_config() {
   "bundle": {
     "resources": {
       "$root/rust/target/sandbox-tools/bin/": "bin/",
-      "$root/rust/target/sandbox-tools/lib/": "lib/"
+      "$root/rust/target/sandbox-tools/lib/": "lib/",
+      "$root/rust/target/sandbox-tools/licences/": "licences/"
     },
     "macOS": {
       "entitlements": "$root/packaging/mac/app.entitlements"
@@ -407,6 +450,7 @@ build_target() {
     feature_args=(--features no-mkvtoolnix)
     suffix="-no-mkvtoolnix"
   fi
+  if [ "$lgpl" = 1 ]; then suffix="-lgpl"; fi
   mkdir -p "$dist"
   stamp=$(mktemp)
   echo "== building the installer ($target, $bundles) =="
@@ -650,6 +694,9 @@ if [ -n "$target" ] && [ -z "$where" ]; then
   else
     where=local
   fi
+fi
+if [ -n "$target" ] && [ "$where" = ci ] && [ "$lgpl" = 1 ]; then
+  echo "--lgpl is for a local build: the GitHub runners do not build ffmpeg" >&2; exit 1
 fi
 if [ -n "$target" ] && [ "$where" = ci ]; then ci_build; exit 0; fi
 if [ -n "$target" ]; then build_target; fi
