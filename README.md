@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.3.5
+Version 1.3.6
 
 ![The fml desktop app](docs/images/app-main.png)
 

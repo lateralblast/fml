@@ -232,7 +232,7 @@ mod tests {
         let pairs: Vec<(&str, Option<&str>, bool)> = found
             .matches
             .iter()
-            .map(|m| (m.media.rsplit('/').next().unwrap(), m.lang.as_deref(), m.forced))
+            .map(|m| (file_name(&m.media), m.lang.as_deref(), m.forced))
             .collect();
         assert_eq!(pairs, [
             ("Show.S01E01.mkv", Some("ita"), false),
@@ -303,6 +303,11 @@ mod tests {
         assert!(plan.no_language.is_empty());
     }
 
+    // the last part of a path, with either kind of separator (Windows paths have backslashes)
+    fn file_name(path: &str) -> &str {
+        path.rsplit(['/', '\\']).next().unwrap()
+    }
+
     #[test]
     fn the_subtitle_files_of_a_folder_are_found_below_it_too() {
         let dir = std::env::temp_dir().join(format!("fml-subdir-{}", std::process::id()));
@@ -312,7 +317,7 @@ mod tests {
             std::fs::write(folder.join(name), b"x").unwrap();
         }
         let names: Vec<String> = subtitle_files_in(&dir)
-            .iter().map(|p| p.rsplit('/').next().unwrap().to_string()).collect();
+            .iter().map(|p| file_name(p).to_string()).collect();
         assert_eq!(names, ["2_English.srt", "a.ASS", "b.srt"]); // in path order, folders included
         assert!(subtitle_files_in(&dir.join("nope")).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
