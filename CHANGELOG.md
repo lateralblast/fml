@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-05
+
+### Added
+- Desktop app: the About window (opened by the **About** button, or **About fml** in the app menu on a Mac) shows the app icon, the version and `ABOUT.md`, the same as the About dialog did. It replaces the plain About panel that macOS shows by default. On a Mac the app menu now has Edit and Window menus as well.
+
+### Changed
+- The About text is in a window of its own (`about.html`) rather than a dialog on the main page.
+
+## [1.3.9] - 2026-11-05
+
+### Fixed
+- The About dialog (and `ABOUT.md`) said the licence was GPL-3.0. It now says GPL-3.0-or-later, as `LICENSE` and `Cargo.toml` do, with a link to the licence text.
+
+## [1.3.8] - 2026-11-05
+
+### Added
+- Desktop app: an **About** button in the top bar opens a dialog with the text of `ABOUT.md` (compiled into the app, so it is the same file as in the repository) and the version. Its web links open in the browser.
+
 ## [1.3.7] - 2026-11-05
 
 ### Added

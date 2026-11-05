@@ -273,6 +273,87 @@ fn languages() -> Vec<Value> {
     all.into_iter().map(|(code, name)| json!({"code": code, "name": name})).collect()
 }
 
+/// The About text: ABOUT.md, compiled into the app so that it is the same file as in the repository.
+#[tauri::command]
+fn about_text() -> &'static str {
+    include_str!("../../../ABOUT.md")
+}
+
+/// Show the About window (the page about.html, with the app icon and ABOUT.md), or bring it to the front. The
+/// header's About button and the app menu's About item both use it.
+#[tauri::command]
+fn show_about(app: AppHandle) -> Result<(), String> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+    if let Some(window) = app.get_webview_window("about") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "about", WebviewUrl::App("about.html".into()))
+        .title("About fml")
+        .inner_size(460.0, 600.0)
+        .resizable(false)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// The menu bar on macOS: the app menu (its About item opens the About window, not the system's plain panel), plus
+/// the Edit and Window menus that a Mac app expects. Other systems keep the window's own menu.
+#[cfg(target_os = "macos")]
+fn app_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem as Item, Submenu};
+    let about = MenuItem::with_id(app, "about", "About fml", true, None::<&str>)?;
+    let app_menu = Submenu::with_items(app, "fml", true, &[
+        &about,
+        &Item::separator(app)?,
+        &Item::services(app, None)?,
+        &Item::separator(app)?,
+        &Item::hide(app, None)?,
+        &Item::hide_others(app, None)?,
+        &Item::separator(app)?,
+        &Item::quit(app, None)?,
+    ])?;
+    let edit = Submenu::with_items(app, "Edit", true, &[
+        &Item::undo(app, None)?,
+        &Item::redo(app, None)?,
+        &Item::separator(app)?,
+        &Item::cut(app, None)?,
+        &Item::copy(app, None)?,
+        &Item::paste(app, None)?,
+        &Item::select_all(app, None)?,
+    ])?;
+    let window = Submenu::with_items(app, "Window", true, &[
+        &Item::minimize(app, None)?,
+        &Item::maximize(app, None)?,
+        &Item::close_window(app, None)?,
+    ])?;
+    Menu::with_items(app, &[&app_menu, &edit, &window])
+}
+
+/// Open a web link in the system browser (never in the app's own window). Only plain http and https
+/// addresses are passed on: no shell is given the address, and Windows gets only letters, digits and
+/// the few characters a web address needs.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    let plain = url.chars().all(|c| c.is_ascii_alphanumeric() || ":/.-_?=&%#+~".contains(c));
+    if !(url.starts_with("https://") || url.starts_with("http://")) || !plain {
+        return Err(format!("not a web address: {url}"));
+    }
+    let opened = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(&url).status()
+    } else if cfg!(windows) {
+        std::process::Command::new("cmd").args(["/C", "start", "", &url]).status()
+    } else {
+        std::process::Command::new("xdg-open").arg(&url).status()
+    };
+    match opened {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err(format!("could not open {url}")),
+        Err(error) => Err(format!("could not open {url}: {error}")),
+    }
+}
+
 /// The extensions of the media files the app lists (as in the file picker).
 const MEDIA_EXTENSIONS: &[&str] = &["mkv", "mp4", "m4v", "mov", "avi", "webm"];
 
@@ -538,11 +619,18 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            scan, run, cancel, app_info, languages, file_details, rename_file, match_subtitle_files, classify_dropped,
+            scan, run, cancel, app_info, languages, about_text, show_about, open_link, file_details, rename_file, match_subtitle_files, classify_dropped,
             subtitle_settings, save_subtitle_settings, subtitle_guess, search_subtitles, fetch_subtitle,
             forget_subtitle, dev_report
         ])
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "about" {
+                let _ = show_about(app.clone());
+            }
+        })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_menu(app_menu(app.handle())?)?;
             // Debug builds only: FML_GUI_SCRIPT names a script to run in the window, so the
             // page can be driven and checked without clicking (see rust/README.md).
             #[cfg(debug_assertions)]
@@ -713,6 +801,14 @@ mod tests {
         assert_eq!(request(json!({"kind": " Sub "})).config().unwrap().kind, Kind::Subtitles);
         let error = request(json!({"kind": "video"})).config().unwrap_err();
         assert!(error.contains("\"video\" is not audio or sub"), "{error}");
+    }
+
+    #[test]
+    fn the_about_text_is_abouts_md_and_links_are_only_web_addresses() {
+        assert!(about_text().contains("Richard Spindler"));
+        assert!(open_link("javascript:alert(1)".into()).unwrap_err().contains("not a web address"));
+        assert!(open_link("file:///etc/passwd".into()).unwrap_err().contains("not a web address"));
+        assert!(open_link("https://x.example/a & calc".into()).unwrap_err().contains("not a web address"));
     }
 
     #[test]

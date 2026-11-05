@@ -1345,6 +1345,7 @@ $('add-sub-choose').addEventListener('click', chooseSubFile);
 $('add-sub-go').addEventListener('click', addSubtitle);
 $('info-close').addEventListener('click', () => $('info').close());
 $('info-stop').addEventListener('click', () => invoke('cancel'));
+$('about-open').addEventListener('click', () => invoke('show_about').catch((error) => { $('source').textContent = String(error); }));
 $('info').addEventListener('close', dropDownloaded);
 $('sub-search-open').addEventListener('click', openSubSearch);
 $('sub-search-go').addEventListener('click', searchSubtitles);
