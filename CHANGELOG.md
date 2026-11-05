@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-11-05
+
+### Added
+- `./build.sh --target mac` signs and notarises by default. It looks for a Developer ID Application certificate in the keychain (or `APPLE_SIGNING_IDENTITY`): with one, the app is signed; with `--notarize` (the default) the app and the `.dmg` are notarised, the `.dmg` is stapled and both are checked. `--nonotarize` signs without notarising. Without a certificate the app is built unsigned and the build says so. A certificate with no notarisation credentials stops the build before it starts. The credentials come from the environment or from the file `FML_NOTARY_ENV` names (default `~/.config/fml/notary.env`).
+- The **Build** workflow's mac job leaves signing and notarising to `build.sh`, so the disk image is no longer notarised by a separate step.
+
 ## [1.3.4] - 2026-11-05
 
 ### Added

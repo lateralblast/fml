@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.3.4
+Version 1.3.5
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -163,6 +163,17 @@ into `dist/` (it needs `cargo install tauri-cli --version '^2'`; the system web 
 `/Applications`, and `fml-cli --gui` will find it. The app adds Homebrew's folders (`/opt/homebrew/bin`,
 `/usr/local/bin`) to its `PATH`, so it finds the commands even when opened from Finder. The `.dmg` is not signed or
 notarised, so macOS may ask you to allow it in System Settings, Privacy & Security.
+
+**Signing and notarising.** When the login keychain holds a *Developer ID Application* certificate, the build signs the app
+with it, and by default (`--notarize`) it also notarises the app and the `.dmg`, staples the ticket, and checks it with
+`stapler` and `spctl`. `--nonotarize` signs without notarising. With no such certificate the app is built unsigned, and the
+build says so. If a certificate is found but the notary credentials are not, the build stops before it starts, rather than
+making a signed build that is not notarised. The credentials are read from the environment, or from the file named by
+`FML_NOTARY_ENV` (default `~/.config/fml/notary.env`), which holds `APPLE_API_KEY` (the key ID), `APPLE_API_ISSUER` and
+`APPLE_API_KEY_PATH` (the App Store Connect `.p8` key), or `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and
+`APPLE_TEAM_ID`. Keep that file out of the repository, readable only by you (`chmod 600`). The `APPLE_ID` route passes the
+password on the command line of `xcrun`, so the App Store Connect key is the safer choice. `APPLE_SIGNING_IDENTITY` names the
+certificate when there is more than one.
 
 ### Windows
 

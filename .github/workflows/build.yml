@@ -68,7 +68,7 @@ jobs:
     runs-on: macos-latest
     env:
       ARCH: ${{ inputs.arch }}
-      # signing and notarising happen only when these secrets are set; without them the build is unsigned
+      # build.sh signs and notarises (--notarize, the default) when these are set; without them the build is unsigned
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -112,18 +112,6 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: Build
         run: ./build.sh --target mac ${ARCH:+--arch "$ARCH"}
-      - name: Notarise, staple and check the disk image
-        # the app inside is notarised by the build; the disk image needs its own submission and ticket
-        if: env.APPLE_API_KEY_PATH != '' && env.APPLE_API_ISSUER != ''
-        run: |
-          shopt -s nullglob
-          dmgs=(dist/*.dmg)
-          [ "${#dmgs[@]}" -eq 1 ] || { echo "expected one .dmg in dist/, found ${#dmgs[@]}" >&2; exit 1; }
-          dmg="${dmgs[0]}"
-          xcrun notarytool submit "$dmg" --key-id "$APPLE_API_KEY" --key "$APPLE_API_KEY_PATH" --issuer "$APPLE_API_ISSUER" --wait
-          xcrun stapler staple "$dmg"
-          xcrun stapler validate "$dmg"
-          spctl -a -vvv -t install "$dmg"
       - uses: actions/upload-artifact@v4
         with:
           name: fml-mac

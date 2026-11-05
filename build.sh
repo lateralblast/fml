@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Build fml installers (the desktop app) and the command-line binary.
-#   ./build.sh --target mac [--arch arm64|x64|universal]                     (on a Mac: builds a .dmg; untested)
+#   ./build.sh --target mac [--arch arm64|x64|universal] [--notarize|--nonotarize]   (on a Mac: builds a .dmg)
+#                                                                 --notarize (the default) signs the app with the Developer ID
+#                                                                 Application certificate in the keychain, if there is one, and
+#                                                                 notarises the app and the .dmg; --nonotarize signs but does not
+#                                                                 notarise. The notary credentials come from the environment, or from
+#                                                                 the file FML_NOTARY_ENV names (default ~/.config/fml/notary.env).
 #   ./build.sh --target linux [--package deb|rpm|appimage|all]               (comma list allowed, e.g. deb,rpm; default: the
 #                                                                 distribution's own package: deb on Debian/Ubuntu, rpm on
 #                                                                 RHEL/Fedora/Alma/Rocky/SUSE, else appimage;
@@ -39,19 +44,22 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--package deb|rpm|appimage|all] [--no-cli] [--local|--ci] [--dry-run]"
+  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--notarize|--nonotarize] [--package deb|rpm|appimage|all] [--no-cli] [--local|--ci] [--dry-run]"
   echo "       $0 [--target <t>] --release [<version>] [--commit <ref>] [--draft] [--yes] [--dry-run]"
   echo "       $0 --delete-release [<version>] [--keep-tag] [--yes] [--dry-run]"
   exit "${1:-1}"
 }
 
 target="" arch="" package="" cli=1 delete=0 del_version="" rel_version="" rel_commit="" keep_tag=0 release=0 draft=0 yes=0 dry=0 where=""
+notarize=1 notarize_set=0 notarizing=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) target="${2:-}"; shift 2 ;;
     --arch) arch="${2:-}"; shift 2 ;;
     --package|--format) package="${2:-}"; shift 2 ;;
     --no-cli) cli=0; shift ;;
+    --notarize) notarize=1; notarize_set=1; shift ;;
+    --nonotarize) notarize=0; notarize_set=1; shift ;;
     --local) where=local; shift ;;
     --ci) where=ci; shift ;;
     --release)
@@ -73,6 +81,12 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$target" ] || [ "$release" = 1 ] || [ "$delete" = 1 ] || usage
 [ -z "$where" ] || [ -n "$target" ] || { echo "--local and --ci build a --target: give one" >&2; exit 1; }
+if [ "$notarize_set" = 1 ] && [ "$target" != mac ] && [ "$target" != macos ]; then
+  echo "--notarize and --nonotarize only apply to --target mac" >&2; exit 1
+fi
+if [ "$notarize_set" = 1 ] && [ "$where" = ci ]; then
+  echo "--notarize and --nonotarize are for a local build: a --ci build notarises when the GitHub secrets are set" >&2; exit 1
+fi
 if [ "$where" = ci ] && { [ "$release" = 1 ] || [ "$delete" = 1 ]; }; then
   echo "--ci only builds a --target: it cannot be combined with --release or --delete-release" >&2; exit 1
 fi
@@ -159,6 +173,85 @@ windows_docker() {
   echo "done: $dist"
 }
 
+# Developer ID signing and notarisation for --target mac. The certificate is the Developer ID Application identity in the
+# keychain (or APPLE_SIGNING_IDENTITY): with one, the app is signed; with --notarize (the default) the app and the disk
+# image are notarised too. Without one, the app is built unsigned and the build says so. The notary credentials are
+# either an App Store Connect key (APPLE_API_KEY, APPLE_API_ISSUER and APPLE_API_KEY_PATH) or an Apple ID (APPLE_ID,
+# APPLE_PASSWORD and APPLE_TEAM_ID). They come from the environment, or from the file FML_NOTARY_ENV names when none is set.
+notary_settings_file() { echo "${FML_NOTARY_ENV:-$HOME/.config/fml/notary.env}"; }
+
+load_notary_settings() {
+  local file
+  file=$(notary_settings_file)
+  if [ -z "${APPLE_API_KEY:-}" ] && [ -z "${APPLE_ID:-}" ] && [ -r "$file" ]; then
+    set -a; . "$file"; set +a
+  fi
+}
+
+# The Developer ID Application identity to sign with: APPLE_SIGNING_IDENTITY, else the one in the keychain. Nothing (and
+# success) if there is none; an error if there are several and none is named.
+developer_id_identity() {
+  local ids count
+  if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then echo "$APPLE_SIGNING_IDENTITY"; return 0; fi
+  ids=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p')
+  count=$(printf '%s\n' "$ids" | grep -c . || true)
+  if [ "$count" -gt 1 ]; then
+    echo "more than one Developer ID Application certificate: set APPLE_SIGNING_IDENTITY to the one to use" >&2; exit 1
+  fi
+  if [ "$count" -eq 1 ]; then echo "$ids"; fi
+  return 0
+}
+
+# Whether the notary credentials are complete (an App Store Connect key, or an Apple ID with its password and team).
+notary_ready() {
+  { [ -n "${APPLE_API_KEY:-}" ] && [ -n "${APPLE_API_ISSUER:-}" ] && [ -r "${APPLE_API_KEY_PATH:-/nonexistent}" ]; } ||
+  { [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; }
+}
+
+# Decide how the Mac app is signed and whether it is notarised, before cargo tauri build (which signs when
+# APPLE_SIGNING_IDENTITY is set, and notarises when the notary variables are). Sets notarizing=1 when the disk image
+# must be notarised after the build too.
+mac_signing_setup() {
+  local identity
+  load_notary_settings
+  notarizing=0
+  identity=$(developer_id_identity)
+  if [ -z "$identity" ]; then
+    echo "no Developer ID Application certificate in the keychain: the app is built unsigned and not notarised" >&2
+    unset APPLE_SIGNING_IDENTITY
+    return
+  fi
+  export APPLE_SIGNING_IDENTITY="$identity"
+  if [ "$notarize" = 0 ]; then
+    # --nonotarize: sign, but unset the notary variables so that Tauri does not notarise the app
+    unset APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+    echo "== signing with $identity; not notarising (--nonotarize) =="
+    return
+  fi
+  notary_ready || {
+    echo "a Developer ID certificate was found, but not the notarisation credentials: set APPLE_API_KEY, APPLE_API_ISSUER and APPLE_API_KEY_PATH (or APPLE_ID, APPLE_PASSWORD and APPLE_TEAM_ID), in the environment or in $(notary_settings_file); or build with --nonotarize" >&2
+    exit 1
+  }
+  notarizing=1
+  echo "== signing with $identity and notarising (--notarize) =="
+}
+
+# Notarise the disk image itself (Tauri notarises only the app inside it), then staple the ticket and check it.
+notarise_disk_image() {
+  local dmg="$1"
+  echo "== notarising $dmg (this takes a few minutes) =="
+  if [ -n "${APPLE_API_KEY:-}" ]; then
+    xcrun notarytool submit "$dmg" --key-id "$APPLE_API_KEY" --key "$APPLE_API_KEY_PATH" --issuer "$APPLE_API_ISSUER" --wait ||
+      { echo "notarisation of $dmg failed: see xcrun notarytool history" >&2; exit 1; }
+  else
+    xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait ||
+      { echo "notarisation of $dmg failed: see xcrun notarytool history" >&2; exit 1; }
+  fi
+  xcrun stapler staple "$dmg"
+  xcrun stapler validate "$dmg"
+  spctl -a -vvv -t install "$dmg"
+}
+
 build_target() {
   host=$(uname -s)
   case "$target" in deb|rpm) package="$target"; target=linux ;; esac
@@ -228,6 +321,7 @@ build_target() {
     echo "--arch only applies to --target mac" >&2; exit 1
   fi
 
+  if [ "$target" = mac ] || [ "$target" = macos ]; then mac_signing_setup; fi
   mkdir -p "$dist"
   stamp=$(mktemp)
   echo "== building the installer ($target, $bundles) =="
@@ -236,14 +330,17 @@ build_target() {
 
   # Tauri puts bundles under target/[<triple>/]release/bundle/<kind>/
   found=0
+  dmg_out=""
   while IFS= read -r f; do
     cp -R "$f" "$dist/"
     echo "  $dist/$(basename "$f")"
     found=1
+    case "$f" in *.dmg) dmg_out="$dist/$(basename "$f")" ;; esac
   done < <(find "$root/rust/target" -path '*/release/bundle/*' -type f \
     \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*-setup.exe' \) -newer "$stamp" 2>/dev/null)
   rm -f "$stamp"
   [ "$found" = 1 ] || { echo "no installer found under rust/target/ (did the bundle step run?)" >&2; exit 1; }
+  if [ "$notarizing" = 1 ] && [ -n "$dmg_out" ]; then notarise_disk_image "$dmg_out"; fi
 
   if [ "$cli" = 1 ]; then
     echo "== building the fml-cli command-line binary =="
