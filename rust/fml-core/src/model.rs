@@ -15,6 +15,21 @@ pub const REQUIRED_TOOLS: &[(&str, &str)] = &[
     ("ffmpeg", "ffmpeg"),
 ];
 
+/// Whether this build does the MKV work with ffmpeg and never uses mkvtoolnix: the `no-mkvtoolnix` feature (the
+/// build made for the App Store), or, for the tests, the environment variable FML_SPIKE_NO_MKVTOOLNIX.
+pub fn mkvtoolnix_hidden() -> bool {
+    cfg!(feature = "no-mkvtoolnix") || std::env::var_os("FML_SPIKE_NO_MKVTOOLNIX").is_some()
+}
+
+/// The commands every action needs in this build: mkvtoolnix's only when this build uses it.
+pub fn required_tools() -> Vec<(&'static str, &'static str)> {
+    REQUIRED_TOOLS
+        .iter()
+        .copied()
+        .filter(|(tool, _)| !(mkvtoolnix_hidden() && tool.starts_with("mkv")))
+        .collect()
+}
+
 /// Commands that only some actions use, and the package that provides each. A missing one is not
 /// an error: `--check` reports it, and `--install` installs it where a package is known.
 /// `whisper-cli` (whisper.cpp) is what `--detect` runs.
@@ -51,7 +66,8 @@ impl Container {
     /// The commands needed to read a file of this kind.
     pub fn read_tools(self) -> &'static [&'static str] {
         match self {
-            Container::Mkv => &["mkvmerge"],
+            // an MKV is read with ffprobe, which comes with ffmpeg
+            Container::Mkv => &["ffmpeg"],
             _ => &["mediainfo"],
         }
     }
@@ -59,6 +75,7 @@ impl Container {
     /// The commands needed to change a file of this kind.
     pub fn write_tools(self) -> &'static [&'static str] {
         match self {
+            Container::Mkv if mkvtoolnix_hidden() => &["mediainfo", "ffmpeg"],
             Container::Mkv => &["mkvmerge", "mkvpropedit"],
             _ => &["mediainfo", "ffmpeg"],
         }
@@ -239,8 +256,6 @@ pub struct Config {
     pub dryrun: bool,
     pub install: bool,
     pub force: bool,
-    /// Edit MKV files directly rather than a copy of them.
-    pub in_place: bool,
     /// Keep the original beside the changed file.
     pub backup: bool,
     /// A file to record each change in, so that undo can reverse it.
@@ -343,7 +358,6 @@ impl Default for Config {
             dryrun: false,
             install: false,
             force: false,
-            in_place: false,
             backup: false,
             log: String::new(),
             include: Vec::new(),

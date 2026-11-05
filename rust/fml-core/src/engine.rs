@@ -95,9 +95,15 @@ fn mark_skipped(result: &mut Outcome, message: &str) {
     result.message = message.to_string();
 }
 
+/// A codec name as it is compared for `--codec`: lower case, and without hyphens and spaces, so `ac-3` matches
+/// `ac3` (ffprobe's name) and `AC-3` (mkvtoolnix's).
+fn codec_key(name: &str) -> String {
+    name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
+}
+
 /// Whether a command is one the tool needs for every action (not an optional one like `whisper-cli`).
 fn is_required(tool: &str) -> bool {
-    REQUIRED_TOOLS.iter().any(|(t, _)| *t == tool)
+    required_tools().iter().any(|(t, _)| *t == tool)
 }
 
 /// The commands not found: the required ones only, if `required_only`.
@@ -333,7 +339,7 @@ pub fn subtitle_extension(container: Container, codec: &str) -> Option<&'static 
     }
     if codec.contains("subrip") || codec.contains("srt") {
         Some("srt")
-    } else if codec.contains("substation") {
+    } else if codec.contains("substation") || codec == "ass" || codec == "ssa" {
         Some("ass")
     } else if codec.contains("webvtt") {
         Some("vtt")
@@ -574,7 +580,8 @@ impl Fml {
     fn install_missing(&self, missing: &[String]) {
         let mut done: Vec<&str> = Vec::new();
         for tool in missing {
-            if let Some(&(_, package)) = REQUIRED_TOOLS.iter().chain(OPTIONAL_TOOLS.iter()).find(|(t, _)| t == tool) {
+            let required = required_tools();
+            if let Some(&(_, package)) = required.iter().chain(OPTIONAL_TOOLS.iter()).find(|(t, _)| t == tool) {
                 if !done.contains(&package) {
                     done.push(package);
                     self.install_package(package);
@@ -605,10 +612,11 @@ impl Fml {
     /// installed: it is a large download.
     pub fn check_tools(&self) -> Res<Outcome> {
         let find = || -> Vec<(String, Option<PathBuf>)> {
-            REQUIRED_TOOLS
-                .iter()
-                .chain(OPTIONAL_TOOLS.iter())
-                .map(|(t, _)| (t.to_string(), self.find_tool(t)))
+            required_tools()
+                .into_iter()
+                .map(|(t, _)| t)
+                .chain(OPTIONAL_TOOLS.iter().map(|(t, _)| *t))
+                .map(|t| (t.to_string(), self.find_tool(t)))
                 .collect()
         };
         let mut found = find();
@@ -626,11 +634,11 @@ impl Fml {
         let mut entries: Vec<Value> = found
             .iter()
             .map(|(tool, path)| {
-                let package = REQUIRED_TOOLS
-                    .iter()
-                    .chain(OPTIONAL_TOOLS.iter())
+                let package = required_tools()
+                    .into_iter()
+                    .chain(OPTIONAL_TOOLS.iter().copied())
                     .find(|(t, _)| t == tool)
-                    .map(|(_, p)| *p);
+                    .map(|(_, p)| p);
                 json!({"tool": tool, "path": path.as_ref().map(|p| p.to_string_lossy()),
                        "package": package, "optional": !is_required(tool)})
             })
@@ -811,8 +819,10 @@ impl Fml {
 
     /// Read the tracks of a file.
     pub fn read_tracks(&self, media: &Media) -> Res<Vec<Track>> {
-        let cmd = if media.container == Container::Mkv {
-            args(&["mkvmerge", "-F", "json", "-i", &media.path])
+        // an MKV is read with ffprobe (part of ffmpeg), in every build, so its track names are the same everywhere
+        let mkv_by_ffprobe = media.container == Container::Mkv;
+        let cmd = if mkv_by_ffprobe {
+            args(&["ffprobe", "-v", "error", "-show_streams", "-of", "json", &media.path])
         } else {
             args(&["mediainfo", "--Output=JSON", &media.path])
         };
@@ -820,7 +830,9 @@ impl Fml {
         let parsed = serde_json::from_str::<Value>(&done.stdout)
             .map_err(|e| e.to_string())
             .and_then(|data| {
-                if media.container == Container::Mkv {
+                if mkv_by_ffprobe {
+                    crate::track::parse_ffprobe_tracks(&data)
+                } else if media.container == Container::Mkv {
                     parse_mkv_tracks(&data)
                 } else {
                     parse_mediainfo_tracks(&data)
@@ -1018,7 +1030,7 @@ impl Fml {
     }
 
     fn start_copy(&self, result: &mut Outcome, path: &str, temp_file: &str) -> Res<bool> {
-        if !self.check_space(result, path, "copy the file (use --in-place to edit it directly)") {
+        if !self.check_space(result, path, "copy the file") {
             return Ok(false);
         }
         self.pend(temp_file);
@@ -1216,8 +1228,8 @@ impl Fml {
 
     /// Apply edits to a file.
     ///
-    /// An MKV is edited with mkvpropedit, on a copy that replaces the file if it worked
-    /// (or in place with --in-place). If a track has to be moved, or the file is an MP4,
+    /// An MKV is edited with mkvpropedit, on a copy that replaces the file if it worked.
+    /// If a track has to be moved, or the file is an MP4,
     /// the file is rewritten instead, with mkvmerge or ffmpeg. Either way the result is
     /// read back and checked before it replaces the original.
     fn edit_tracks(
@@ -1255,7 +1267,8 @@ impl Fml {
         let expected = self.expected_layout(&all, &edits);
         result.data = layout_data(&all, &expected);
         let (temp_file, cmd, tool, ok): (String, Vec<String>, &str, &[i32]) =
-            if media.container == Container::Mkv {
+            // SPIKE: an MKV is rewritten with ffmpeg when mkvmerge is missing
+            if media.container == Container::Mkv && self.find("mkvmerge").is_some() {
                 let temp_file = format!("{}{TEMP_MARK}", media.path);
                 let cmd = self.mkvmerge_command(media, &all, &edits, &temp_file);
                 (temp_file, cmd, "mkvmerge", MKVMERGE_OK)
@@ -1322,6 +1335,43 @@ impl Fml {
         Ok(result.finish())
     }
 
+    /// SPIKE: the ffmpeg command that makes the flag, language and name changes that mkvpropedit makes, remuxing the
+    /// source into `output` with -c copy. Each edited track gets its whole disposition (default and forced) and its
+    /// language and title. Tracks that are not edited are copied as they are.
+    fn ffmpeg_edit_command(&self, source: &str, output: &str, all: &[Track], edits: &[Edit]) -> Vec<String> {
+        let selector = self.kind().selector();
+        let mut cmd = args(&["ffmpeg", "-v", "error", "-y", "-i", source, "-map", "0", "-c", "copy",
+            "-map_metadata", "0", "-map_chapters", "0"]);
+        // the Matroska muxer makes the first track of a kind default when none is: every track that should not
+        // be default is cleared first (the flags asked for are set below)
+        for track in all {
+            let edited = edits.iter().find(|e| e.track.key() == track.key()).and_then(|e| e.default);
+            if !edited.unwrap_or(track.default) {
+                cmd.extend(args(&[&format!("-disposition:{}:{}", track.kind.selector(), track.number - 1), "-default"]));
+            }
+        }
+        for edit in edits {
+            let track = &edit.track;
+            // track numbers count from 1, ffmpeg's stream specifiers from 0
+            let stream = format!("{selector}:{}", track.number - 1);
+            // only the flags asked for change: "+flag" and "-flag" leave the others (hearing-impaired and the like) as they are
+            if let Some(default) = edit.default {
+                cmd.extend(args(&[&format!("-disposition:{stream}"), if default { "+default" } else { "-default" }]));
+            }
+            if let Some(forced) = edit.forced {
+                cmd.extend(args(&[&format!("-disposition:{stream}"), if forced { "+forced" } else { "-forced" }]));
+            }
+            if let Some(language) = &edit.language {
+                cmd.extend(args(&[&format!("-metadata:s:{stream}"), &format!("language={language}")]));
+            }
+            if let Some(name) = &edit.name {
+                cmd.extend(args(&[&format!("-metadata:s:{stream}"), &format!("title={name}")]));
+            }
+        }
+        cmd.extend(args(&["-f", "matroska", output]));
+        cmd
+    }
+
     /// Change flags and languages of an MKV with mkvpropedit, on a copy.
     fn edit_mkv(&self, media: &mut Media, mut result: Outcome, edits: &[Edit]) -> Res<Outcome> {
         let selector = self.kind().selector();
@@ -1350,13 +1400,6 @@ impl Fml {
             cmd.extend(options.iter().cloned());
             cmd
         };
-        if self.config.in_place {
-            if self.config.backup && !self.keep_original(&mut result, &media.path, false)? {
-                return Ok(result);
-            }
-            self.apply(&mut result, command(&media.path), &[0])?;
-            return Ok(result.finish());
-        }
         let temp_file = format!("{}{TEMP_MARK}", media.path);
         if !self.start_copy(&mut result, &media.path, &temp_file)? {
             return Ok(result);
@@ -1364,9 +1407,15 @@ impl Fml {
         let all = self.tracks(media)?;
         let expected = self.expected_layout(&all, edits);
         result.data = layout_data(&all, &expected);
-        if self.apply(&mut result, command(&temp_file), &[0])? && !self.config.dryrun {
+        // SPIKE: without mkvpropedit, ffmpeg remuxes the original into the copy's place
+        let (edit_cmd, tool) = if self.find("mkvpropedit").is_none() {
+            (self.ffmpeg_edit_command(&media.path, &temp_file, &all, edits), "ffmpeg")
+        } else {
+            (command(&temp_file), "mkvpropedit")
+        };
+        if self.apply(&mut result, edit_cmd, &[0])? && !self.config.dryrun {
             let rewritten = Media::new(&temp_file, media.container);
-            self.verify_layout(&mut result, &rewritten, &expected, "mkvpropedit")?;
+            self.verify_layout(&mut result, &rewritten, &expected, tool)?;
         }
         self.replace_file(&mut result, &temp_file, &media.path)?;
         Ok(result.finish())
@@ -1448,6 +1497,24 @@ impl Fml {
         cmd.extend(maps);
         cmd.extend(args(&["-c", "copy"]));
         cmd.extend(name_args(&kept_tracks(all, Some((self.kind(), order.clone()))), &renamed));
+        // SPIKE: the Matroska muxer makes the first track of a kind default when none is, so every track that should
+        // not be default is cleared first (the edits below set the ones that should)
+        if media.container == Container::Mkv {
+            for kind in [Kind::Video, Kind::Audio, Kind::Subtitles] {
+                let list: Vec<Track> = if kind == self.kind() {
+                    order.clone()
+                } else {
+                    all.iter().filter(|t| t.kind == kind).cloned().collect()
+                };
+                for (index, track) in list.iter().enumerate() {
+                    let edited = edits.iter().find(|e| e.track.key() == track.key()).and_then(|e| e.default);
+                    if !edited.unwrap_or(track.default) {
+                        cmd.push(format!("-disposition:{}:{index}", kind.selector()));
+                        cmd.push("-default".to_string());
+                    }
+                }
+            }
+        }
         let position: HashMap<usize, usize> =
             order.iter().enumerate().map(|(i, t)| (t.number, i)).collect();
         for edit in edits {
@@ -1455,6 +1522,10 @@ impl Fml {
             if let Some(default) = edit.default {
                 cmd.push(format!("-disposition:{selector}:{index}"));
                 cmd.push(if default { "+default" } else { "-default" }.to_string());
+            }
+            if let Some(forced) = edit.forced {
+                cmd.push(format!("-disposition:{selector}:{index}"));
+                cmd.push(if forced { "+forced" } else { "-forced" }.to_string());
             }
             if let Some(language) = &edit.language {
                 cmd.push(format!("-metadata:s:{selector}:{index}"));
@@ -1517,7 +1588,8 @@ impl Fml {
             .collect();
         result.data = layout_data(&all, &expected);
         let (temp_file, cmd, tool, ok): (String, Vec<String>, &str, &[i32]) =
-            if media.container == Container::Mkv {
+            // SPIKE: an MKV's tracks are removed with ffmpeg when mkvmerge is missing
+            if media.container == Container::Mkv && self.find("mkvmerge").is_some() {
                 let ids = remove.iter().map(|t| t.id.to_string()).collect::<Vec<_>>().join(",");
                 let temp_file = format!("{}{TEMP_MARK}", media.path);
                 let select = if self.kind() == Kind::Audio { "--audio-tracks" } else { "--subtitle-tracks" };
@@ -1543,6 +1615,14 @@ impl Fml {
                 ));
                 if promote.is_some() {
                     cmd.extend(args(&[&format!("-disposition:{selector}:0"), "+default"]));
+                }
+                // SPIKE: the Matroska muxer makes the first track of a kind default when none is, so the others are cleared
+                if media.container == Container::Mkv {
+                    for (index, track) in survivors.iter().enumerate() {
+                        if !track.default && promote.as_ref().is_none_or(|p| p.key() != track.key()) {
+                            cmd.extend(args(&[&format!("-disposition:{selector}:{index}"), "-default"]));
+                        }
+                    }
                 }
                 cmd.extend(Self::ffmpeg_output(media, &temp_file));
                 (temp_file, cmd, "ffmpeg", &[0])
@@ -1980,7 +2060,7 @@ impl Fml {
                     .into_iter()
                     .filter(|t| {
                         (self.config.lang.is_empty() || t.language == self.config.lang)
-                            && (codec.is_empty() || t.codec.to_lowercase().contains(&codec))
+                            && (codec.is_empty() || codec_key(&t.codec).contains(&codec_key(&codec)))
                             && (self.config.channels == 0 || t.channels == self.config.channels)
                     })
                     .collect()
@@ -2119,9 +2199,14 @@ impl Fml {
             return worker.add_to_mp4(media, result, &specs, &all);
         }
         let temp_file = format!("{}{TEMP_MARK}", media.path);
+        // SPIKE: with mkvmerge missing, ffmpeg copies the file and adds each subtitle file as a stream
+        let with_ffmpeg = worker.find("mkvmerge").is_none();
         let mut cmd = args(&["mkvmerge", "-o", &temp_file, &media.path]);
+        let mut ff_inputs: Vec<String> = Vec::new();
+        let mut ff_maps: Vec<String> = Vec::new();
+        let mut ff_meta: Vec<String> = Vec::new();
         let mut expected = all.clone();
-        for spec in &specs {
+        for (k, spec) in specs.iter().enumerate() {
             number += 1;
             let new = Track {
                 id: expected.len() as i64,
@@ -2152,9 +2237,31 @@ impl Fml {
                 if spec.forced { "0:1" } else { "0:0" },
             ]));
             cmd.push(spec.file.clone());
+            if with_ffmpeg {
+                ff_inputs.extend(args(&["-i", &spec.file]));
+                ff_maps.extend(args(&["-map", &format!("{}:0", k + 1)]));
+                let place = new.number - 1;
+                ff_meta.extend(args(&[&format!("-disposition:s:{place}"), if spec.forced { "forced" } else { "0" }]));
+                ff_meta.extend(args(&[&format!("-metadata:s:s:{place}"), &format!("language={}", new.language)]));
+                if !new.name.is_empty() {
+                    ff_meta.extend(args(&[&format!("-metadata:s:s:{place}"), &format!("title={}", new.name)]));
+                }
+            }
             expected.push(new);
         }
         result.data = layout_data(&all, &expected);
+        let cmd = if with_ffmpeg {
+            let mut ff = args(&["ffmpeg", "-v", "error", "-y", "-i", &media.path]);
+            ff.extend(ff_inputs);
+            ff.extend(args(&["-map", "0"]));
+            ff.extend(ff_maps);
+            ff.extend(args(&["-c", "copy"]));
+            ff.extend(ff_meta);
+            ff.extend(args(&["-f", "matroska", &temp_file]));
+            ff
+        } else {
+            cmd
+        };
         worker.pend(&temp_file);
         let done = worker.apply_tracked(&mut result, cmd, MKVMERGE_OK, &media.path, &temp_file, "Rewriting")?;
         if done && !self.config.dryrun {
@@ -2275,10 +2382,6 @@ impl Fml {
             let codec = if track.codec.is_empty() { "this".to_string() } else { track.codec.clone() };
             return Ok(skip(result, &format!("a {codec} subtitle can't be extracted to a single file")));
         };
-        if media.container == Container::Mkv && self.find("mkvextract").is_none() {
-            result.error("mkvextract is not installed (it comes with mkvtoolnix)".to_string());
-            return Ok(result);
-        }
         let folder = Path::new(&media.path).parent().map(Path::to_path_buf).unwrap_or_default();
         let wanted = self.config.output.trim();
         let is_folder = wanted.ends_with(['/', '\\']) || Path::new(wanted).is_dir();
@@ -2310,8 +2413,14 @@ impl Fml {
             ));
         }
         let temp_file = temp_path(&out_text);
-        let cmd = if media.container == Container::Mkv {
+        // SPIKE: with mkvextract missing, ffmpeg copies the track out in its own format
+        let cmd = if media.container == Container::Mkv && self.find("mkvextract").is_some() {
             args(&["mkvextract", "tracks", &media.path, &format!("{}:{temp_file}", track.id)])
+        } else if media.container == Container::Mkv {
+            let mut cmd = vec!["ffmpeg".to_string()];
+            cmd.extend(args(crate::model::FFMPEG_QUIET));
+            cmd.extend(args(&["-i", &media.path, "-map", &format!("0:s:{}", track.number - 1), "-c", "copy", &temp_file]));
+            cmd
         } else {
             let mut cmd = vec!["ffmpeg".to_string()];
             cmd.extend(args(crate::model::FFMPEG_QUIET));

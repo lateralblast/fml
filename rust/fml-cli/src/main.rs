@@ -341,7 +341,7 @@ fn build_command() -> Command {
                 .value_name("TEXT")
                 .help(
                     "for --delete match: part of the codec name as --info shows it, in any case \
-                     (ac-3 matches AC-3 and E-AC-3)",
+                     (ac-3 matches ac3 and eac3, as ffprobe names them)",
                 )
                 .help_heading(settings),
         )
@@ -538,17 +538,6 @@ fn build_command() -> Command {
                 .help(
                     "keep the original beside the changed file, as NAME.fml-bak (a hard link \
                      where possible, so it costs no space)",
-                )
-                .help_heading(settings),
-        )
-        .arg(
-            Arg::new("in-place")
-                .long("in-place")
-                .action(ArgAction::SetTrue)
-                .help(
-                    "edit MKV files directly instead of a copy that replaces them if it worked: \
-                     quicker and needs no free space, but an interruption can leave the file \
-                     damaged",
                 )
                 .help_heading(settings),
         )
@@ -762,7 +751,6 @@ fn config_from(matches: &ArgMatches) -> Config {
         enable: many(matches, "enable"),
         install: matches.get_flag("install"),
         force: matches.get_flag("force"),
-        in_place: matches.get_flag("in-place"),
         backup: matches.get_flag("backup"),
         log: text(matches, "log"),
         include: many(matches, "include"),

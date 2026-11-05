@@ -13,7 +13,7 @@ use fml_core::languages::resolve_language;
 use fml_core::util::which;
 use fml_core::{
     request_cancel, reset_cancel, validate, Config, Event, Fml, Kind, Outcome, Sink, SubSpec, Task,
-    whisper_path, OPTIONAL_TOOLS, REQUIRED_TOOLS, VERSION,
+    whisper_path, OPTIONAL_TOOLS, VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -74,7 +74,6 @@ struct Request {
     kind: String,
     forced: bool,
     force: bool,
-    in_place: bool,
     backup: bool,
     log: String,
     jobs: usize,
@@ -133,7 +132,6 @@ impl Request {
             },
             forced: self.forced,
             force: self.force,
-            in_place: self.in_place,
             backup: self.backup,
             dryrun: self.dryrun,
             log: self.log.clone(),
@@ -249,7 +247,7 @@ async fn app_info() -> Result<Value, String> {
 
 fn app_info_now() -> Value {
     // the optional whisper-cli (for Detect languages…) is listed too, found as --check finds it
-    let mut tools: Vec<Value> = REQUIRED_TOOLS
+    let mut tools: Vec<Value> = fml_core::model::required_tools()
         .iter()
         .map(|(tool, package)| {
             json!({"tool": tool, "package": package, "optional": false,
@@ -830,12 +828,12 @@ mod tests {
     #[test]
     fn the_same_rules_as_the_command_line_apply() {
         let config = request(json!({
-            "paths": ["a.mkv"], "move_first": true, "in_place": true, "default": "eng",
+            "paths": ["a.mkv"], "codec": "ac-3", "default": "eng",
             "tasks": [{"name": "set", "what": "lang"}],
         }))
         .config()
         .unwrap();
-        assert!(validate(&config).unwrap_err().contains("can't be used with --in-place"));
+        assert!(validate(&config).unwrap_err().contains("--codec and --channels only work with --delete match"));
     }
 
     #[test]

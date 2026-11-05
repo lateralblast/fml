@@ -13,11 +13,13 @@ from typing import Any, Callable
 import pytest
 from conftest import (
     FML_BIN,
+    NO_MKVTOOLNIX,
     Ran,
     leftovers,
     mkv_json,
     mkv_layout,
     mkv_names,
+    needs_mkvtoolnix,
     requires_tools,
     same_file,
 )
@@ -43,7 +45,7 @@ def test_info_lists_the_tracks(run: Callable[..., Ran], film_mkv: Path) -> None:
     assert [r[0] for r in rows[2:]] == ["video:1", "audio:1", "audio:2", "audio:3",
                                         "subtitles:1", "subtitles:2", "subtitles:3"]
     assert rows[3][3:5] == ["ita", "yes"]
-    assert rows[6][:5] == ["subtitles:1", "4", "SubRip/SRT", "eng", "-"]
+    assert rows[6][:5] == ["subtitles:1", "4", "subrip", "eng", "-"]
     assert rows[7][5] == "yes"  # the forced subtitle track
 
 
@@ -122,14 +124,6 @@ def test_the_original_is_replaced_by_a_checked_copy(run: Callable[..., Ran],
     inode = film_mkv.stat().st_ino
     run("--set", "lang", "--default", "English", "-i", film_mkv)
     assert film_mkv.stat().st_ino != inode  # a new file took its place
-
-
-def test_in_place_edits_the_same_file(run: Callable[..., Ran], film_mkv: Path) -> None:
-    inode = film_mkv.stat().st_ino
-    ran = run("--set", "lang", "--default", "English", "-i", film_mkv, "--in-place")
-    assert ran.code == 0, ran.err
-    assert film_mkv.stat().st_ino == inode
-    assert mkv_layout(film_mkv)[:3] == ["a:ita", "a:eng*", "a:fre"]
 
 
 def test_permissions_and_times_are_kept(run: Callable[..., Ran], film_mkv: Path) -> None:
@@ -224,7 +218,8 @@ def test_move_when_the_track_is_already_first_only_edits_the_flag(run: Callable[
     run("--set", "lang", "--default", "English", "-i", film_mkv)
     ran = run("--set", "lang", "--default", "Italian", "--move", "-i", film_mkv, "-F", "json")
     (result,) = json.loads(ran.out)["results"]
-    assert result["commands"][0][0] == "mkvpropedit"  # no remux
+    # mkvpropedit edits the flags in place; without mkvtoolnix the flags are a remux with ffmpeg
+    assert result["commands"][0][0] == ("ffmpeg" if NO_MKVTOOLNIX else "mkvpropedit")
     assert mkv_layout(film_mkv)[:3] == ["a:ita*", "a:eng", "a:fre"]
 
 
@@ -253,7 +248,10 @@ def test_move_with_prefer_and_set_default_by_track(run: Callable[..., Ran], und_
 def test_move_dry_run_shows_the_remux(run: Callable[..., Ran], film_mkv: Path) -> None:
     before = film_mkv.read_bytes()
     ran = run("--set", "lang", "--default", "English", "--move", "-i", film_mkv, "-T", "-v")
-    assert "--track-order 0:0,0:2,0:1,0:3,0:4,0:5,0:6" in ran.err
+    if NO_MKVTOOLNIX:
+        assert "ffmpeg" in ran.err and "-map" in ran.err
+    else:
+        assert "--track-order 0:0,0:2,0:1,0:3,0:4,0:5,0:6" in ran.err
     assert "moved to the first audio track" in ran.out
     assert film_mkv.read_bytes() == before
 
@@ -446,7 +444,10 @@ def test_a_switch_belongs_to_the_action_before_it(run: Callable[..., Ran], film_
     assert ran.code == 0, ran.err
     # the first plan moves French first (an mkvmerge rewrite); the second only edits flags
     commands = [line for line in ran.err.splitlines() if line.startswith("Executing:")]
-    assert any("mkvmerge" in c and "--track-order" in c for c in commands)
+    if NO_MKVTOOLNIX:
+        assert any(c.startswith("Executing:\tffmpeg") and "-map" in c for c in commands)
+    else:
+        assert any("mkvmerge" in c and "--track-order" in c for c in commands)
 
 
 @pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
@@ -566,7 +567,8 @@ def test_name_and_forced_edits_dry_run_and_json(run: Callable[..., Ran], film_mk
     ran = run("--set", "name", "--track", "1", "--name", "X", "-i", film_mkv, "-T", "-F", "json")
     (result,) = json.loads(ran.out)["results"]
     assert result["changes"] == ['audio track 1 (ita): name "Italian" -> "X"']
-    assert "name=X" in result["commands"][0] and film_mkv.read_bytes() == before
+    assert ("title=X" if NO_MKVTOOLNIX else "name=X") in result["commands"][0]
+    assert film_mkv.read_bytes() == before
 
 
 def test_a_name_edit_out_of_range(run: Callable[..., Ran], film_mkv: Path) -> None:
@@ -603,14 +605,6 @@ def test_backups_are_numbered(run: Callable[..., Ran], film_mkv: Path) -> None:
         run("--set", "lang", "--default", default, "-i", film_mkv, "--backup")
     names = sorted(path.name for path in film_mkv.parent.glob("film.mkv*"))
     assert names == ["film.mkv", "film.mkv.fml-bak", "film.mkv.fml-bak.1", "film.mkv.fml-bak.2"]
-
-
-def test_in_place_backup_is_a_real_copy(run: Callable[..., Ran], film_mkv: Path) -> None:
-    original = film_mkv.read_bytes()
-    run("--set", "lang", "--default", "English", "-i", film_mkv, "--in-place", "--backup")
-    backup = Path(str(film_mkv) + fml.BACKUP_MARK)
-    assert backup.read_bytes() == original
-    assert backup.stat().st_ino != film_mkv.stat().st_ino and mkv_layout(film_mkv)[1] == "a:eng*"
 
 
 def test_backup_dry_run_and_directory_mode(run: Callable[..., Ran], tmp_path: Path,
@@ -925,7 +919,6 @@ def test_undo_an_added_subtitle_without_a_backup_says_why(run: Callable[..., Ran
     (["--lang", "ita", "--sub-file", "notes.txt"], "not a subtitle file I can add"),
     (["--sub-file", "it.srt"], "needs --lang"),
     ([], "needs --sub-file"),
-    (["--lang", "ita", "--sub-file", "it.srt", "--in-place"], "can't be used with --in-place"),
     (["--lang", "ita", "--sub-file", "it.srt", "--track", "1"], "not --track"),
 ])
 def test_a_bad_add_is_refused_and_changes_nothing(run: Callable[..., Ran], film_mkv: Path,
@@ -1236,13 +1229,14 @@ def test_undo_restores_a_removal_from_its_backup_exactly(run: Callable[..., Ran]
     assert not Path(str(film_mkv) + fml.BACKUP_MARK).exists()  # the backup was used up
 
 
+@needs_mkvtoolnix
 def test_undo_refuses_a_backup_that_is_not_what_was_logged(run: Callable[..., Ran],
                                                            film_mkv: Path,
                                                            tmp_path: Path) -> None:
     log = tmp_path / "c.jsonl"
     run("--delete", "lang", "--lang", "eng", "-i", film_mkv, "--log", log, "--backup")
     backup = Path(str(film_mkv) + fml.BACKUP_MARK)
-    run("--set", "lang", "--default", "French", "-i", backup, "--in-place")  # the backup changed
+    run("--set", "lang", "--default", "French", "-i", backup)  # the backup changed
     before = film_mkv.read_bytes()
     ran = run("--undo", log)
     assert "is not what was logged, so it was not used" in ran.err

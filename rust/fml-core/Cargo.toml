@@ -17,3 +17,7 @@ sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[features]
+# the build without mkvtoolnix: MKV work is done with ffmpeg (for the App Store build)
+no-mkvtoolnix = []

@@ -104,7 +104,6 @@ function commonRequest(dry) {
     paths: state.files.filter((f) => !f.error && state.selected.has(f.path)).map((f) => f.path),
     dryrun: dry,
     backup: $('backup').checked,
-    in_place: $('in-place').checked,
     force: $('force').checked,
     jobs: Math.max(1, parseInt($('jobs').value, 10) || 1),
     log: $('use-log').checked ? $('log').value.trim() : '',
@@ -363,7 +362,7 @@ function subtitleExtension(container, codec) {
   const c = codec.toLowerCase();
   if (container === 'MP4') return c.includes('timed text') || c.includes('tx3g') || c.includes('mov_text') ? 'srt' : '';
   if (c.includes('subrip') || c.includes('srt')) return 'srt';
-  if (c.includes('substation')) return 'ass';
+  if (c.includes('substation') || c === 'ass' || c === 'ssa') return 'ass';
   if (c.includes('webvtt')) return 'vtt';
   if (c.includes('pgs')) return 'sup';
   return '';
@@ -566,7 +565,7 @@ function renderOrder() {
 // Both are shown as a preview first, in the results, where they can be applied.
 async function previewForAll(kind, what) {
   const list = info.order[kind];
-  const r = { ...commonRequest(true), kind: kind === 'audio' ? 'audio' : 'sub', in_place: false };
+  const r = { ...commonRequest(true), kind: kind === 'audio' ? 'audio' : 'sub' };
   if (!r.paths.length) { $('info-status').textContent = 'No files are ticked in the list.'; return; }
   let label;
   if (what === 'order') {
@@ -1269,7 +1268,7 @@ function subtitleRequests(dry) {
     byMedia.get(row.media).push({ file: row.file, lang: row.lang, name: row.name.trim(), forced: row.forced });
   }
   return [...byMedia].map(([media, list]) => ({
-    ...commonRequest(dry), paths: [media], kind: 'sub', in_place: false,
+    ...commonRequest(dry), paths: [media], kind: 'sub',
     tasks: [{ name: 'add', what: 'subtitle' }], subtitles: list }));
 }
 

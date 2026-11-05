@@ -75,6 +75,10 @@ fn drain<R: Read + Send + 'static>(mut pipe: R) -> thread::JoinHandle<Vec<u8>> {
 /// Run a command and collect its output. If we are asked to stop, the command is killed.
 /// An `Err` means the command could not be started.
 pub fn run_command(cmd: &[String]) -> io::Result<Ran> {
+    // see `which`
+    if crate::model::mkvtoolnix_hidden() && cmd[0].starts_with("mkv") {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "spike: mkvtoolnix hidden"));
+    }
     let mut child = Command::new(resolve_program(&cmd[0]))
         .args(&cmd[1..])
         .stdin(Stdio::null())
@@ -145,6 +149,10 @@ fn command_names(tool: &str) -> Vec<String> {
 
 /// The full path of a command on `PATH`.
 pub fn which(tool: &str) -> Option<PathBuf> {
+    // without mkvtoolnix (the no-mkvtoolnix feature), its commands are not used, even when installed
+    if crate::model::mkvtoolnix_hidden() && tool.starts_with("mkv") {
+        return None;
+    }
     let path = std::env::var_os("PATH")?;
     let names = command_names(tool);
     std::env::split_paths(&path)

@@ -5,7 +5,7 @@ members = ["fml-core", "fml-cli", "fml-gui"]
 default-members = ["fml-core", "fml-cli"]
 
 [workspace.package]
-version = "1.4.0"
+version = "1.5.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Richard Spindler <richard@lateralblast.com.au>"]

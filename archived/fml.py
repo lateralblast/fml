@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # Name:         fml (Fix Media Language etc)
-# Version:      1.4.0
+# Version:      1.5.1
 # Release:      1
 # License:      GPL-3.0-or-later (GNU General Public License, version 3 or later)
 #               https://www.gnu.org/licenses/gpl-3.0.html
@@ -41,7 +41,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
-__version__ = "1.4.0"
+__version__ = "1.5.1"
 
 # Commands the script runs and the package that provides each
 REQUIRED_TOOLS = {

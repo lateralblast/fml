@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.4.0
+Version 1.5.1
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -90,9 +90,18 @@ dependencies of its own. It needs these commands:
 
 | Command                   | Package    | Used for                      |
 |---------------------------|------------|-------------------------------|
-| `mkvmerge`, `mkvpropedit` | mkvtoolnix | reading and editing MKV files |
+| `mkvmerge`, `mkvpropedit` | mkvtoolnix | editing MKV files             |
+| `ffprobe` (with `ffmpeg`) | ffmpeg     | reading MKV files             |
 | `mediainfo`               | mediainfo  | reading MP4 and AVI files     |
 | `ffmpeg`                  | ffmpeg     | rewriting MP4 and AVI files   |
+
+An MKV is read with `ffprobe`, so its track names (codecs such as `subrip`, `aac` and `ac3`, as `--info` shows them)
+are the same in every build. The build made without mkvtoolnix (`./build.sh --target <t> --no-mkvtoolnix`, which compiles
+the `no-mkvtoolnix` Cargo feature, and is the one for the App Store) does every MKV change with `ffmpeg` instead: flags, languages, names, reordering, removing and adding
+tracks, and extracting subtitles. It never runs the mkvtoolnix commands, even when they are installed, and `--check`
+does not ask for them.
+Its installers and archive are named with `-no-mkvtoolnix`, and it is built in `rust/target-nomkv`, so the normal build's
+files are not replaced. The test suite runs it with `FML_BIN` set to that binary and `FML_SPIKE_NO_MKVTOOLNIX=1`.
 
 Optional, for `--detect` (see [Guessing the language of a track](#guessing-the-language-of-a-track)):
 
@@ -239,7 +248,7 @@ that match a language, a codec part and a channel count (as `--delete match`; gi
 channel count applies to audio only). When every ticked file has exactly
 two audio tracks, **Swap the two audio tracks** is also offered: it reorders them (`--set order --order 2,1`), in MKV,
 MP4 and AVI files alike. **Safety and speed** has the
-same choices as the command line: keep the original beside the file (`--backup`), edit MKV files in place, allow
+same choices as the command line: keep the original beside the file (`--backup`), allow
 removing every audio track, how many files to do at once, and a log so that changes can be undone. **Preview** shows
 what would change, **Apply…** makes the change, **Stop** ends a run, and **Undo from a log…** reverses what a log
 recorded.
@@ -430,7 +439,7 @@ duplicates of each other:
 
 Remove tracks by what they are with `--delete match`: every track that fits **all** of the `--lang`, `--codec`
 and `--channels` that are given (at least one is needed). `--codec` is part of the codec name as `--info` shows it,
-in any case (`ac-3` matches both `AC-3` and `E-AC-3`), and `--channels` is the number of audio channels (2 is stereo,
+in any case (`ac-3` matches `ac3` and `eac3`, the names `--info` shows), and `--channels` is the number of audio channels (2 is stereo,
 6 is 5.1; the **Ch** column of `--info`, shown where the tool reports it):
 
 ```
@@ -556,7 +565,7 @@ The tracks of other kinds stay where they are (video first, then the audio, then
 other audio tracks keep their order. It works with `--kind sub` for subtitles too. An MKV is rewritten once
 with `mkvmerge`, which reorders the tracks and sets their flags and languages together, and keeps the
 chapters, attachments, tags and track names. If the track is already first, only the flag is edited, as
-without `--move`. It cannot be used with `--in-place` or `--default none`, and `--swap` only changes the
+without `--move`. It cannot be used with `--default none`, and `--swap` only changes the
 default flag, never the order.
 
 #### Any order
@@ -565,7 +574,7 @@ default flag, never the order.
 current number of a track (as `--info` shows it), listed in the order the tracks should have: with three audio
 tracks, `3,1,2` makes the third first, then the first, then the second. Flags, languages and names go with their
 tracks, so the default flag does not move to the new first track unless you add `--default-first`, which makes
-the track that ends up first the only default of its kind (it also fixes the flag when the order is already right). List every track of the kind once. MKV and MP4 only; it cannot be used with `--in-place`.
+the track that ends up first the only default of its kind (it also fixes the flag when the order is already right). List every track of the kind once. MKV and MP4 only.
 
 ```
 ./fml --set order --order 3,1,2 --file video.mkv
@@ -619,7 +628,7 @@ and not forced (change that afterwards with `--set default` or `--set forced`). 
 It works on MKV and MP4 files, not AVI. In an MP4 the subtitle is converted to `mov_text` text subtitles with `ffmpeg`
 (`.srt`, `.ass`, `.ssa` and `.vtt` only, not a `.sup` picture subtitle, and no forced flag); the MP4 muxer makes the
 first subtitle track the default if there was none, so the first subtitle added to a file without any is default.
-It cannot be used with `--in-place`. `--undo` can
+`--undo` can
 take the track out again only if the change was made with `--backup`, because it changes the number of tracks.
 `--sub-dir DIR` does it for many files at once, as the app's **Add subtitles…** does: the subtitle files in `DIR`
 (and the folders below it) are matched by name to the files being processed (`--file`, or `--dir`, with
@@ -662,7 +671,7 @@ forced, machine translated) and release.
 preferring one that is not for the hearing impaired, and **never** a machine translated or forced one (it says so and
 adds nothing when there is only those). A hearing impaired one is added with the name `SDH`. It is downloaded to a
 temporary file and added the usual careful way (`--name`, `--dryrun`, `--backup`, `--log` and `--undo` from the backup
-all work, it can't be used with `--in-place`), then the temporary file is removed. It works for MKV and MP4 files. With
+all work), then the temporary file is removed. It works for MKV and MP4 files. With
 `--dir` every file is searched for by its own name, so a season is done in one command, with one login. `--dryrun`
 searches, and says what it would add (`from OpenSubtitles: release (ID n)`), but downloads nothing, so it costs none of
 the daily download limit.
@@ -675,7 +684,8 @@ in the app's subtitle search (see [Searching OpenSubtitles](#searching-opensubti
 ### Taking a subtitle track out to a file
 
 `--extract subtitle --track T [--output FILE|FOLDER]` writes a subtitle track to a file of its own and leaves the media
-file as it is. An MKV is read with `mkvextract` (from `mkvtoolnix`) and the file gets the extension of the track
+file as it is. An MKV is read with `mkvextract` (from `mkvtoolnix`, or with `ffmpeg` where mkvtoolnix is not installed)
+and the file gets the extension of the track
 (`.srt` for SubRip, `.ass` for SubStation, `.vtt` for WebVTT, `.sup` for PGS); a text subtitle in an MP4 is written
 as `.srt` with `ffmpeg`. VobSub and other formats that are not one file are refused. The name is made from the media
 file (`Film.ita.srt`, `Film.eng.forced.srt`) and goes beside it, or in `--output` if that is a folder; give a file
@@ -773,7 +783,7 @@ action's own settings are added on top of them (a setting given twice for one ac
 The settings that go with an action are `--lang`, `--default`, `--prefer`, `--track`, `--kind`, `--forced`, `--move`,
 `--name`, `--order`, `--order-lang`, `--default-first`, `--forced-flag`, `--sub-file`, `--sub-dir` and `--output`. The rest
 (`--file`, `--dir`, `--recursive`, `--include`, `--exclude`, `--dryrun`, `--backup`, `--log`, `--jobs`, `--force`,
-`--in-place`, `--format`, `--verbose` and `--enable`) are for the whole command, wherever they are given. Each action is checked
+`--format`, `--verbose` and `--enable`) are for the whole command, wherever they are given. Each action is checked
 with its own settings, so a mistake is reported for the action it is in.
 
 ### A whole season
@@ -790,9 +800,9 @@ the first track. The same four steps work for any folder of MKV files.
    video:1      0   HEVC/H.265/MPEG-H  und       yes      -       -   HEVC
    audio:1      1   AAC                ita       yes      -       2   By Pir8
    audio:2      2   AAC                eng       -        -       2   Original Audio
-   subtitles:1  3   SubRip/SRT         ita       yes      yes     -   Sub Ita Forced
-   subtitles:2  4   SubRip/SRT         eng       -        -       -   Sub Eng Full
-   subtitles:3  5   SubRip/SRT         ita       -        -       -   Sub Ita Full
+   subtitles:1  3   subrip             ita       yes      yes     -   Sub Ita Forced
+   subtitles:2  4   subrip             eng       -        -       -   Sub Eng Full
+   subtitles:3  5   subrip             ita       -        -       -   Sub Ita Full
    ```
 
 2. Preview the change for the whole folder. Nothing is changed:
@@ -867,12 +877,7 @@ step (there is never a moment with no file), and keeps its permissions and times
 This needs free space beside the file for a second copy of it, and `fml` checks that first. If you stop it
 with Ctrl-C or `kill`, the copy is removed.
 
-Copying a large file takes time. For MKV metadata edits only, `--in-place` skips the copy and edits the file
-directly, which is quick and needs no free space, but an interruption part way can leave the file damaged:
-
-```
-./fml --set lang --default English --file video.mkv --in-place
-```
+Copying a large file takes time: every change is made on a copy, which replaces the file only once it has been checked.
 
 ### Keeping the original
 
@@ -884,8 +889,7 @@ that name is taken):
 ```
 
 The backup is a hard link to the original, made just before the new file replaces it, so it costs no space
-and is instant. Where links are not possible (some network shares and FAT file systems), or with `--in-place`
-(which edits the file itself), it is a real copy, which needs the space. If the backup can't be made, nothing
+and is instant. Where links are not possible (some network shares and FAT file systems) it is a real copy, which needs the space. If the backup can't be made, nothing
 is replaced. `--dir` ignores the backups, and so does everything else that looks for media by name, because
 they end in `.fml-bak`. The JSON output has a `backup` field with the path.
 
@@ -1020,7 +1024,7 @@ settings:
   -D, --default <LANG>          language to make the default (none turns the default subtitles off)
       --prefer <LANGS>          languages in order of preference, e.g. eng,jpn,fre: the first that a file has is used, so one command suits a mixed library
       --keep <LANGS>            for --preserve, instead of --lang: every language to keep, e.g. eng,jpn,und: the tracks in all of them stay and the rest are removed
-      --codec <TEXT>            for --delete match: part of the codec name as --info shows it, in any case (ac-3 matches AC-3 and E-AC-3)
+      --codec <TEXT>            for --delete match: part of the codec name as --info shows it, in any case (ac-3 matches ac3 and eac3, as ffprobe names them)
       --channels <N>            for --delete match: audio tracks with N channels (2 is stereo, 6 is 5.1)
       --forced...               with --kind sub, pick the forced subtitle track
   -t, --track <N>               a track number from 1 (among tracks of the kind), last, or any track by audio:N, subtitles:N, id:N (the ID column of --info) or name:TEXT
@@ -1040,7 +1044,6 @@ settings:
   -j, --jobs <N>                process N files at once (default 1; rewriting is limited by the disk, so more than a few rarely helps) [default: 1]
       --log <FILE>              record each change in FILE (one JSON line per file), so that --undo can reverse it
       --backup                  keep the original beside the changed file, as NAME.fml-bak (a hard link where possible, so it costs no space)
-      --in-place                edit MKV files directly instead of a copy that replaces them if it worked: quicker and needs no free space, but an interruption can leave the file damaged
   -T, --dryrun                  show what would change without changing anything
       --enable <FEATURE>        turn on an optional feature that is off by default: search (the online subtitle search on OpenSubtitles; not fully tested yet)
   -v, --verbose                 show the commands that are run

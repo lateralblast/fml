@@ -55,7 +55,7 @@ usage() {
 }
 
 target="" arch="" package="" cli=1 delete=0 del_version="" rel_version="" rel_commit="" keep_tag=0 release=0 draft=0 yes=0 dry=0 where=""
-notarize=1 notarize_set=0 notarizing=0 sandboxed=0
+notarize=1 notarize_set=0 notarizing=0 sandboxed=0 nomkv=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) target="${2:-}"; shift 2 ;;
@@ -65,6 +65,7 @@ while [ $# -gt 0 ]; do
     --notarize) notarize=1; notarize_set=1; shift ;;
     --nonotarize) notarize=0; notarize_set=1; shift ;;
     --sandboxed) sandboxed=1; shift ;;
+    --no-mkvtoolnix) nomkv=1; shift ;;
     --local) where=local; shift ;;
     --ci) where=ci; shift ;;
     --release)
@@ -91,6 +92,12 @@ if [ "$notarize_set" = 1 ] && [ "$target" != mac ] && [ "$target" != macos ]; th
 fi
 if [ "$sandboxed" = 1 ] && [ "$target" != mac ] && [ "$target" != macos ]; then
   echo "--sandboxed only applies to --target mac" >&2; exit 1
+fi
+if [ "$nomkv" = 1 ] && [ "$where" = ci ]; then
+  echo "--no-mkvtoolnix is not yet available on the GitHub runners: build it locally" >&2; exit 1
+fi
+if [ "$nomkv" = 1 ] && { [ "$release" = 1 ] || [ "$delete" = 1 ]; }; then
+  echo "--no-mkvtoolnix builds an installer for --target: it cannot be combined with --release or --delete-release" >&2; exit 1
 fi
 if [ "$sandboxed" = 1 ] && [ "$where" = ci ]; then
   echo "--sandboxed is for a local build: the GitHub runners do not have the tools bundled" >&2; exit 1
@@ -272,6 +279,8 @@ sandbox_stage() {
   local found=()
   command -v python3 >/dev/null || { echo "python3 not found: needed to bundle the tools" >&2; exit 1; }
   for tool in mkvmerge mkvpropedit mkvextract mediainfo ffmpeg ffprobe; do
+    # the build without mkvtoolnix does not use (or carry) its commands
+    if [ "$nomkv" = 1 ] && [ "${tool#mkv}" != "$tool" ]; then continue; fi
     path=$(command -v "$tool") || { echo "$tool not found: install mkvtoolnix, mediainfo and ffmpeg (fml-cli --check --install)" >&2; exit 1; }
     found+=("$path")
   done
@@ -390,11 +399,19 @@ build_target() {
     sandbox_stage
     sandbox_args=(--config "$(sandbox_config)")
   fi
+  # the build without mkvtoolnix has a target folder of its own, so the normal build's files are not replaced
+  tdir="$root/rust/target" feature_args=() suffix=""
+  if [ "$nomkv" = 1 ]; then
+    tdir="$root/rust/target-nomkv"
+    export CARGO_TARGET_DIR="$tdir"
+    feature_args=(--features no-mkvtoolnix)
+    suffix="-no-mkvtoolnix"
+  fi
   mkdir -p "$dist"
   stamp=$(mktemp)
   echo "== building the installer ($target, $bundles) =="
   # cargo tauri build runs in rust/fml-gui; the workspace puts the bundles under rust/target/
-  (cd "$root/rust/fml-gui" && cargo tauri build --bundles "$bundles" ${triple_args[@]+"${triple_args[@]}"} ${sandbox_args[@]+"${sandbox_args[@]}"})
+  (cd "$root/rust/fml-gui" && cargo tauri build --bundles "$bundles" ${triple_args[@]+"${triple_args[@]}"} ${sandbox_args[@]+"${sandbox_args[@]}"} ${feature_args[@]+"${feature_args[@]}"})
 
   # Tauri puts bundles under target/[<triple>/]release/bundle/<kind>/
   found=0
@@ -403,14 +420,15 @@ build_target() {
     # the sandboxed disk image is named apart, so both builds can sit in dist/
     name=$(basename "$f")
     if [ "$sandboxed" = 1 ] && [ "${f##*.}" = dmg ]; then name="${name%.dmg}-sandboxed.dmg"; fi
+    if [ -n "$suffix" ]; then name="${name%.*}$suffix.${name##*.}"; fi
     cp -R "$f" "$dist/$name"
     echo "  $dist/$name"
     found=1
     case "$f" in *.dmg) dmg_out="$dist/$name" ;; esac
-  done < <(find "$root/rust/target" -path '*/release/bundle/*' -type f \
+  done < <(find "$tdir" -path '*/release/bundle/*' -type f \
     \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*-setup.exe' \) -newer "$stamp" 2>/dev/null)
   rm -f "$stamp"
-  [ "$found" = 1 ] || { echo "no installer found under rust/target/ (did the bundle step run?)" >&2; exit 1; }
+  [ "$found" = 1 ] || { echo "no installer found under $tdir (did the bundle step run?)" >&2; exit 1; }
   if [ "$notarizing" = 1 ] && [ -n "$dmg_out" ]; then notarise_disk_image "$dmg_out"; fi
 
   if [ "$cli" = 1 ]; then
@@ -420,16 +438,16 @@ build_target() {
       # plain cargo has no universal target: build both architectures and join them with lipo
       (cd "$root/rust" && cargo build --release -p fml-cli --target aarch64-apple-darwin &&
         cargo build --release -p fml-cli --target x86_64-apple-darwin)
-      mkdir -p "$root/rust/target/universal-apple-darwin/release"
-      lipo -create -output "$root/rust/target/universal-apple-darwin/release/fml-cli" \
-        "$root/rust/target/aarch64-apple-darwin/release/fml-cli" "$root/rust/target/x86_64-apple-darwin/release/fml-cli"
-      bin="$root/rust/target/universal-apple-darwin/release/fml-cli"
+      mkdir -p "$tdir/universal-apple-darwin/release"
+      lipo -create -output "$tdir/universal-apple-darwin/release/fml-cli" \
+        "$tdir/aarch64-apple-darwin/release/fml-cli" "$tdir/x86_64-apple-darwin/release/fml-cli"
+      bin="$tdir/universal-apple-darwin/release/fml-cli"
     elif [ -n "$triple" ]; then
-      (cd "$root/rust" && cargo build --release -p fml-cli --target "$triple")
-      bin="$root/rust/target/$triple/release/fml-cli$exe"
+      (cd "$root/rust" && cargo build --release -p fml-cli --target "$triple" ${feature_args[@]+"${feature_args[@]}"})
+      bin="$tdir/$triple/release/fml-cli$exe"
     else
-      (cd "$root/rust" && cargo build --release -p fml-cli)
-      bin="$root/rust/target/release/fml-cli$exe"
+      (cd "$root/rust" && cargo build --release -p fml-cli ${feature_args[@]+"${feature_args[@]}"})
+      bin="$tdir/release/fml-cli$exe"
     fi
     [ -f "$bin" ] || { echo "the command-line binary was not found at $bin" >&2; exit 1; }
     # the archive's label: the system and, on a Mac, the architecture
@@ -443,7 +461,7 @@ build_target() {
           *) case "$(uname -m)" in arm64|aarch64) label=mac-arm64 ;; *) label=mac-x64 ;; esac ;;
         esac ;;
     esac
-    package_cli "$bin" "$label" "$exe"
+    package_cli "$bin" "$label$suffix" "$exe"
   fi
   echo "done: $dist"
 }

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from conftest import FML_BIN, Ran, Stubs, mkv_stub_tracks
+from conftest import FML_BIN, NO_MKVTOOLNIX, Ran, Stubs, mkv_stub_tracks
 
 import fml
 
@@ -68,8 +68,6 @@ BAD_ARGUMENTS = [
     (["--get", "lang", "--default", "none", "--kind", "sub", "-i", "x.mkv"],
      "--default none only works"),
     (["--swap", "lang", "--kind", "sub", "-i", "x.mkv"], "--swap only works on audio"),
-    (["--set", "lang", "--default", "English", "--move", "--in-place", "-i", "x.mkv"],
-     "can't be used with --in-place"),
     (["--set", "lang", "--default", "none", "--kind", "sub", "--move", "-i", "x.mkv"],
      "--move can't be used with --default none"),
     (["--swap", "lang", "--move", "-i", "x.mkv"], "--move only works with --set"),
@@ -151,11 +149,12 @@ def test_long_options_can_be_abbreviated(run: Callable[..., Ran], tmp_path: Path
 def test_check_needs_no_file(run: Callable[..., Ran], stubs: Stubs) -> None:
     ran = run("--check")
     assert ran.code == 0
-    # the four required commands (whisper-cli and the model are optional, and are listed too)
+    # the required commands (whisper-cli and the model are optional, and are listed too): four,
+    # or two without mkvtoolnix
     required = [line for line in ran.out.splitlines()
                 if line.startswith("Found:")
                 and "whisper" not in line and "FML_WHISPER" not in line]
-    assert len(required) == 4
+    assert len(required) == (2 if NO_MKVTOOLNIX else 4)
 
 
 def test_actions_run_in_the_order_given(run: Callable[..., Ran], fake_mkv: Path,
@@ -178,7 +177,7 @@ def test_the_new_options_parse(run: Callable[..., Ran], tmp_path: Path) -> None:
                  ["--set", "unforced", "--track", "last", "--kind", "sub"],
                  ["--set", "lang", "--default", "en", "--backup"],
                  ["--set", "lang", "--default", "en", "--log", str(tmp_path / "l.jsonl")],
-                 ["--set", "lang", "--default", "en", "--backup", "--in-place"]):
+                 ["--set", "lang", "--default", "en", "--backup", "--force"]):
         ran = run(*args, "-i", missing)
         assert ran.code == 1 and "does not exist" in ran.err, (args, ran.err)
 

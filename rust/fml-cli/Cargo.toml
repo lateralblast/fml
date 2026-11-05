@@ -18,3 +18,7 @@ serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[features]
+# the build without mkvtoolnix (see fml-core)
+no-mkvtoolnix = ["fml-core/no-mkvtoolnix"]

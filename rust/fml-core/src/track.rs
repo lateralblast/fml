@@ -188,6 +188,45 @@ pub fn parse_mkv_tracks(data: &Value) -> Result<Vec<Track>, String> {
     Ok(tracks)
 }
 
+/// Tracks from the output of `ffprobe -show_streams -of json` (an MKV file, with no mkvtoolnix). A track's ID is
+/// its place among the file's tracks (attachments and the like are not counted), which is the ID mkvmerge gives.
+pub fn parse_ffprobe_tracks(data: &Value) -> Result<Vec<Track>, String> {
+    let rows = match data.get("streams") {
+        None => return Ok(Vec::new()),
+        Some(Value::Array(rows)) => rows,
+        Some(_) => return Err("streams is not a list".into()),
+    };
+    let mut counts: HashMap<Kind, usize> = HashMap::new();
+    let mut tracks = Vec::new();
+    let mut id = 0i64;
+    for raw in rows {
+        let kind = match text(raw.get("codec_type")).as_str() {
+            "video" => Kind::Video,
+            "audio" => Kind::Audio,
+            "subtitle" => Kind::Subtitles,
+            _ => continue,
+        };
+        let count = counts.entry(kind).or_insert(0);
+        *count += 1;
+        let tags = raw.get("tags");
+        let disposition = raw.get("disposition");
+        let flag = |name: &str| disposition.and_then(|d| d.get(name)).and_then(Value::as_i64).unwrap_or(0) == 1;
+        tracks.push(Track {
+            id,
+            kind,
+            number: *count,
+            codec: text(raw.get("codec_name")),
+            language: normalise_language(tags.and_then(|t| t.get("language")).and_then(Value::as_str)),
+            default: flag("default"),
+            forced: flag("forced"),
+            name: text(tags.and_then(|t| t.get("title"))),
+            channels: raw.get("channels").and_then(Value::as_u64).unwrap_or(0) as usize,
+        });
+        id += 1;
+    }
+    Ok(tracks)
+}
+
 /// Tracks from the output of `mediainfo --Output=JSON`.
 pub fn parse_mediainfo_tracks(data: &Value) -> Result<Vec<Track>, String> {
     let rows = match data.get("media").and_then(|media| media.get("track")) {

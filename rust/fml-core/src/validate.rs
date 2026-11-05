@@ -127,9 +127,6 @@ fn validate_task(args: &Config) -> Result<(), String> {
     if args.default_first && !tasks.iter().any(|t| t.name == "set" && t.what == "order") {
         return Err("--default-first only works with --set order".into());
     }
-    if args.move_first && args.in_place {
-        return Err("--move rewrites the file, so it can't be used with --in-place".into());
-    }
     let has_default = !args.default.is_empty();
     let has_prefer = !args.prefer.is_empty();
     if args.move_first
@@ -207,9 +204,6 @@ fn validate_task(args: &Config) -> Result<(), String> {
                             --default, --prefer, --move, --forced or --order"
                     .into());
             }
-            if args.in_place {
-                return Err("--add subtitle rewrites the file, so it can't be used with --in-place".into());
-            }
         } else if name == "add" {
             if !args.sub_dir.is_empty() {
                 if !args.sub_file.is_empty() || args.name.is_some() {
@@ -242,9 +236,6 @@ fn validate_task(args: &Config) -> Result<(), String> {
                             --default, --prefer, --move, --forced or --order"
                     .into());
             }
-            if args.in_place {
-                return Err("--add subtitle rewrites the file, so it can't be used with --in-place".into());
-            }
         }
         if name == "set" && what == "order" {
             if args.order.is_empty() == args.order_lang.is_empty() {
@@ -258,9 +249,6 @@ fn validate_task(args: &Config) -> Result<(), String> {
                 return Err("--set order takes --order (and --kind), not --track, --lang, \
                             --default, --prefer, --move or --forced"
                     .into());
-            }
-            if args.in_place {
-                return Err("--set order rewrites the file, so it can't be used with --in-place".into());
             }
         }
         if name == "set" && what == "track" {
@@ -352,8 +340,6 @@ mod tests {
         assert!(validate(&c).is_ok());
         c.move_first = true;
         assert!(validate(&c).is_ok());
-        c.in_place = true;
-        assert!(validate(&c).unwrap_err().contains("can't be used with --in-place"));
     }
 
     #[test]
@@ -397,8 +383,6 @@ mod tests {
         c.track = "1".into();
         assert!(validate(&c).unwrap_err().contains("not --track"));
         c.track.clear();
-        c.in_place = true;
-        assert!(validate(&c).unwrap_err().contains("--in-place"));
         assert!(validate(&{ let mut d = config(&[("info", "")]); d.sub_file = "x.srt".into(); d })
             .unwrap_err()
             .contains("only work with --add subtitle"));

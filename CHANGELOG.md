@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-11-06
+
+### Removed
+- `--in-place` is gone, from the command line, the desktop app (its checkbox) and the documentation. Every change is made on a copy, which replaces the file once it has been checked, as before. The copy is always used now, so the free-space check no longer suggests `--in-place`.
+
+## [1.5.0] - 2026-11-06
+
+### Added
+- `--no-mkvtoolnix` (for `build.sh`) builds a version that does not use mkvtoolnix at all: MKV changes are made with `ffmpeg`, which covers flags, languages, names, reordering, removing and adding tracks, and extracting subtitles. It is the build for the App Store, and is written to `rust/target-nomkv`, with `-no-mkvtoolnix` in its file names. It is a Cargo feature, `no-mkvtoolnix`, and `--check` does not ask for mkvtoolnix in it.
+
+### Changed
+- MKV files are read with `ffprobe`, in every build, so track codec names are ffprobe's (`subrip`, `aac`, `ac3`, `eac3`) rather than mkvmerge's (`SubRip/SRT`, `AAC`, `AC-3`). `--codec` ignores hyphens, so `ac-3` matches `ac3` and `eac3`.
+- `--in-place` needs `mkvpropedit` (from mkvtoolnix). Without it the command is refused with a message, and the copy-and-replace mode (the default) is used.
+- Flags that a change does not ask for (such as hearing-impaired) are now kept when a flag is changed.
+
 ## [1.4.0] - 2026-11-05
 
 ### Added

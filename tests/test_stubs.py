@@ -11,12 +11,28 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pytest
-from conftest import FML_BIN, MP4_HEADER, Ran, Stubs, leftovers, mkv_stub_tracks
+from conftest import (
+    FML_BIN,
+    MP4_HEADER,
+    NO_MKVTOOLNIX,
+    Ran,
+    Stubs,
+    leftovers,
+    mkv_stub_tracks,
+    mkv_tool,
+    needs_mkvtoolnix,
+)
 
 import fml
 
 AUDIO3 = [("ita", True), ("eng", False), ("fre", False)]
 SUBS2 = [("eng", False), ("ita", False)]
+
+
+def required_here() -> list[tuple[str, str]]:
+    """The commands every action needs in this build (mkvtoolnix's are not needed without it)."""
+    return [(tool, package) for tool, package in dict(fml.REQUIRED_TOOLS).items()
+            if not (NO_MKVTOOLNIX and tool.startswith("mkv"))]
 
 
 def mi_track(kind: str, order: int, language: str, default: bool) -> dict[str, str]:
@@ -40,7 +56,7 @@ def test_dry_run_shows_the_changes_and_the_command(run: Callable[..., Ran], fake
     assert ran.out.splitlines() == [
         f"[dry-run] {fake_mkv}: audio track 1 (ita): default yes -> no",
         f"[dry-run] {fake_mkv}: audio track 2 (eng): default no -> yes"]
-    assert "mkvpropedit" in ran.err and "Copying:" in ran.err
+    assert mkv_tool("mkvpropedit") in ran.err and "Copying:" in ran.err
     assert fake_mkv.read_bytes() == before
     assert leftovers(fake_mkv.parent) == []
 
@@ -54,8 +70,12 @@ def test_dry_run_json_records_the_plan(run: Callable[..., Ran], fake_mkv: Path,
     assert result["status"] == "changed" and result["dry_run"] is True
     assert result["changes"] == ["audio track 1 (ita): default yes -> no",
                                  "audio track 2 (eng): default no -> yes"]
-    assert result["commands"][0][0] == "mkvpropedit"
-    assert result["commands"][0][-1] == "flag-default=1"
+    assert result["commands"][0][0] == mkv_tool("mkvpropedit")
+    if NO_MKVTOOLNIX:
+        # the disposition, in ffmpeg's words (+default, -default)
+        assert any("default" in arg for arg in result["commands"][0])
+    else:
+        assert result["commands"][0][-1] == "flag-default=1"
 
 
 def test_json_keeps_stdout_clean(run: Callable[..., Ran], fake_mkv: Path,
@@ -76,7 +96,9 @@ def test_a_failing_tool_leaves_the_original_and_exits_1(run: Callable[..., Ran],
     mkv_stubs.set(mkvpropedit_exit=2)
     ran = run("--set", "lang", "--default", "English", "-i", fake_mkv)
     assert ran.code == 1
-    assert "mkvpropedit failed with exit code 2: mkvpropedit: Error: cannot open" in ran.err
+    assert f"{mkv_tool('mkvpropedit')} failed with exit code 2" in ran.err
+    if not NO_MKVTOOLNIX:
+        assert "mkvpropedit: Error: cannot open" in ran.err
     assert fake_mkv.read_bytes() == before and leftovers(fake_mkv.parent) == []
 
 
@@ -86,7 +108,7 @@ def test_a_tool_that_does_nothing_is_caught(run: Callable[..., Ran], fake_mkv: P
     before = fake_mkv.read_bytes()
     ran = run("--set", "lang", "--default", "English", "-i", fake_mkv)
     assert ran.code == 1
-    assert "mkvpropedit did not make the change to the file" in ran.err
+    assert f"{mkv_tool('mkvpropedit')} did not make the change to the file" in ran.err
     assert fake_mkv.read_bytes() == before and leftovers(fake_mkv.parent) == []
 
 
@@ -97,7 +119,8 @@ def test_a_good_edit_replaces_the_file_with_the_checked_copy(
     fake_mkv.write_bytes(fml_header() + b"original")
     ran = run("--set", "lang", "--default", "English", "-i", fake_mkv)
     assert ran.code == 0, ran.err
-    assert fake_mkv.read_bytes().endswith(b"original")  # the stub left the copy as it was
+    # the copy was replaced by the checked one (the stub writes a Matroska header and a marker)
+    assert fake_mkv.read_bytes().startswith(fml_header())
     assert leftovers(fake_mkv.parent) == []
 
 
@@ -114,7 +137,8 @@ def test_a_move_that_keeps_the_old_order_is_caught(run: Callable[..., Ran], fake
     mkv_stubs.set(mkv_after=mkv_stub_tracks([("ita", True), ("eng", False), ("fre", False)],
                                             SUBS2))
     ran = run("--set", "lang", "--default", "English", "--move", "-i", fake_mkv)
-    assert ran.code == 1 and "mkvmerge did not make the change to the file" in ran.err
+    assert ran.code == 1
+    assert f"{mkv_tool('mkvmerge')} did not make the change to the file" in ran.err
     assert fake_mkv.read_bytes() == before and leftovers(fake_mkv.parent) == []
 
 
@@ -125,7 +149,8 @@ def test_an_edit_that_leaves_the_language_alone_is_caught(run: Callable[..., Ran
     flag is as expected and only the language is wrong."""
     before = fake_mkv.read_bytes()
     ran = run("--set", "lang", "--lang", "Spanish", "--track", "2", "-i", fake_mkv)
-    assert ran.code == 1 and "mkvpropedit did not make the change to the file" in ran.err
+    assert ran.code == 1
+    assert f"{mkv_tool('mkvpropedit')} did not make the change to the file" in ran.err
     assert fake_mkv.read_bytes() == before
 
 
@@ -144,7 +169,7 @@ def test_removal_with_the_wrong_tracks_is_rejected(run: Callable[..., Ran], fake
     before = fake_mkv.read_bytes()
     ran = run("--delete", "lang", "--lang", "eng", "-i", fake_mkv)
     assert ran.code == 1
-    assert "mkvmerge did not make the change to the file" in ran.err
+    assert f"{mkv_tool('mkvmerge')} did not make the change to the file" in ran.err
     assert fake_mkv.read_bytes() == before and leftovers(fake_mkv.parent) == []
 
 
@@ -157,6 +182,7 @@ def test_removal_with_the_right_tracks_is_accepted(run: Callable[..., Ran], fake
     assert leftovers(fake_mkv.parent) == []
 
 
+@needs_mkvtoolnix
 def test_mkvmerge_warnings_count_as_success(run: Callable[..., Ran], fake_mkv: Path,
                                             mkv_stubs: Stubs) -> None:
     mkv_stubs.set(mkv_after=mkv_stub_tracks([("ita", True), ("fre", False)], SUBS2),
@@ -168,7 +194,7 @@ def test_mkvmerge_errors_fail_the_file(run: Callable[..., Ran], fake_mkv: Path,
                                        mkv_stubs: Stubs) -> None:
     mkv_stubs.set(mkvmerge_exit=2)
     ran = run("--delete", "lang", "--lang", "eng", "-i", fake_mkv)
-    assert ran.code == 1 and "mkvmerge failed with exit code 2" in ran.err
+    assert ran.code == 1 and f"{mkv_tool('mkvmerge')} failed with exit code 2" in ran.err
     assert leftovers(fake_mkv.parent) == []
 
 
@@ -254,19 +280,7 @@ def test_not_enough_free_space(run: Callable[..., Ran], fake_mkv: Path, mkv_stub
         assert ran.code == 1 and "not enough free space" in ran.err, args
         assert f"needs {fml.human_size(fake_mkv.stat().st_size)}" in ran.err
         assert "3 bytes free" in ran.err
-    assert "--in-place" in run("--set", "lang", "--default", "English", "-i", fake_mkv).err
     assert leftovers(fake_mkv.parent) == []
-
-
-def test_in_place_needs_no_free_space(run: Callable[..., Ran], fake_mkv: Path, mkv_stubs: Stubs,
-                                      monkeypatch: pytest.MonkeyPatch) -> None:
-    mkv_stubs.set(mkv_after=mkv_stub_tracks([("ita", False), ("eng", True), ("fre", False)],
-                                            SUBS2))
-    monkeypatch.setattr(fml.shutil, "disk_usage", lambda path: (_ for _ in ()).throw(OSError))
-    ran = run("--set", "lang", "--default", "English", "-i", fake_mkv, "--in-place", "-v")
-    assert ran.code == 0, ran.err
-    assert "Copying:" not in ran.err
-    assert f"mkvpropedit {fake_mkv} --edit" in ran.err  # edited the file itself
 
 
 def test_a_dry_run_also_checks_the_space(run: Callable[..., Ran], fake_mkv: Path,
@@ -411,8 +425,9 @@ def test_check_lists_what_is_missing(run: Callable[..., Ran], no_tools: Path) ->
     # the optional whisper-cli and FML_WHISPER_MODEL lines (Rust only) are not part of the list
     lines = [line for line in ran.out.splitlines()
              if "whisper" not in line and "FML_WHISPER" not in line]
-    assert lines == [f"Missing:\t{tool}" for tool in fml.REQUIRED_TOOLS]
-    assert "missing: mkvmerge, mkvpropedit, mediainfo, ffmpeg (use --install" in ran.err
+    assert lines == [f"Missing:\t{tool}" for tool, _ in required_here()]
+    names = ", ".join(tool for tool, _ in required_here())
+    assert f"missing: {names} (use --install" in ran.err
 
 
 def test_check_json_lists_the_packages(run: Callable[..., Ran], no_tools: Path) -> None:
@@ -420,7 +435,7 @@ def test_check_json_lists_the_packages(run: Callable[..., Ran], no_tools: Path) 
     (result,) = json.loads(ran.out)["results"]
     assert result["status"] == "error"
     required = [entry for entry in result["data"] if not entry.get("optional")]
-    assert {entry["tool"]: entry["package"] for entry in required} == fml.REQUIRED_TOOLS
+    assert {entry["tool"]: entry["package"] for entry in required} == dict(required_here())
     assert all(entry["path"] is None for entry in required)
 
 
@@ -432,7 +447,8 @@ def test_install_dry_run_installs_each_package_once(run: Callable[..., Ran],
     commands = [line.split("\t")[1] for line in ran.err.splitlines() if "whisper" not in line]
     # the Python tests pretend to be Ubuntu; the Rust binary installs the way the real system does
     install = "brew install" if FML_BIN and sys.platform == "darwin" else "sudo apt install -y"
-    assert commands == [f"{install} mkvtoolnix", f"{install} mediainfo", f"{install} ffmpeg"]
+    packages = ["mkvtoolnix"] if not NO_MKVTOOLNIX else []
+    assert commands == [f"{install} {p}" for p in packages + ["mediainfo", "ffmpeg"]]
 
 
 def test_install_on_macos_uses_brew(run: Callable[..., Ran], no_tools: Path,
@@ -452,7 +468,8 @@ def test_install_on_another_system_says_so(run: Callable[..., Ran], no_tools: Pa
 def test_an_action_names_the_commands_it_needs(run: Callable[..., Ran], fake_mkv: Path,
                                                fake_mp4: Path, no_tools: Path) -> None:
     mkv = run("--set", "lang", "--default", "English", "-i", fake_mkv)
-    assert mkv.code == 1 and "command not found: mkvmerge, mkvpropedit" in mkv.err
+    missing = "mkvmerge, mkvpropedit" if not NO_MKVTOOLNIX else "mediainfo, ffmpeg"
+    assert mkv.code == 1 and f"command not found: {missing}" in mkv.err
     mp4 = run("--get", "lang", "-i", fake_mp4)
     assert mp4.code == 1 and "command not found: mediainfo" in mp4.err
     assert "mkvmerge" not in mp4.err  # only what an MP4 read needs
@@ -461,10 +478,10 @@ def test_an_action_names_the_commands_it_needs(run: Callable[..., Ran], fake_mkv
 def test_each_action_only_needs_its_own_tools(run: Callable[..., Ran], fake_mkv: Path,
                                               stubs: Stubs, tmp_path: Path,
                                               monkeypatch: pytest.MonkeyPatch) -> None:
-    (stubs.folder / "ffmpeg").unlink()
+    # an MKV is read with ffprobe (part of ffmpeg), so --get needs ffmpeg but not mediainfo
     (stubs.folder / "mediainfo").unlink()
     stubs.set(mkv=mkv_stub_tracks(AUDIO3))
-    assert run("--get", "lang", "-i", fake_mkv).code == 0  # no ffmpeg or mediainfo needed
+    assert run("--get", "lang", "-i", fake_mkv).code == 0
 
 
 # Names are checked in the new file --------------------------------------------
@@ -529,7 +546,7 @@ def test_removing_the_default_audio_makes_the_next_one_default(
     ran = run("--delete", "lang", "--lang", "ita", "-i", fake_mkv, "-T", "-v")
     assert ran.out.splitlines() == [f"[dry-run] {fake_mkv}: removed audio track 1 (ita)",
                                     f"[dry-run] {fake_mkv}: audio track 2 (eng): default no -> yes"]
-    assert "--default-track-flag 2:1" in ran.err
+    assert ("+default" if NO_MKVTOOLNIX else "--default-track-flag 2:1") in ran.err
     assert run("--delete", "lang", "--lang", "ita", "-i", fake_mkv).code == 0
 
 

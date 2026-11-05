@@ -640,7 +640,7 @@ fn a_copy_that_would_not_fit_is_not_started() {
     set_disk(&mut fml, disk_with(3999));
     let mut result = Outcome::new(&a, "set", false);
     assert!(!fml.start_copy(&mut result, &a, &temp).unwrap());
-    assert!(result.message.contains("not enough free space to copy the file (use --in-place to edit it directly)"));
+    assert!(result.message.contains("not enough free space to copy the file"));
     assert!(!Path::new(&temp).exists(), "nothing was copied");
     assert!(fml.shared.pending.lock().unwrap().is_empty(), "and no temporary file is waiting to be removed");
     // with enough room the copy is made, and is the same size

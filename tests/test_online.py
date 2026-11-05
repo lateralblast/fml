@@ -235,8 +235,6 @@ def test_add_online_a_download_failure_changes_nothing(online: Callable[..., Ran
     (["--add", "subtitle", "--online", "--lang", "ita", "--sub-file", "x.srt"],
      "takes no --sub-file"),
     (["--add", "subtitle", "--online", "--lang", "ita", "--track", "1"], "not --track"),
-    (["--add", "subtitle", "--online", "--lang", "ita", "--in-place"],
-     "can't be used with --in-place"),
     (["--set", "lang", "--default", "eng", "--online"], "--online only works with --add subtitle"),
     (["--info", "--sub-id", "3"], "--sub-id only works with --add subtitle --online"),
     (["--info", "--query", "x"], "--query only works with --search subtitle"),

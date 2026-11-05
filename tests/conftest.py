@@ -75,6 +75,16 @@ def isolate(monkeypatch: pytest.MonkeyPatch) -> Any:
 # go through ``run`` against it instead of fml.py. Tests that reach into fml.py's own functions
 # are skipped then (see pytest_collection_modifyitems).
 FML_BIN = os.environ.get("FML_BIN", "")
+# The build without mkvtoolnix (the App Store build) is run by setting FML_SPIKE_NO_MKVTOOLNIX: the
+# binary then does the MKV work with ffmpeg. Tests that need mkvtoolnix are skipped in that build.
+NO_MKVTOOLNIX = bool(os.environ.get("FML_SPIKE_NO_MKVTOOLNIX"))
+needs_mkvtoolnix = pytest.mark.skipif(
+    NO_MKVTOOLNIX, reason="needs mkvtoolnix (not in the App Store build)")
+
+
+def mkv_tool(name: str) -> str:
+    """The tool that changes an MKV in this build: mkvtoolnix's, or ffmpeg without mkvtoolnix."""
+    return "ffmpeg" if NO_MKVTOOLNIX and name.startswith("mkv") else name
 
 
 PYTHON_ONLY = re.compile(
@@ -314,7 +324,7 @@ folder = os.path.dirname(os.path.abspath(__file__))
 config = json.load(open(os.path.join(folder, "config.json")))
 args = sys.argv[1:]
 if args[:1] == ["-o"]:
-    open(args[1], "wb").write(bytes.fromhex("1a45dfa39f428288") + b"matroska")
+    open(args[1], "wb").write(bytes.fromhex("1a45dfa39f428288") + b"matroska" + b"CHANGED")
     sys.exit(config.get("mkvmerge_exit", 0))
 changed = args[-1].endswith(".fml-tmp") or open(args[-1], "rb").read().endswith(b"CHANGED")
 key = "mkv_after" if changed else "mkv"
@@ -327,7 +337,7 @@ folder = os.path.dirname(os.path.abspath(__file__))
 config = json.load(open(os.path.join(folder, "config.json")))
 if config.get("mkvpropedit_exit", 0):
     sys.stderr.write("mkvpropedit: Error: cannot open the file\\n")
-elif config.get("mark"):
+else:
     open(sys.argv[1], "ab").write(b"CHANGED")  # so later reads see the changed tracks
 sys.exit(config.get("mkvpropedit_exit", 0))
 """
@@ -344,10 +354,51 @@ STUB_FFMPEG = """
 import json, os, sys
 folder = os.path.dirname(os.path.abspath(__file__))
 config = json.load(open(os.path.join(folder, "config.json")))
-open(sys.argv[-1], "wb").write(bytes.fromhex("0000001866747970") + b"mp42" + b"\\0" * 8)
-if config.get("ffmpeg_exit", 0):
+out = sys.argv[-1]
+if ".mkv" in os.path.basename(out):
+    # written as a changed copy, so the stand-in ffprobe reads the tracks of `mkv_after` from it
+    open(out, "wb").write(bytes.fromhex("1a45dfa39f428288") + b"matroska" + b"CHANGED")
+else:
+    open(out, "wb").write(bytes.fromhex("0000001866747970") + b"mp42" + b"\\0" * 8)
+# a failure from any stand-in tool (the mkvtoolnix keys count too, for the build without mkvtoolnix)
+code = (config.get("ffmpeg_exit", 0) or config.get("mkvmerge_exit", 0)
+        or config.get("mkvpropedit_exit", 0))
+if code:
     sys.stderr.write("ffmpeg: Invalid data\\n")
-sys.exit(config.get("ffmpeg_exit", 0))
+sys.exit(code)
+"""
+
+# The ffprobe stand-in: the tracks of `mkv` as ffprobe prints streams, or `mkv_after` for a file
+# that was written (one with the change marker), as the mkvmerge stand-in does.
+STUB_FFPROBE = """
+import json, os, sys
+folder = os.path.dirname(os.path.abspath(__file__))
+config = json.load(open(os.path.join(folder, "config.json")))
+target = sys.argv[-1]
+if "-show_entries" in sys.argv:
+    print("0")
+    sys.exit(0)
+changed = open(target, "rb").read().endswith(b"CHANGED")
+tracks = config.get("mkv_after" if changed else "mkv", config["mkv"])
+kinds = {"video": "video", "audio": "audio", "subtitles": "subtitle"}
+streams = []
+for track in tracks:
+    if track["type"] not in kinds:
+        continue
+    props = track.get("properties", {})
+    tags = {}
+    if props.get("language"):
+        tags["language"] = props["language"]
+    if props.get("track_name"):
+        tags["title"] = props["track_name"]
+    streams.append({
+        "index": len(streams), "codec_type": kinds[track["type"]],
+        "codec_name": track.get("codec", "").lower(), "channels": props.get("audio_channels", 0),
+        "tags": tags,
+        "disposition": {"default": int(bool(props.get("default_track"))),
+                        "forced": int(bool(props.get("forced_track")))},
+    })
+print(json.dumps({"streams": streams}))
 """
 
 
@@ -372,8 +423,9 @@ class Stubs:
         self.folder = folder
         self.config: dict[str, Any] = {}
         folder.mkdir()
-        for name, body in (("mkvmerge", STUB_MKVMERGE), ("mkvpropedit", STUB_MKVPROPEDIT),
-                           ("mediainfo", STUB_MEDIAINFO), ("ffmpeg", STUB_FFMPEG)):
+        tools = [("mkvmerge", STUB_MKVMERGE), ("mkvpropedit", STUB_MKVPROPEDIT),
+                 ("mediainfo", STUB_MEDIAINFO), ("ffmpeg", STUB_FFMPEG), ("ffprobe", STUB_FFPROBE)]
+        for name, body in tools:
             path = folder / name
             path.write_text(f"#!{sys.executable}\n{body}")
             path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
