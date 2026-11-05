@@ -11,7 +11,7 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 - [ ] Run `--install` for real on Fedora, Arch and Windows (winget and Chocolatey): the package names were checked against the repositories and the commands are tested, but none of these installs has been run.
 - [ ] Saved presets for bulk changes in the app, and a watch-folder mode that applies a preset to new files (careful with files still being written).
 - [ ] Edit video track names and chapters (probably out of scope unless fml becomes a general MKV editor).
-- [ ] Run the `.dmg` build (`./build.sh --target mac`) and the app from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed, and sign and notarise it if it is to be shared. The CLI and app build and `cargo test` passes on macOS 27 (Apple silicon), but the real-file tests were not run there.
+- [ ] Run the `.dmg` build (`./build.sh --target mac`) and the app from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed. Signing and notarising are wired into the CI mac job (1.3.3, with the repository secrets listed in the README), but not yet run. The CLI and app build and `cargo test` passes on macOS 27 (Apple silicon), but the real-file tests were not run there.
 - [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `fml-cli.exe` smoke-tested under Wine with stand-in tools.
 
 ## Done
