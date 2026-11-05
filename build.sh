@@ -6,6 +6,10 @@
 #                                                                 notarises the app and the .dmg; --nonotarize signs but does not
 #                                                                 notarise. The notary credentials come from the environment, or from
 #                                                                 the file FML_NOTARY_ENV names (default ~/.config/fml/notary.env).
+#                                                                 --sandboxed builds a sandboxed app that carries its tools (mkvmerge,
+#                                                                 mkvpropedit, mkvextract, mediainfo, ffmpeg, ffprobe, and whisper-cli if
+#                                                                 installed) with their libraries inside it, and names its .dmg with
+#                                                                 -sandboxed, so the two builds can sit in dist/ together.
 #   ./build.sh --target linux [--package deb|rpm|appimage|all]               (comma list allowed, e.g. deb,rpm; default: the
 #                                                                 distribution's own package: deb on Debian/Ubuntu, rpm on
 #                                                                 RHEL/Fedora/Alma/Rocky/SUSE, else appimage;
@@ -51,7 +55,7 @@ usage() {
 }
 
 target="" arch="" package="" cli=1 delete=0 del_version="" rel_version="" rel_commit="" keep_tag=0 release=0 draft=0 yes=0 dry=0 where=""
-notarize=1 notarize_set=0 notarizing=0
+notarize=1 notarize_set=0 notarizing=0 sandboxed=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) target="${2:-}"; shift 2 ;;
@@ -60,6 +64,7 @@ while [ $# -gt 0 ]; do
     --no-cli) cli=0; shift ;;
     --notarize) notarize=1; notarize_set=1; shift ;;
     --nonotarize) notarize=0; notarize_set=1; shift ;;
+    --sandboxed) sandboxed=1; shift ;;
     --local) where=local; shift ;;
     --ci) where=ci; shift ;;
     --release)
@@ -83,6 +88,12 @@ done
 [ -z "$where" ] || [ -n "$target" ] || { echo "--local and --ci build a --target: give one" >&2; exit 1; }
 if [ "$notarize_set" = 1 ] && [ "$target" != mac ] && [ "$target" != macos ]; then
   echo "--notarize and --nonotarize only apply to --target mac" >&2; exit 1
+fi
+if [ "$sandboxed" = 1 ] && [ "$target" != mac ] && [ "$target" != macos ]; then
+  echo "--sandboxed only applies to --target mac" >&2; exit 1
+fi
+if [ "$sandboxed" = 1 ] && [ "$where" = ci ]; then
+  echo "--sandboxed is for a local build: the GitHub runners do not have the tools bundled" >&2; exit 1
 fi
 if [ "$notarize_set" = 1 ] && [ "$where" = ci ]; then
   echo "--notarize and --nonotarize are for a local build: a --ci build notarises when the GitHub secrets are set" >&2; exit 1
@@ -252,6 +263,58 @@ notarise_disk_image() {
   spctl -a -vvv -t install "$dmg"
 }
 
+# --sandboxed: stage the tools the app uses into rust/target/sandbox-tools (bin/ and lib/, made by
+# packaging/mac/bundle_tools.py), and sign them inside out with the inherit entitlement, so that each one runs under the
+# sandbox of the app that starts it. Each is signed with the Developer ID identity when there is one (for notarising),
+# else ad-hoc (a local test only).
+sandbox_stage() {
+  local tools="$root/rust/target/sandbox-tools" tool path identity file
+  local found=()
+  command -v python3 >/dev/null || { echo "python3 not found: needed to bundle the tools" >&2; exit 1; }
+  for tool in mkvmerge mkvpropedit mkvextract mediainfo ffmpeg ffprobe; do
+    path=$(command -v "$tool") || { echo "$tool not found: install mkvtoolnix, mediainfo and ffmpeg (fml-cli --check --install)" >&2; exit 1; }
+    found+=("$path")
+  done
+  if path=$(command -v whisper-cli); then
+    found+=("$path")
+  else
+    echo "whisper-cli not found: the sandboxed app will not detect languages (brew install whisper-cpp bundles it)" >&2
+  fi
+  rm -rf "$tools"
+  echo "== bundling the tools =="
+  python3 "$root/packaging/mac/bundle_tools.py" "$tools" "${found[@]}"
+  identity="${APPLE_SIGNING_IDENTITY:--}"
+  echo "== signing the bundled tools ($identity) =="
+  for file in "$tools"/lib/* "$tools"/bin/*; do
+    if [ "$identity" = "-" ]; then
+      codesign --force -s - --options runtime --entitlements "$root/packaging/mac/tool.entitlements" "$file"
+    else
+      codesign --force --timestamp --options runtime --entitlements "$root/packaging/mac/tool.entitlements" -s "$identity" "$file"
+    fi
+  done
+  for file in "$tools"/bin/*; do codesign --verify --strict "$file"; done
+}
+
+# The Tauri configuration of the sandboxed build: the staged tools are resources of the app and the app gets the
+# sandbox entitlements. Written with absolute paths beside the staged tools, and given to cargo tauri build by --config.
+sandbox_config() {
+  local config="$root/rust/target/sandbox-tools.tauri.conf.json"
+  cat > "$config" <<JSON
+{
+  "bundle": {
+    "resources": {
+      "$root/rust/target/sandbox-tools/bin/": "bin/",
+      "$root/rust/target/sandbox-tools/lib/": "lib/"
+    },
+    "macOS": {
+      "entitlements": "$root/packaging/mac/app.entitlements"
+    }
+  }
+}
+JSON
+  echo "$config"
+}
+
 build_target() {
   host=$(uname -s)
   case "$target" in deb|rpm) package="$target"; target=linux ;; esac
@@ -322,20 +385,28 @@ build_target() {
   fi
 
   if [ "$target" = mac ] || [ "$target" = macos ]; then mac_signing_setup; fi
+  sandbox_args=()
+  if [ "$sandboxed" = 1 ]; then
+    sandbox_stage
+    sandbox_args=(--config "$(sandbox_config)")
+  fi
   mkdir -p "$dist"
   stamp=$(mktemp)
   echo "== building the installer ($target, $bundles) =="
   # cargo tauri build runs in rust/fml-gui; the workspace puts the bundles under rust/target/
-  (cd "$root/rust/fml-gui" && cargo tauri build --bundles "$bundles" ${triple_args[@]+"${triple_args[@]}"})
+  (cd "$root/rust/fml-gui" && cargo tauri build --bundles "$bundles" ${triple_args[@]+"${triple_args[@]}"} ${sandbox_args[@]+"${sandbox_args[@]}"})
 
   # Tauri puts bundles under target/[<triple>/]release/bundle/<kind>/
   found=0
   dmg_out=""
   while IFS= read -r f; do
-    cp -R "$f" "$dist/"
-    echo "  $dist/$(basename "$f")"
+    # the sandboxed disk image is named apart, so both builds can sit in dist/
+    name=$(basename "$f")
+    if [ "$sandboxed" = 1 ] && [ "${f##*.}" = dmg ]; then name="${name%.dmg}-sandboxed.dmg"; fi
+    cp -R "$f" "$dist/$name"
+    echo "  $dist/$name"
     found=1
-    case "$f" in *.dmg) dmg_out="$dist/$(basename "$f")" ;; esac
+    case "$f" in *.dmg) dmg_out="$dist/$name" ;; esac
   done < <(find "$root/rust/target" -path '*/release/bundle/*' -type f \
     \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*-setup.exe' \) -newer "$stamp" 2>/dev/null)
   rm -f "$stamp"

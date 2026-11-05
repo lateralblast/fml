@@ -157,6 +157,14 @@ pub fn which(tool: &str) -> Option<PathBuf> {
 /// exist, after what is already there. On Windows it adds the folders the installers use. Call it
 /// once, before other threads start; it does nothing on other systems.
 pub fn add_tool_folders() {
+    // a Mac app built with `build.sh --sandboxed` carries its tools: its own copies come first
+    if let Some(bundled) = bundled_tools_folder() {
+        let mut first = vec![bundled];
+        first.extend(std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default());
+        if let Ok(joined) = std::env::join_paths(first) {
+            std::env::set_var("PATH", joined);
+        }
+    }
     let folders: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
@@ -193,6 +201,21 @@ pub fn add_tool_folders() {
     if let Ok(joined) = std::env::join_paths(append_missing(folders, extra)) {
         std::env::set_var("PATH", joined);
     }
+}
+
+/// The folder of the tools a Mac app carries (`Contents/Resources/bin`), when this program runs from
+/// inside such an app (`Contents/MacOS/`). `None` anywhere else.
+pub fn bundled_tools_folder() -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let macos = exe.parent()?;
+    if macos.file_name()? != "MacOS" {
+        return None;
+    }
+    let folder = macos.parent()?.join("Resources").join("bin");
+    folder.is_dir().then_some(folder)
 }
 
 /// `folders` followed by each of `extra` that is a folder and not already in it.
@@ -377,6 +400,12 @@ pub fn detect_distro() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bundled_tools_are_only_looked_for_inside_a_mac_app() {
+        // the test program is not in a Contents/MacOS folder, so there is no bundle to look in
+        assert_eq!(bundled_tools_folder(), None);
+    }
 
     #[test]
     fn patterns_match_like_fnmatch() {

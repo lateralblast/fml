@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.7] - 2026-11-05
+
+### Added
+- `./build.sh --target mac --sandboxed` builds a sandboxed app that carries the tools it uses inside it: `mkvmerge`, `mkvpropedit`, `mkvextract`, `mediainfo`, `ffmpeg`, `ffprobe`, and `whisper-cli` when it is installed, with the libraries they load (`packaging/mac/bundle_tools.py` copies them and rewrites their references). Each tool is signed with the inherit entitlement, so it runs under the app's sandbox (`packaging/mac/app.entitlements`: files the user chooses, and network access). The app uses its own tools before any installed ones. The disk image is named `fml_<version>_<arch>-sandboxed.dmg`, so it sits in `dist/` beside the usual one. It is a local build only (`--ci` is refused).
+
+### Changed
+- fml is licensed under the GNU General Public License, version 3 or later (`GPL-3.0-or-later`), in place of CC BY-NC-SA 4.0. The bundled tools (mkvtoolnix under GPL-2.0-or-later, ffmpeg under GPL-3.0-or-later) need a licence that allows them to be distributed with fml, and the non-commercial term of the old licence would not allow it. `LICENSE` now holds the GPL-3.0 text, and `Cargo.toml`, `pyproject.toml`, the README and the `archived/fml.py` header say so. `archived/fml.sh` keeps its old header, as it is archived.
+
 ## [1.3.6] - 2026-11-05
 
 ### Fixed

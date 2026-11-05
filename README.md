@@ -4,7 +4,7 @@
 
 **Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.3.6
+Version 1.3.7
 
 ![The fml desktop app](docs/images/app-main.png)
 
@@ -163,6 +163,17 @@ into `dist/` (it needs `cargo install tauri-cli --version '^2'`; the system web 
 `/Applications`, and `fml-cli --gui` will find it. The app adds Homebrew's folders (`/opt/homebrew/bin`,
 `/usr/local/bin`) to its `PATH`, so it finds the commands even when opened from Finder. The `.dmg` is not signed or
 notarised, so macOS may ask you to allow it in System Settings, Privacy & Security.
+
+**A sandboxed app with its tools inside.** `./build.sh --target mac --sandboxed` builds a version of the app that carries
+the command-line tools it uses (`mkvmerge`, `mkvpropedit`, `mkvextract`, `mediainfo`, `ffmpeg` and `ffprobe`, and
+`whisper-cli` when it is installed), with the libraries they load, inside the app's `Contents/Resources`. The tools are copied
+from Homebrew by `packaging/mac/bundle_tools.py`, their references are rewritten to the copies, and each is signed with the
+inherit entitlement (`packaging/mac/tool.entitlements`), so it runs under the sandbox of the app that starts it. The app itself
+is sandboxed (`packaging/mac/app.entitlements`: files the user chooses, and network access). It uses the bundled tools in
+preference to any installed ones. The disk image is named `fml_<version>_<arch>-sandboxed.dmg`, so it sits in `dist/` beside
+the usual one. It is for a Mac with the tools installed (`mkvtoolnix`, `mediainfo`, `ffmpeg`) to build from, and it is
+signed and notarised like the usual build. The tools' licences (GPL, for mkvtoolnix and ffmpeg) apply to the app when it is
+distributed this way.
 
 **Signing and notarising.** When the login keychain holds a *Developer ID Application* certificate, the build signs the app
 with it, and by default (`--notarize`) it also notarises the app and the `.dmg`, staples the ticket, and checks it with
@@ -1118,7 +1129,9 @@ The main changes are:
 
 ## License and support
 
-CC BY-NC-SA: https://creativecommons.org/licenses/by-nc-sa/4.0/
+fml is free software under the GNU General Public License, version 3 or (at your option) any later version: see
+[LICENSE](LICENSE), or https://www.gnu.org/licenses/gpl-3.0.html. It comes with no warranty. The command-line tools that the
+sandboxed Mac app bundles (mkvtoolnix, under GPL-2.0-or-later, and ffmpeg, under GPL-3.0-or-later) keep their own licences.
 
 Fund me here: https://ko-fi.com/richardatlateralblast
 
