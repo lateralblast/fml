@@ -64,7 +64,7 @@ have to be removed, are rewritten without re-encoding anything.
 
 ## Quick start
 
-```
+```sh
 ./mau --check                                             # are the tools it needs installed?
 ./mau --info --file video.mkv                             # show the tracks of a file
 ./mau --set lang --default English --file video.mkv --dryrun    # show what would change
@@ -131,7 +131,7 @@ The desktop app (`./mau --gui`) is optional and also needs the system webview (o
 
 Build the command line tool, and the desktop app if you want it, from the `rust` folder:
 
-```
+```sh
 cd rust
 cargo build --release                # the command line tool: rust/target/release/mau-cli
 cargo build -p mau-gui --release     # the desktop app: rust/target/release/mau
@@ -139,7 +139,7 @@ cargo build -p mau-gui --release     # the desktop app: rust/target/release/mau
 
 To put `mau-cli` on your `PATH`, copy the built files into a directory on it (the app beside the command):
 
-```
+```sh
 install -m 755 rust/target/release/mau-cli rust/target/release/mau ~/.local/bin/
 mau-cli --version
 ```
@@ -269,37 +269,37 @@ The same actions, switch by switch. `./mau --help` lists them all, and the full 
 
 Show the tracks in a file:
 
-```
+```sh
 ./mau --info --file video.mkv
 ```
 
 Set the default audio language to English. Only the tracks whose flag has to change are edited:
 
-```
+```sh
 ./mau --set lang --default English --file video.mkv
 ```
 
 Get the default audio language:
 
-```
+```sh
 ./mau --get lang --file video.mkv
 ```
 
 Show the audio tracks that are in a language:
 
-```
+```sh
 ./mau --get lang --lang English --file video.mkv
 ```
 
 If the metadata is wrong, set the language of an audio track (the first unless `--track` says otherwise):
 
-```
+```sh
 ./mau --set lang --lang Italian --track 2 --file video.mkv
 ```
 
 If the metadata is poor quality, you can use the swap action to make the second audio track the default:
 
-```
+```sh
 ./mau --swap lang --file video.mkv
 ```
 
@@ -308,7 +308,7 @@ If the metadata is poor quality, you can use the swap action to make the second 
 Files often have tracks tagged `und` (undetermined), so there is no language to choose by.
 `--set default` makes a track the default by number, and `--lang` also tags it in the same edit:
 
-```
+```sh
 ./mau --set default --track 2 --lang English --file video.mkv
 ```
 
@@ -318,7 +318,7 @@ Files often have tracks tagged `und` (undetermined), so there is no language to 
 that track whatever `--kind` says: `subtitles:18` (or `sub:18`, `audio:2`), `id:20` (the ID column) or `name:Forced`
 (the track name, ignoring case; it must match one track, else use the ID):
 
-```
+```sh
 ./mau --delete track --track subtitles:18 --file video.mkv
 ./mau --delete track --track id:20 --file video.mkv
 ./mau --delete track --track name:Traditional --file video.mkv
@@ -332,13 +332,13 @@ Tracks can be removed, which rewrites the file (checked first, with permissions 
 
 Remove all the audio that is not English:
 
-```
+```sh
 ./mau --preserve lang --lang eng --file video.mkv
 ```
 
 Remove all the English audio, or one audio track by number (`last` is the last one):
 
-```
+```sh
 ./mau --delete lang --lang eng --file video.mkv
 ./mau --delete track --track 2 --file video.mkv
 ```
@@ -346,7 +346,7 @@ Remove all the English audio, or one audio track by number (`last` is the last o
 Keep several languages at once with `--keep` (a list, any order): the tracks in all of them stay and the rest
 go. Include `und` to keep tracks with no language:
 
-```
+```sh
 ./mau --preserve lang --keep eng,jpn,und --file video.mkv
 ./mau --preserve lang --keep eng,ita --kind sub --dir /media/shows --recursive
 ```
@@ -358,7 +358,7 @@ Remove the duplicates, so each language has one audio track left (the first of e
 English tracks), with `--delete dupes`. For subtitles a forced track and a full one in the same language are not
 duplicates of each other:
 
-```
+```sh
 ./mau --delete dupes --file video.mkv
 ./mau --delete dupes --kind sub --dir /media/shows --recursive
 ```
@@ -368,7 +368,7 @@ and `--channels` that are given (at least one is needed). `--codec` is part of t
 in any case (`ac-3` matches `ac3` and `eac3`, the names `--info` shows), and `--channels` is the number of audio channels (2 is stereo,
 6 is 5.1; the **Ch** column of `--info`, shown where the tool reports it):
 
-```
+```sh
 ./mau --delete match --channels 2 --lang eng --file video.mkv   # the stereo English track
 ./mau --delete match --codec dts --dir /media/films --recursive
 ```
@@ -388,20 +388,20 @@ The track numbers (`--track`) then count the subtitle tracks, as the `--info` ta
 Make English the default subtitles. A track that is not forced is preferred, and `--forced`
 chooses the forced track instead (the one that only subtitles foreign speech):
 
-```
+```sh
 ./mau --set lang --default English --kind sub --file video.mkv
 ./mau --set lang --default English --kind sub --forced --file video.mkv
 ```
 
 Turn the default subtitles off, so that none show unless a viewer picks them (MKV only):
 
-```
+```sh
 ./mau --set lang --default none --kind sub --file video.mkv
 ```
 
 The other actions work the same way:
 
-```
+```sh
 ./mau --get lang --kind sub --file video.mkv
 ./mau --delete lang --lang ita --kind sub --file video.mkv
 ./mau --preserve lang --lang eng --kind sub --file video.mkv
@@ -426,7 +426,7 @@ nothing, and `--check` then reports the model missing. The download is checked a
 is kept, so a damaged or different file is thrown away. `--check --install --dryrun` only says what it would download.
 `MAU_WHISPER_MODEL_URL` gives another address for the download (a mirror, or a test server).
 
-```
+```sh
 ./mau --detect --file video.mkv
 ./mau --detect --track 2 --file video.mkv
 ```
@@ -464,7 +464,7 @@ Languages read from files are converted the same way, so a file tagged `fra` mat
 `--prefer` takes languages in order, and uses the first one that each file has. One command then
 suits a library where the files differ:
 
-```
+```sh
 ./mau --set lang --prefer eng,jpn,fre --dir /media/films --recursive
 ```
 
@@ -472,7 +472,7 @@ A file with English audio gets English, a file with only Japanese and French get
 with none of them is skipped with a warning. With `--preserve` it keeps only the first preferred language
 that a file has, and removes the rest:
 
-```
+```sh
 ./mau --preserve lang --prefer eng,jpn --dir /media/films
 ```
 
@@ -481,7 +481,7 @@ that a file has, and removes the rest:
 Some players ignore the default flag and just play the first track. `--move` makes the chosen track the
 first track of its kind as well as the default, so it works for those players too:
 
-```
+```sh
 ./mau --set lang --default English --move --file video.mkv
 ./mau --set lang --prefer eng,jpn --move --dir /media/films
 ./mau --set default --track 3 --lang English --move --file video.mkv
@@ -502,7 +502,7 @@ tracks, `3,1,2` makes the third first, then the first, then the second. Flags, l
 tracks, so the default flag does not move to the new first track unless you add `--default-first`, which makes
 the track that ends up first the only default of its kind (it also fixes the flag when the order is already right). List every track of the kind once. MKV and MP4 only.
 
-```
+```sh
 ./mau --set order --order 3,1,2 --file video.mkv
 ./mau --set order --order 2,1 --kind sub --file video.mp4
 ```
@@ -518,7 +518,7 @@ tracks (`./mau --set order --order-lang eng,ita --default-first --dir /media/Sho
 `--set name` sets the name of a track, and an empty name removes it. `--set forced` and `--set unforced` set
 and clear the forced flag. They all take the track with `--track`, and `--kind sub` works on subtitles:
 
-```
+```sh
 ./mau --set name --track 2 --name "English 5.1" --file video.mkv
 ./mau --set name --track 1 --name "" --file video.mkv
 ./mau --set forced --track 2 --kind sub --file video.mkv
@@ -536,7 +536,7 @@ one edit of the file, where `--set lang`, `--set name` and `--set forced` each m
 what is given is changed; an empty `--name ""` removes the name. The track is chosen as with `--delete track`
 (`--track 2`, `--track subtitles:3`, `--track id:5`, `--track name:Forced`). The forced flag is MKV only.
 
-```
+```sh
 ./mau --set track --track 3 --kind sub --lang Spanish --name "Latino" --forced-flag yes --file video.mkv
 ```
 
@@ -547,7 +547,7 @@ what is given is changed; an empty `--name ""` removes the name. The track is ch
 and not forced (change that afterwards with `--set default` or `--set forced`). The file is rewritten with
 `mkvmerge` on a copy and checked, like every change; chapters, attachments and the other tracks are kept.
 
-```
+```sh
 ./mau --add subtitle --sub-file Film.it.srt --lang Italian --name "Italiano" --file Film.mkv
 ```
 
@@ -567,7 +567,7 @@ new subtitles. Subtitles that a file already has (same language and name) are no
 be run again after more files arrive, and in an MP4 the ones that can't be converted are left out, each with its
 reason. Files that match nothing are listed.
 
-```
+```sh
 ./mau --add subtitle --sub-dir ~/Subs --dir /media/Show.S01 --dryrun
 ./mau --add subtitle --sub-dir ~/Subs --lang English --dir /media/Show.S01
 ```
@@ -579,7 +579,7 @@ ones made for exactly that file, then the most downloaded), and changes nothing.
 and adds it, as the app's search does. Both need `--enable search`, because the online search is **off by default**
 until it has been tested fully: without the switch they are refused before anything is sent.
 
-```
+```sh
 ./mau --enable search --search subtitle --file Show.S01E03.1080p.mkv
 ./mau --enable search --search subtitle --lang Italian --query "Show Name" --file Show.S01E03.1080p.mkv
 ./mau --enable search --add subtitle --online --lang Italian --file Show.S01E03.1080p.mkv
@@ -619,7 +619,7 @@ name to choose it. The track is chosen as with `--delete track` (`--track 2`, `-
 `--track name:Forced`), and a plain number counts subtitle tracks. A file that exists is never replaced unless you
 give `--force` with a file name.
 
-```
+```sh
 ./mau --extract subtitle --track 2 --file Film.mkv
 ./mau --extract subtitle --track name:Forced --output ~/Subs/ --file Film.mkv
 ```
@@ -628,7 +628,7 @@ give `--force` with a file name.
 
 MP4 (and M4V and MOV) files work with the same actions, including subtitles:
 
-```
+```sh
 ./mau --set lang --default English --file video.mp4
 ./mau --set lang --default Italian --kind sub --file video.mp4
 ./mau --delete track --track last --file video.mp4
@@ -653,13 +653,13 @@ Swap the first two audio tracks of an AVI file (`--swap` makes the second one th
 way to store, so it swaps the two tracks in the file as well). `--set order --order 2,1` does the same, and it is what
 the desktop app's Edit dialog and the bulk menu use when a file has exactly two audio tracks:
 
-```
+```sh
 ./mau --swap lang --file video.avi
 ```
 
 Delete the last audio track from an AVI file:
 
-```
+```sh
 ./mau --delete track --track last --file video.avi
 ```
 
@@ -669,7 +669,7 @@ Use `--dir` instead of `--file` to process every file in a directory, and `--rec
 subdirectories. Files that are not media files are skipped. A failure on one file is reported
 and the rest are still processed.
 
-```
+```sh
 ./mau --set lang --default English --dir /media/films --recursive
 ```
 
@@ -678,7 +678,7 @@ matching ignores case. A pattern with no `/` matches a file name, or the name of
 `Extras` skips every folder of that name. A pattern with a `/` is matched against the whole path below the
 directory, as in `Season 1/*`:
 
-```
+```sh
 ./mau --set lang --default English --dir /media/tv -r --include '*.mkv' --exclude Extras
 ./mau --get lang --dir /media/tv -r --include 'Season 1/*'
 ```
@@ -688,7 +688,7 @@ rarely do, but when most of the time goes in the tools it is much quicker (24 fi
 time and 1.4 with `-j 4`). The output is the same, and in the same order, as a run one at a time. The free
 space each file needs is set aside while it runs, so jobs can't use it up between them.
 
-```
+```sh
 ./mau --set lang --default English --move --dir /media/tv -r -j 4
 ```
 
@@ -700,7 +700,7 @@ Each action has its own settings: the settings that follow an action on the comm
 actions can need different values. Settings given before the first action are shared by every action, and an
 action's own settings are added on top of them (a setting given twice for one action uses the last):
 
-```
+```sh
 ./mau --set lang --default English --delete lang --lang ita --file video.mkv     # English default, then no Italian
 ./mau --kind sub --get lang --info --file video.mkv                              # --kind sub is for both
 ./mau --set lang --default French --move --set lang --default Italian -i a.mkv   # --move only for the first
@@ -719,7 +719,7 @@ the first track. The same four steps work for any folder of MKV files.
 
 1. Look at the tracks of one episode:
 
-   ```
+   ```sh
    $ ./mau --info --file Show.1x01.mkv
    Show.1x01.mkv (Matroska)
    Track        ID  Codec              Language  Default  Forced  Ch  Name
@@ -733,7 +733,7 @@ the first track. The same four steps work for any folder of MKV files.
 
 2. Preview the change for the whole folder. Nothing is changed:
 
-   ```
+   ```sh
    $ ./mau --set lang --default English --move --dir /media/Show.S01 --dryrun
    [dry-run] Show.1x01.mkv: audio track 1 (ita): default yes -> no
    [dry-run] Show.1x01.mkv: audio track 2 (eng): default no -> yes, moved to the first audio track
@@ -743,13 +743,13 @@ the first track. The same four steps work for any folder of MKV files.
 3. Make the change. Each episode is rewritten once, as a checked copy that replaces the original only if it
    worked, so a failure on one episode leaves it as it was and the rest are still done:
 
-   ```
+   ```sh
    ./mau --set lang --default English --move --dir /media/Show.S01
    ```
 
 4. Check the result: English is now the first audio track and the default.
 
-   ```
+   ```sh
    $ ./mau --get lang --dir /media/Show.S01
    Show.1x01.mkv: eng
    Show.1x02.mkv: eng
@@ -759,7 +759,7 @@ the first track. The same four steps work for any folder of MKV files.
 The forced Italian subtitle track in this example is still the default, so a player may show Italian subtitles
 over the English audio. Turn the default subtitles off with:
 
-```
+```sh
 ./mau --set lang --default none --kind sub --dir /media/Show.S01
 ```
 
@@ -774,7 +774,7 @@ Everything `mau` does is made to be checked and, where it can be, undone.
 
 `--dryrun` shows what would change and changes nothing:
 
-```
+```sh
 $ ./mau --set lang --default English --file video.mkv --dryrun
 [dry-run] video.mkv: audio track 1 (ita): default yes -> no
 [dry-run] video.mkv: audio track 2 (eng): default no -> yes
@@ -810,7 +810,7 @@ Copying a large file takes time: every change is made on a copy, which replaces 
 `--backup` keeps the original beside the changed file, named `NAME.fml-bak` (or `NAME.fml-bak.1` and so on if
 that name is taken):
 
-```
+```sh
 ./mau --delete lang --lang eng --file video.mkv --backup
 ```
 
@@ -823,7 +823,7 @@ they end in `.fml-bak`. The JSON output has a `backup` field with the path.
 
 `--log FILE` records each change, one JSON line per changed file, with the tracks before and after:
 
-```
+```sh
 ./mau --set lang --default English --move --dir /media/tv -r --log changes.jsonl
 ```
 
@@ -831,7 +831,7 @@ they end in `.fml-bak`. The JSON output has a `backup` field with the path.
 that change left it, so a file that has been changed since is left alone and reported. `--file` or `--dir`
 limits it to some of the files, and `--dryrun` shows what would be undone:
 
-```
+```sh
 ./mau --undo changes.jsonl --dryrun
 ./mau --undo changes.jsonl
 ./mau --undo changes.jsonl --dir "/media/tv/Season 1"
@@ -849,7 +849,7 @@ checked, as the older ones depend on it.
 
 `--format json` prints a single JSON document instead of text, for use in scripts:
 
-```
+```sh
 ./mau --set lang --default English --dir /media/films --dryrun --format json
 ```
 
@@ -896,11 +896,11 @@ average probability (`confidence`), the clips listened to and how many of them n
 
 ### Help
 
-```
+```sh
 ./mau --help
 ```
 
-```
+```text
 usage: mau-cli [OPTIONS]
 
 Fix the default audio and subtitle languages, and the tracks, of media files.
@@ -996,7 +996,7 @@ examples:
 
 ## Development
 
-```
+```sh
 cd rust
 cargo build --release     # the command line tool
 cargo test                # unit tests of the library, the command line and the app backend
@@ -1029,17 +1029,17 @@ It shows the app icon, the version and `ABOUT.md`, which is compiled into the ap
 in the repository are the same. It's web links open in your browser.
 
 mau is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE),
-or https://www.apache.org/licenses/LICENSE-2.0. It comes with no warranty. 
+or <https://www.apache.org/licenses/LICENSE-2.0>. It comes with no warranty.
 
-The command-line tools that the sandboxed Mac app bundles keep their own licences. In the default sandboxed build these are mkvtoolnix (GPL-2.0-or-later) and ffmpeg from Homebrew (GPL-3.0-or-later). 
+The command-line tools that the sandboxed Mac app bundles keep their own licences. In the default sandboxed build these are mkvtoolnix (GPL-2.0-or-later) and ffmpeg from Homebrew (GPL-3.0-or-later).
 
-The `--lgpl` build leaves mkvtoolnix out and builds ffmpeg under LGPL-2.1-or-later (see "An LGPL build"). 
+The `--lgpl` build leaves mkvtoolnix out and builds ffmpeg under LGPL-2.1-or-later (see "An LGPL build").
 Every other bundled package keeps its licence too, and the app carries it: `Contents/Resources/licences/`
 has a folder per package with its licence files (from the package, or the standard text of its licence),
-and `NOTICE.txt` lists each package with its version and the address of its source. 
+and `NOTICE.txt` lists each package with its version and the address of its source.
 Qt's own exception, GFDL and BSD-3-Clause texts are in the app too, from Qt's source (`LICENSES/`, the same checksum Homebrew records). The BSD text is Qt's template, so its copyright line is generic: the copyright holders are named in the headers of the Qt source files.
 
-Fund me here: https://ko-fi.com/richardatlateralblast
+Fund me here: <https://ko-fi.com/richardatlateralblast>
 
 ## Attributions
 

@@ -4,7 +4,7 @@ A Rust version of `archived/fml.py`, as a command line tool and a desktop app, b
 `archived/fml.py` is the archived reference: the Rust version is meant to behave the same, and the same test
 suite is used to check it.
 
-```
+```text
 rust/
   mau-core/   the library: languages, tracks, edits, safe rewriting, backup, log and undo
   mau-cli/    the `mau-cli` command (clap); same switches and output as fml.py
@@ -20,7 +20,7 @@ rules about which switches go together, so the command line and the app enforce 
 Needs `cargo` (1.85 or newer; 1.90 or newer for the app) and the same tools as `fml.py`: `mkvmerge`, `mkvpropedit`,
 `mediainfo` and `ffmpeg`.
 
-```
+```sh
 cd rust
 cargo build --release            # the command line tool: target/release/mau-cli
 target/release/mau-cli --set lang --default English --move --dryrun --dir films
@@ -31,7 +31,7 @@ A plain `cargo build` leaves the app out, because it needs the system webview. F
 on Ubuntu install `libwebkit2gtk-4.1-dev` and `libgtk-3-dev` (and `cargo install tauri-cli`
 for bundling), then:
 
-```
+```sh
 cargo build -p mau-gui --release     # target/release/mau (the app)
 cd mau-gui && cargo tauri build --bundles deb    # a .deb in target/release/bundle/deb
 ```
@@ -66,7 +66,7 @@ one (`dockurr/windows`, QEMU/KVM, a watcher that runs `build.cmd` from a shared 
 The pytest suite in `../tests` runs the command line through a `run` helper. With `MAU_BIN` set
 it runs the Rust binary instead of `fml.py`, so every real-file and stub-tool test applies:
 
-```
+```sh
 cargo build --release
 MAU_BIN=$PWD/target/release/mau-cli pytest ../tests        # from the repository root
 ```

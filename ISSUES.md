@@ -16,7 +16,6 @@
 
 ## In Progress
 
-
 ## Done
 
 - Desktop app shows "not responding" during a run on a busy disk, because some commands did disk work on the window's thread (fixed in 1.0.7: those commands now run off it)

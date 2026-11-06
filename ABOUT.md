@@ -1,4 +1,4 @@
-mau - Media Audio Utility 
+mau - Media Audio Utility
 
 Change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
