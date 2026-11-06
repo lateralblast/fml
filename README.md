@@ -14,11 +14,6 @@ Version 1.6.3
 - [Quick start](#quick-start)
 - [Requirements](#requirements)
 - [Installing](#installing)
-  - [Build from source](#build-from-source)
-  - [Put the commands on your PATH](#put-the-commands-on-your-path)
-  - [Linux package](#linux-package)
-  - [macOS](#macos)
-  - [Windows](#windows)
 - [The desktop app](#the-desktop-app)
 - [Using the command line](#using-the-command-line)
   - [Basics](#basics)
@@ -79,13 +74,13 @@ have to be removed, are rewritten without re-encoding anything.
 ./mau --gui                                               # or do it in the desktop app
 ```
 
-`./mau` runs the build in this directory (see [Installing](#installing)); with `mau-cli` on your `PATH` use that name.
+`./mau` runs the build in this directory; with `mau-cli` on your `PATH` use that name.
 Before it runs, `./mau` brings that build up to date with `cargo` (a quick check that does nothing when the sources have not
 changed), and `./mau --gui` does the same for the app. Set `MAU_NO_BUILD=1` to skip the check and run what is built.
 
 ## Requirements
 
-`mau` is built with Rust (`cargo` 1.85 or newer, 1.90 for the desktop app; see [Installing](#installing)) and has no other
+`mau` is built with Rust (`cargo` 1.85 or newer, 1.90 for the desktop app) and has no other
 dependencies of its own. It needs these commands:
 
 | Command                   | Package    | Used for                      |
@@ -132,14 +127,11 @@ the commands that would be run are tested; `--dryrun --verbose` shows them). Fed
 mau, which copies streams; the full `ffmpeg` needs RPM Fusion.
 Each action only needs the commands it uses, so an MKV-only setup works without `ffmpeg`.
 
-The desktop app (`./mau --gui`) is optional and also needs the system webview (see [Installing](#installing)).
+The desktop app (`./mau --gui`) is optional and also needs the system webview (on Ubuntu `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`).
 
 ## Installing
 
-### Build from source
-
-Build the command line tool, and the desktop app if you want it (it needs `cargo` 1.85 or newer, and 1.90 for the app; the app also
-needs the system webview, on Ubuntu `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`):
+Build the command line tool, and the desktop app if you want it, from the `rust` folder:
 
 ```
 cd rust
@@ -147,94 +139,19 @@ cargo build --release                # the command line tool: rust/target/releas
 cargo build -p mau-gui --release     # the desktop app: rust/target/release/mau
 ```
 
-### Put the commands on your PATH
-
-`./mau` in this directory runs the release build (or the debug build if there is no release one), rebuilding it first
-if its sources have changed, and `./mau --gui` opens the desktop app (rebuilt the same way). To get an `mau-cli` command on your `PATH` instead, copy the built files
-into a directory on it, the app beside the command (`mau-cli --gui` looks for the app, the program called `mau`, next to itself, then
-on `PATH` (skipping scripts, such as the archived Python `fml`), or at the path in `MAU_GUI`):
+To put `mau-cli` on your `PATH`, copy the built files into a directory on it (the app beside the command):
 
 ```
 install -m 755 rust/target/release/mau-cli rust/target/release/mau ~/.local/bin/
 mau-cli --version
 ```
 
-### Linux package
-
-For a package of the app, `cd rust/mau-gui && cargo tauri build --bundles deb` leaves a `.deb` in
-`rust/target/release/bundle/deb` (it needs `cargo install tauri-cli` first). The commands in
-[Requirements](#requirements) are still needed, and `mau-cli --check --install` installs them.
-
-### macOS
-
-On macOS, `brew install mkvtoolnix mediainfo ffmpeg` installs the commands (or `mau-cli --check --install`), and
-`./build.sh --target mac [--arch arm64|x64|universal]` builds `mau_<version>_<arch>.dmg` and the `mau-cli` archive
-into `dist/` (it needs `cargo install tauri-cli --version '^2'`; the system web view is built in). Drag `mau.app` to
-`/Applications`, and `mau-cli --gui` will find it. The app adds Homebrew's folders (`/opt/homebrew/bin`,
-`/usr/local/bin`) to its `PATH`, so it finds the commands even when opened from Finder. The `.dmg` is not signed or
-notarised, so macOS may ask you to allow it in System Settings, Privacy & Security.
-
-**A sandboxed app with its tools inside.** `./build.sh --target mac --sandboxed` builds a version of the app that carries
-the command-line tools it uses (`mkvmerge`, `mkvpropedit`, `mkvextract`, `mediainfo`, `ffmpeg` and `ffprobe`, and
-`whisper-cli` when it is installed), with the libraries they load, inside the app's `Contents/Resources`. The tools are copied
-from Homebrew by `packaging/mac/bundle_tools.py`, their references are rewritten to the copies, and each is signed with the
-inherit entitlement (`packaging/mac/tool.entitlements`), so it runs under the sandbox of the app that starts it. The app itself
-is sandboxed (`packaging/mac/app.entitlements`: files the user chooses, and network access). It uses the bundled tools in
-preference to any installed ones. The disk image is named `mau_<version>_<arch>-sandboxed.dmg`, so it sits in `dist/` beside
-the usual one. The app carries the licence of each package its tools come from, with a `NOTICE.txt` (see "License and
-support"). It is for a Mac with the tools installed (`mkvtoolnix`, `mediainfo`, `ffmpeg`) to build from, and it is
-signed and notarised like the usual build. The tools' licences (GPL, for mkvtoolnix and ffmpeg) apply to the app when it is
-distributed this way.
-
-**An LGPL build.** `./build.sh --target mac --lgpl` builds the sandboxed app above without mkvtoolnix (which is GPL-licensed),
-and with ffmpeg and ffprobe built from source as LGPL-only tools. `packaging/ffmpeg/build-lgpl.sh` downloads ffmpeg 9.0.2 from
-ffmpeg.org, checks it against its SHA-256 and builds it with `--disable-gpl --disable-nonfree --enable-shared` and no external
-codec libraries. It is built once, into `rust/target/lgpl-ffmpeg`: delete that folder to build it again. mau needs nothing that is
-GPL-only: it copies streams, and its subtitle conversions use encoders built into ffmpeg (`srt`, `mov_text`, `pcm_s16le`). The
-disk image is named `-lgpl.dmg`. It is for a local build on a Mac, with Xcode's command line tools to compile ffmpeg. The app
-carries ffmpeg's licence text and a `SOURCE.txt` (where its source is, its SHA-256, and how it was configured) in
-`Contents/Resources/licences`.
-
-**Signing and notarising.** When the login keychain holds a *Developer ID Application* certificate, the build signs the app
-with it, and by default (`--notarize`) it also notarises the app and the `.dmg`, staples the ticket, and checks it with
-`stapler` and `spctl`. `--nonotarize` signs without notarising. With no such certificate the app is built unsigned, and the
-build says so. If a certificate is found but the notary credentials are not, the build stops before it starts, rather than
-making a signed build that is not notarised. The credentials are read from the environment, or from the file named by
-`MAU_NOTARY_ENV` (default `~/.config/mau/notary.env`), which holds `APPLE_API_KEY` (the key ID), `APPLE_API_ISSUER` and
-`APPLE_API_KEY_PATH` (the App Store Connect `.p8` key), or `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and
-`APPLE_TEAM_ID`. Keep that file out of the repository, readable only by you (`chmod 600`). The `APPLE_ID` route passes the
-password on the command line of `xcrun`, so the App Store Connect key is the safer choice. `APPLE_SIGNING_IDENTITY` names the
-certificate when there is more than one.
-
-### Windows
-
-`./build.sh --target windows` on Linux or a Mac cross-compiles the Windows installer (`mau_<version>_x64-setup.exe`)
-and `mau-cli-<version>-windows.zip` in a Docker container (MinGW, `x86_64-pc-windows-gnu`; needs `docker`, nothing
-else), and leaves them in `dist/`. `docker/windows/smoke.sh` then runs the built `mau-cli.exe` under Wine against
-stand-in tools as a smoke test. On Windows itself the installer's tools (Rust, tauri-cli) are needed and
-`./build.sh --target windows` builds there. The Windows build has not been run on a real Windows machine yet; the
-`mkvtoolnix`, `mediainfo` and `ffmpeg` commands must be on `PATH` there too.
-
-### Building on GitHub instead
-
-`./build.sh --target <t> --ci` (`<t>` is `linux`, `deb`, `rpm`, `mac` or `windows`, with the same `--package` and
-`--arch`) builds on GitHub's runners instead of here, through the **Build** workflow (`.github/workflows/build.yml`), and
-puts the files in `dist/`. Without `--ci` the build is local; with neither `--local` nor `--ci` a terminal is asked which
-to use. The branch must be committed and pushed, with nothing uncommitted, since the runners build what is on GitHub;
-the workflow must also be on the default branch, because GitHub only starts a manual workflow from there. The mac job
-signs and notarises the `.dmg` when the repository has these secrets and variables (none is needed for an unsigned
-build): the secrets `APPLE_CERTIFICATE` (the Developer ID Application certificate exported as a `.p12`, base64-encoded),
-`APPLE_CERTIFICATE_PASSWORD` (its export password) and `APPLE_API_KEY_P8` (the App Store Connect `.p8` key, base64-encoded),
-and the variables `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY` (the key ID) and `APPLE_API_ISSUER`. With the notary key, the job
-also notarises the disk image itself, staples its ticket, and checks it with `stapler` and `spctl`. The command
-needs `gh`, logged in, starts the run, follows it, and downloads its artifacts. `--dry-run` runs the checks and prints
-the commands without starting anything. The Windows job builds on Windows itself and has not been run yet, and a
-`windows tests` job runs `cargo test` there for information (it does not fail the run).
+Installers and packages are made by `./build.sh` (see its header for the targets, and for building on GitHub with `--ci`).
 
 ## The desktop app
 
 The app does everything the command line does on whole folders, and the Edit dialog works on one file. Open it with
-`./mau --gui` (or `mau-cli --gui`, or `mau.app` on a Mac), after building it as described in [Installing](#installing).
+`./mau --gui` (or `mau-cli --gui`, or `mau.app` on a Mac), after building it with `cargo build -p mau-gui --release` in `rust/`.
 It follows the system's light or dark appearance. It uses the same engine as the command line, so changes are made
 the same careful way, and the logs it writes can be used with `--undo` and the other way round. The chip at the top
 right lists the commands found (`mkvtoolnix, ffmpeg, mediainfo`, and `whisper-cli` when the optional language
