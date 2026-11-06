@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-11-06
+
+### Changed
+- The test suite recognises the build made without mkvtoolnix (`--features no-mkvtoolnix`, the App Store and LGPL build) from its `--check` output, which does not list `mkvmerge` in that build, and expects ffmpeg where that build does the MKV work. The suite passes against it (439 passed, 0 failed), where 21 tests had failed. The environment variable `MAU_SPIKE_NO_MKVTOOLNIX` still works. No change to the command.
+
 ## [1.6.2] - 2026-11-06
 
 ### Fixed

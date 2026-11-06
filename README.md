@@ -4,7 +4,7 @@
 
 **Media Audio Utility**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.6.2
+Version 1.6.3
 
 ![The mau desktop app](docs/images/app-main.png)
 
@@ -101,7 +101,8 @@ the `no-mkvtoolnix` Cargo feature, and is the one for the App Store) does every 
 tracks, and extracting subtitles. It never runs the mkvtoolnix commands, even when they are installed, and `--check`
 does not ask for them.
 Its installers and archive are named with `-no-mkvtoolnix`, and it is built in `rust/target-nomkv`, so the normal build's
-files are not replaced. The test suite runs it with `MAU_BIN` set to that binary and `MAU_SPIKE_NO_MKVTOOLNIX=1`.
+files are not replaced. The test suite runs it with `MAU_BIN` set to that binary; it recognises the build from `--check`, which does not list
+`mkvmerge` in that build (`MAU_SPIKE_NO_MKVTOOLNIX=1` also works, for a binary that hides the tools at run time).
 
 Optional, for `--detect` (see [Guessing the language of a track](#guessing-the-language-of-a-track)):
 

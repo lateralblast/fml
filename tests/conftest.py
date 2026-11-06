@@ -75,9 +75,26 @@ def isolate(monkeypatch: pytest.MonkeyPatch) -> Any:
 # go through ``run`` against it instead of fml.py. Tests that reach into fml.py's own functions
 # are skipped then (see pytest_collection_modifyitems).
 MAU_BIN = os.environ.get("MAU_BIN", "")
-# The build without mkvtoolnix (the App Store build) is run by setting MAU_SPIKE_NO_MKVTOOLNIX: the
-# binary then does the MKV work with ffmpeg. Tests that need mkvtoolnix are skipped in that build.
-NO_MKVTOOLNIX = bool(os.environ.get("MAU_SPIKE_NO_MKVTOOLNIX"))
+
+
+def _built_without_mkvtoolnix() -> bool:
+    """Whether the binary under test was built without mkvtoolnix (``--features no-mkvtoolnix``).
+
+    That build does not mention mkvtoolnix in ``--check`` at all, while every other build lists
+    mkvmerge there, installed or not. MAU_SPIKE_NO_MKVTOOLNIX also says so, for a binary that
+    hides the tools at run time instead.
+    """
+    if os.environ.get("MAU_SPIKE_NO_MKVTOOLNIX"):
+        return True
+    if not MAU_BIN:
+        return False
+    check = subprocess.run([MAU_BIN, "--check"], capture_output=True, text=True).stdout
+    return "mkvmerge" not in check
+
+
+# The build without mkvtoolnix (the App Store and LGPL build) does the MKV work with ffmpeg. Tests
+# that need mkvtoolnix are skipped there; the others expect ffmpeg where mkvtoolnix would work.
+NO_MKVTOOLNIX = _built_without_mkvtoolnix()
 needs_mkvtoolnix = pytest.mark.skipif(
     NO_MKVTOOLNIX, reason="needs mkvtoolnix (not in the App Store build)")
 
