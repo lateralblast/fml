@@ -473,6 +473,11 @@ fn progress_follows_the_size_of_the_new_file() {
         for step in 1..=4u64 {
             std::fs::write(&temp, vec![0u8; (step * 400) as usize]).unwrap(); // more than the source
             std::thread::sleep(std::time::Duration::from_millis(300));
+            if step < 4 {
+                // a rewrite empties the file before it fills it again: the reader must not go back to 0
+                std::fs::write(&temp, b"").unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
         }
         "done"
     });

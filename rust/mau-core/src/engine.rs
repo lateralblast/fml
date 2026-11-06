@@ -1031,12 +1031,16 @@ impl Mau {
         let stop = AtomicBool::new(false);
         std::thread::scope(|scope| {
             scope.spawn(|| {
+                // the largest size seen so far: a rewrite truncates the file before it fills it again,
+                // so a single reading can be 0, and the bar must not go back
+                let mut highest = 0;
                 while !stop.load(Ordering::SeqCst) {
-                    let done = fs::metadata(temp_file).map(|m| m.len()).unwrap_or(0);
+                    let size = fs::metadata(temp_file).map(|m| m.len()).unwrap_or(0);
+                    highest = highest.max(size.min(total));
                     (self.sink)(Event::Progress {
                         file: file.to_string(),
                         stage: stage.to_string(),
-                        done: done.min(total),
+                        done: highest,
                         total,
                     });
                     std::thread::sleep(std::time::Duration::from_millis(200));
