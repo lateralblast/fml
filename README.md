@@ -203,8 +203,7 @@ making a signed build that is not notarised. The credentials are read from the e
 `APPLE_API_KEY_PATH` (the App Store Connect `.p8` key), or `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and
 `APPLE_TEAM_ID`. Keep that file out of the repository, readable only by you (`chmod 600`). The `APPLE_ID` route passes the
 password on the command line of `xcrun`, so the App Store Connect key is the safer choice. `APPLE_SIGNING_IDENTITY` names the
-certificate when there is more than one. The step-by-step setup (the certificate, the App Store Connect key, `notary.env`
-and the GitHub secrets) is in [APPSTORE.md](APPSTORE.md).
+certificate when there is more than one.
 
 ### Windows
 
