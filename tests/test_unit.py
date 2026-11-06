@@ -389,9 +389,9 @@ def test_the_rust_version_is_in_step() -> None:
     root = Path(fml.__file__).parent.parent
     cargo = (root / "rust" / "Cargo.toml").read_text()
     assert f'version = "{fml.__version__}"' in cargo
-    lib = (root / "rust" / "fml-core" / "src" / "lib.rs").read_text()
+    lib = (root / "rust" / "mau-core" / "src" / "lib.rs").read_text()
     assert f'VERSION: &str = "{fml.__version__}"' in lib
-    tauri = (root / "rust" / "fml-gui" / "tauri.conf.json").read_text()
+    tauri = (root / "rust" / "mau-gui" / "tauri.conf.json").read_text()
     assert f'"version": "{fml.__version__}"' in tauri
 
 
@@ -399,7 +399,7 @@ def test_every_switch_is_documented_in_the_readme() -> None:
     # argparse lays its help out differently on each Python version, so compare the switches,
     # not the text
     readme = (Path(fml.__file__).parent.parent / "README.md").read_text()
-    start = readme.index("```\nusage: fml")
+    start = readme.index("```\nusage: mau")
     pasted = readme[start:readme.index("```", start + 4)]
     for action in fml.build_parser()._actions:  # noqa: SLF001
         for option in action.option_strings:

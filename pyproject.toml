@@ -36,7 +36,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/lateralblast/fml"
+Homepage = "https://github.com/lateralblast/mau"
 
 [project.scripts]
 fml = "fml:main"

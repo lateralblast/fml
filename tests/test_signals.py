@@ -1,6 +1,6 @@
 """Stopping a run with a signal, tested on a real process.
 
-These start the tool as a separate process (``fml.py``, or the Rust build when ``FML_BIN`` is
+These start the tool as a separate process (``fml.py``, or the Rust build when ``MAU_BIN`` is
 set), so they cover the signal handling itself and not only what a handler would do. A stub
 ``mkvpropedit`` that sleeps gives time to send the signal while the copy exists.
 """
@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 import pytest
-from conftest import FML_BIN, NO_MKVTOOLNIX, Stubs, leftovers, mkv_stub_tracks
+from conftest import MAU_BIN, NO_MKVTOOLNIX, Stubs, leftovers, mkv_stub_tracks
 
 import fml
 
@@ -35,7 +35,7 @@ def default_interrupt() -> None:
 
 
 def command() -> list[str]:
-    return [FML_BIN] if FML_BIN else [sys.executable, str(Path(fml.__file__))]
+    return [MAU_BIN] if MAU_BIN else [sys.executable, str(Path(fml.__file__))]
 
 
 @pytest.mark.parametrize("sent", [signal.SIGTERM, signal.SIGINT], ids=["SIGTERM", "SIGINT"])

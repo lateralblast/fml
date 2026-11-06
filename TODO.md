@@ -4,20 +4,23 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Open
 
+- [ ] `--info` on an MKV names a subtitle codec differently in the two versions: `mau-cli` reads the tracks with ffprobe and prints `subrip`, while the archived `fml.py` reads them with mkvmerge and prints `SubRip/SRT`. Decide which name is right (the reference is `fml.py`, but the JSON output of `mau-cli` may already use `subrip`) and make both print it; the test accepts either for now (1.6.0).
+- [ ] Retake the screenshots in `docs/images`: they show the old name (`fml`, "Fix Media Language") in the title bar and header of the app.
 - [ ] Try the OpenSubtitles search against the real service with a real key and account (the code was checked against a stand-in server and the published API as a client library uses it); and other sites (SubDL, Podnapisi), if wanted. Until this is done the search is off by default, behind `--enable search` (1.3.0).
 - [ ] Ideas from similar tools, not built: other Matroska flags (hearing impaired, original language, commentary), the original language of a show from Sonarr or Radarr, adding external audio files.
 - [ ] Look at the first CI run on GitHub and fix whatever the runners show that a Mac and an Ubuntu container did not. `./build.sh --ci` (1.3.2) can start the **Build** workflow on GitHub; it still needs its first run.
 - [ ] Run `cargo test` and the pytest suite on a Windows runner in CI too, once they are known to pass there (the `windows` job only compiles the code). The **Build** workflow has a `windows tests` job that runs `cargo test` there (informational, 1.3.2); pytest is not run there yet.
 - [ ] Run `--install` for real on Fedora, Arch and Windows (winget and Chocolatey): the package names were checked against the repositories and the commands are tested, but none of these installs has been run.
 - [ ] Saved presets for bulk changes in the app, and a watch-folder mode that applies a preset to new files (careful with files still being written).
-- [ ] Edit video track names and chapters (probably out of scope unless fml becomes a general MKV editor).
+- [ ] Edit video track names and chapters (probably out of scope unless mau becomes a general MKV editor).
 - [ ] Run the `.dmg` build (`./build.sh --target mac`) and the app from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed. `build.sh` signs and notarises by default (`--notarize`, 1.3.5), and `--nonotarize` signs only. Checked so far: a signed `--nonotarize` build (1.3.4), and the earlier notarised disk image (1.3.3, by hand). Still to run: a `--notarize` build end to end, the app from Finder, and the real-file tests (the CLI and app build and `cargo test` pass on macOS 27, Apple silicon).
-- [ ] Add the licence texts that the sandboxed app still lacks: Qt's own exception (Qt-GPL-exception-1.0) and GFDL-1.3-no-invariants-only, and BSD-3-Clause for the Qt parts, all named by the Qt package (qtbase, which mkvmerge, mkvextract and mkvpropedit link). The collector warns about them and `NOTICE.txt` says they are missing. Add them to `packaging/notices/standard` from the Qt source.
 - [ ] Make the `--no-mkvtoolnix` build pass the whole pytest suite: 21 tests in `test_stubs.py`, `test_mkv.py`, `test_signals.py` and `test_cli.py` expect `mkvmerge` or `mkvpropedit` to run, so they fail there (with Homebrew's ffmpeg and with the LGPL one alike). They need the same marking as the `real` tests, or a version of the suite for that build.
-- [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `fml-cli.exe` smoke-tested under Wine with stand-in tools.
+- [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `mau-cli.exe` smoke-tested under Wine with stand-in tools.
 
 ## Done
 
+- [x] Add the Qt licence texts to the sandboxed app: Qt's exception, GFDL and BSD-3-Clause, from Qt's source (1.6.1). Checked: the collector resolves Qt's licence without a warning, and a test fails if an entry is dropped. Checked in the built app: `dist/mau_1.6.1_aarch64-sandboxed.dmg` has them, byte for byte, and `NOTICE.txt` lists no missing licence.
+- [x] Rename the project from `fml` to `mau` (Media Audio Utility): crates, command, app, wrapper, environment variables (the `FML_` names still work), data folder and docs (1.5.7). The GitHub repository was renamed by hand.
 - [x] Licence notices for the packages the sandboxed app bundles: each package's own licence files, or the standard text of its licence, with `NOTICE.txt` giving each package's version and source address (1.5.6). Qt's texts are not all there yet: see the open item above.
 - [x] Remove `--in-place` from `archived/fml.py` (1.5.5). It went from the Rust command line in 1.5.1.
 - [x] An LGPL build of the sandboxed Mac app: `./build.sh --target mac --lgpl` builds ffmpeg 9.0.2 from source as LGPL-only (no GPL, no nonfree, no x264 or x265), bundles it in place of Homebrew's GPL build, leaves mkvtoolnix out, and carries the licence and source notice (1.5.3, 1.5.4). Checked: the suite passes and fails the same tests with it as with Homebrew's ffmpeg; the bundled tools run with an empty environment. Not run from Finder, and not notarised.
@@ -43,7 +46,7 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 - [x] Add subtitle files in bulk: match `Show.S01E03.ita.srt` to `Show.S01E03.mkv` by name, guess the language, show the matches, and add them all (0.9.0).
 - [x] Apply a reorder or removal from the Edit dialog to every selected file, matching tracks by language, so one arrangement fixes a whole season (0.8.9).
 - [x] Make the first track the default when reordering (`--default-first`, and a checkbox in the Edit dialog), so a player that plays the first track also gets the default flag on it (0.8.8).
-- [x] Port `fml` to Rust (`fml-core`, `fml-cli`) with a Tauri desktop app (`fml-gui`), at the same version, 0.7.2; archive `fml.py`.
+- [x] Port `mau` to Rust (`mau-core`, `mau-cli`) with a Tauri desktop app (`mau-gui`), at the same version, 0.7.2; archive `fml.py`.
 - [x] Add `--jobs N` to process files in parallel, with ordered output and space set aside per job (0.7.2).
 - [x] Add `--include` and `--exclude` patterns for `--dir` (0.7.1).
 - [x] Add `--log` and `--undo`, to reverse flag, language, name and order changes, and removals from a backup (0.7.0).
@@ -52,7 +55,7 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 - [x] Decide what `--preserve` and `--delete` do to the default flag: the first track left becomes the default (0.6.7).
 - [x] Keep track names when an MP4 is rewritten (0.6.6).
 - [x] Check `fml.py` on Python 3.9 to 3.14: the suite passes on each, and `mypy --strict` on 3.10 to 3.14 (0.6.5).
-- [x] Add a `pyproject.toml` with an installable `fml` command, the `dev` extra, and `ruff`, `mypy` and `pytest` settings (0.6.4).
+- [x] Add a `pyproject.toml` with an installable `mau` command, the `dev` extra, and `ruff`, `mypy` and `pytest` settings (0.6.4).
 - [x] Add a `pytest` suite of 278 tests: unit, command line, stub tools and real MKV, MP4 and AVI files (0.6.3).
 - [x] Add `--move`, which also moves the chosen track to be the first of its kind (MKV with `mkvmerge --track-order`, MP4 with `ffmpeg`), and check the order of the result (0.6.2).
 - [x] Remove the temporary copy when stopped with Ctrl-C or `kill`, and skip leftover `.fml-tmp` files in `--dir` (0.6.1).

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Build fml installers (the desktop app) and the command-line binary.
+# Build mau installers (the desktop app) and the command-line binary.
 #   ./build.sh --target mac [--arch arm64|x64|universal] [--notarize|--nonotarize]   (on a Mac: builds a .dmg)
 #                                                                 --notarize (the default) signs the app with the Developer ID
 #                                                                 Application certificate in the keychain, if there is one, and
 #                                                                 notarises the app and the .dmg; --nonotarize signs but does not
 #                                                                 notarise. The notary credentials come from the environment, or from
-#                                                                 the file FML_NOTARY_ENV names (default ~/.config/fml/notary.env).
+#                                                                 the file MAU_NOTARY_ENV names (default ~/.config/mau/notary.env).
 #                                                                 --sandboxed builds a sandboxed app that carries its tools (mkvmerge,
 #                                                                 mkvpropedit, mkvextract, mediainfo, ffmpeg, ffprobe, and whisper-cli if
 #                                                                 installed) with their libraries inside it, and names its .dmg with
@@ -21,14 +21,14 @@
 #                                                                 distribution's own package: deb on Debian/Ubuntu, rpm on
 #                                                                 RHEL/Fedora/Alma/Rocky/SUSE, else appimage;
 #                                                                 --target deb / --target rpm = linux with that package only)
-#   ./build.sh --target windows      (on Linux or a Mac: cross-compiles the NSIS installer and fml-cli.exe in a Docker
+#   ./build.sh --target windows      (on Linux or a Mac: cross-compiles the NSIS installer and mau-cli.exe in a Docker
 #                                                                 container, docker/windows/Dockerfile (MinGW, x86_64-pc-windows-gnu);
 #                                                                 on Windows, e.g. in Git Bash: builds the installer there; untested)
 # The app's installer and the command line are built apart: the installer is a .deb/.rpm/AppImage, .exe or .dmg, the
-# command line an archive, fml-cli-<version>-<system>.tar.gz or .zip, holding just the `fml-cli` binary. Add --no-cli to skip it.
+# command line an archive, mau-cli-<version>-<system>.tar.gz or .zip, holding just the `mau-cli` binary. Add --no-cli to skip it.
 # Results are copied to ./dist/ (gitignored).
 # A target can only be built on its own platform (the app links the system web view).
-# Needs the Rust toolchain and tauri-cli (cargo install tauri-cli --version '^2'). The interface in rust/fml-gui/ui is plain
+# Needs the Rust toolchain and tauri-cli (cargo install tauri-cli --version '^2'). The interface in rust/mau-gui/ui is plain
 # HTML, CSS and JavaScript, so there is no Node step. On Linux the app also needs libwebkit2gtk-4.1-dev and libgtk-3-dev.
 #   ./build.sh --target <t> --ci [--package <p>] [--arch <a>] [--dry-run]
 # --ci builds the same installers on GitHub's runners instead (.github/workflows/build.yml): the branch you are on
@@ -144,16 +144,16 @@ native_package() {
   esac
 }
 
-# The command line is shipped as an archive, apart from the app's installer: fml-cli-<version>-<label>.tar.gz
-# (Linux, macOS) or .zip (Windows), holding a folder of the same name with just the `fml-cli` binary in it.
+# The command line is shipped as an archive, apart from the app's installer: mau-cli-<version>-<label>.tar.gz
+# (Linux, macOS) or .zip (Windows), holding a folder of the same name with just the `mau-cli` binary in it.
 # usage: package_cli <path to the built binary> <label, e.g. linux or windows> [.exe]
 package_cli() {
   local bin="$1" label="$2" exe="${3:-}" name work
-  name="fml-cli-$version-$label"
+  name="mau-cli-$version-$label"
   work=$(mktemp -d)
   mkdir "$work/$name"
-  cp "$bin" "$work/$name/fml-cli$exe"
-  chmod +x "$work/$name/fml-cli$exe"
+  cp "$bin" "$work/$name/mau-cli$exe"
+  chmod +x "$work/$name/mau-cli$exe"
   mkdir -p "$dist"
   if [ -n "$exe" ]; then
     rm -f "$dist/$name.zip"
@@ -174,22 +174,22 @@ package_cli() {
 
 # Windows from Linux or a Mac: cross-compile in a container (docker/windows), no Windows machine needed. The repository
 # is mounted read-only; the target directory and the cargo registry are Docker volumes, so only the first build compiles
-# everything. The installer and fml-cli.exe are copied to dist/, and fml-cli.exe is packaged like the other platforms.
+# everything. The installer and mau-cli.exe are copied to dist/, and mau-cli.exe is packaged like the other platforms.
 windows_docker() {
   command -v docker >/dev/null || { echo "docker not found: install it, or build on Windows" >&2; exit 1; }
   docker info >/dev/null 2>&1 || { echo "docker is not running, or you may not use it (is your user in the docker group?)" >&2; exit 1; }
-  tauri_version=$(sed -n 's/^ *"version": *"\(.*\)".*/\1/p' "$root/rust/fml-gui/tauri.conf.json" | head -1)
-  [ "$tauri_version" = "$version" ] || { echo "rust/fml-gui/tauri.conf.json says $tauri_version but rust/Cargo.toml says $version: make them the same" >&2; exit 1; }
+  tauri_version=$(sed -n 's/^ *"version": *"\(.*\)".*/\1/p' "$root/rust/mau-gui/tauri.conf.json" | head -1)
+  [ "$tauri_version" = "$version" ] || { echo "rust/mau-gui/tauri.conf.json says $tauri_version but rust/Cargo.toml says $version: make them the same" >&2; exit 1; }
   echo "== Windows cross build in Docker (x86_64-pc-windows-gnu) =="
-  docker build -t fml-windows-cross "$root/docker/windows"
+  docker build -t mau-windows-cross "$root/docker/windows"
   out=$(mktemp -d)
   inner=(); [ "$cli" = 1 ] || inner=(--no-cli)
   docker run --rm \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
     -e CARGO_HOME=/cargo-home -e CARGO_TARGET_DIR=/target \
     -v "$root":/src:ro -v "$out":/out \
-    -v fml-windows-target:/target -v fml-windows-cargo:/cargo-home \
-    fml-windows-cross \
+    -v mau-windows-target:/target -v mau-windows-cargo:/cargo-home \
+    mau-windows-cross \
     sh -c '/src/docker/windows/build.sh "$@"; rc=$?; chown -R "$HOST_UID:$HOST_GID" /out 2>/dev/null; exit $rc' sh ${inner[@]+"${inner[@]}"} \
     || { rm -rf "$out"; echo "the Windows build failed" >&2; exit 1; }
   mkdir -p "$dist"
@@ -200,8 +200,8 @@ windows_docker() {
   done
   [ "$found" = 1 ] || { rm -rf "$out"; echo "no installer was built" >&2; exit 1; }
   if [ "$cli" = 1 ]; then
-    [ -f "$out/fml-cli.exe" ] || { rm -rf "$out"; echo "fml-cli.exe was not built" >&2; exit 1; }
-    package_cli "$out/fml-cli.exe" windows .exe
+    [ -f "$out/mau-cli.exe" ] || { rm -rf "$out"; echo "mau-cli.exe was not built" >&2; exit 1; }
+    package_cli "$out/mau-cli.exe" windows .exe
   fi
   rm -rf "$out"
   echo "done: $dist"
@@ -211,8 +211,15 @@ windows_docker() {
 # keychain (or APPLE_SIGNING_IDENTITY): with one, the app is signed; with --notarize (the default) the app and the disk
 # image are notarised too. Without one, the app is built unsigned and the build says so. The notary credentials are
 # either an App Store Connect key (APPLE_API_KEY, APPLE_API_ISSUER and APPLE_API_KEY_PATH) or an Apple ID (APPLE_ID,
-# APPLE_PASSWORD and APPLE_TEAM_ID). They come from the environment, or from the file FML_NOTARY_ENV names when none is set.
-notary_settings_file() { echo "${FML_NOTARY_ENV:-$HOME/.config/fml/notary.env}"; }
+# APPLE_PASSWORD and APPLE_TEAM_ID). They come from the environment, or from the file MAU_NOTARY_ENV names when none is set.
+notary_settings_file() {
+  local file="${MAU_NOTARY_ENV:-${FML_NOTARY_ENV:-$HOME/.config/mau/notary.env}}"
+  # before the rename the default was ~/.config/fml/notary.env: keep using it until there is a new one
+  if [ -z "${MAU_NOTARY_ENV:-}${FML_NOTARY_ENV:-}" ] && [ ! -r "$file" ] && [ -r "$HOME/.config/fml/notary.env" ]; then
+    file="$HOME/.config/fml/notary.env"
+  fi
+  echo "$file"
+}
 
 load_notary_settings() {
   local file
@@ -311,7 +318,7 @@ sandbox_stage() {
     if [ "$lgpl" = 1 ] && { [ "$tool" = ffmpeg ] || [ "$tool" = ffprobe ]; }; then
       path="$root/rust/target/lgpl-ffmpeg/bin/$tool"
     else
-      path=$(command -v "$tool") || { echo "$tool not found: install mkvtoolnix, mediainfo and ffmpeg (fml-cli --check --install)" >&2; exit 1; }
+      path=$(command -v "$tool") || { echo "$tool not found: install mkvtoolnix, mediainfo and ffmpeg (mau-cli --check --install)" >&2; exit 1; }
     fi
     found+=("$path")
   done
@@ -412,8 +419,8 @@ build_target() {
   cargo tauri --version >/dev/null 2>&1 || { echo "tauri-cli not found: cargo install tauri-cli --version '^2'" >&2; exit 1; }
 
   # the installer's file name comes from tauri.conf.json, not Cargo.toml: they must agree
-  tauri_version=$(sed -n 's/^ *"version": *"\(.*\)".*/\1/p' "$root/rust/fml-gui/tauri.conf.json" | head -1)
-  [ "$tauri_version" = "$version" ] || { echo "rust/fml-gui/tauri.conf.json says $tauri_version but rust/Cargo.toml says $version: make them the same" >&2; exit 1; }
+  tauri_version=$(sed -n 's/^ *"version": *"\(.*\)".*/\1/p' "$root/rust/mau-gui/tauri.conf.json" | head -1)
+  [ "$tauri_version" = "$version" ] || { echo "rust/mau-gui/tauri.conf.json says $tauri_version but rust/Cargo.toml says $version: make them the same" >&2; exit 1; }
 
   triple="" triple_args=()
   if [ "$target" = mac ] || [ "$target" = macos ]; then
@@ -454,8 +461,8 @@ build_target() {
   mkdir -p "$dist"
   stamp=$(mktemp)
   echo "== building the installer ($target, $bundles) =="
-  # cargo tauri build runs in rust/fml-gui; the workspace puts the bundles under rust/target/
-  (cd "$root/rust/fml-gui" && cargo tauri build --bundles "$bundles" ${triple_args[@]+"${triple_args[@]}"} ${sandbox_args[@]+"${sandbox_args[@]}"} ${feature_args[@]+"${feature_args[@]}"})
+  # cargo tauri build runs in rust/mau-gui; the workspace puts the bundles under rust/target/
+  (cd "$root/rust/mau-gui" && cargo tauri build --bundles "$bundles" ${triple_args[@]+"${triple_args[@]}"} ${sandbox_args[@]+"${sandbox_args[@]}"} ${feature_args[@]+"${feature_args[@]}"})
 
   # Tauri puts bundles under target/[<triple>/]release/bundle/<kind>/
   found=0
@@ -476,22 +483,22 @@ build_target() {
   if [ "$notarizing" = 1 ] && [ -n "$dmg_out" ]; then notarise_disk_image "$dmg_out"; fi
 
   if [ "$cli" = 1 ]; then
-    echo "== building the fml-cli command-line binary =="
+    echo "== building the mau-cli command-line binary =="
     exe=""; [ "$target" != windows ] || exe=".exe"
     if [ "$triple" = universal-apple-darwin ]; then
       # plain cargo has no universal target: build both architectures and join them with lipo
-      (cd "$root/rust" && cargo build --release -p fml-cli --target aarch64-apple-darwin &&
-        cargo build --release -p fml-cli --target x86_64-apple-darwin)
+      (cd "$root/rust" && cargo build --release -p mau-cli --target aarch64-apple-darwin &&
+        cargo build --release -p mau-cli --target x86_64-apple-darwin)
       mkdir -p "$tdir/universal-apple-darwin/release"
-      lipo -create -output "$tdir/universal-apple-darwin/release/fml-cli" \
-        "$tdir/aarch64-apple-darwin/release/fml-cli" "$tdir/x86_64-apple-darwin/release/fml-cli"
-      bin="$tdir/universal-apple-darwin/release/fml-cli"
+      lipo -create -output "$tdir/universal-apple-darwin/release/mau-cli" \
+        "$tdir/aarch64-apple-darwin/release/mau-cli" "$tdir/x86_64-apple-darwin/release/mau-cli"
+      bin="$tdir/universal-apple-darwin/release/mau-cli"
     elif [ -n "$triple" ]; then
-      (cd "$root/rust" && cargo build --release -p fml-cli --target "$triple" ${feature_args[@]+"${feature_args[@]}"})
-      bin="$tdir/$triple/release/fml-cli$exe"
+      (cd "$root/rust" && cargo build --release -p mau-cli --target "$triple" ${feature_args[@]+"${feature_args[@]}"})
+      bin="$tdir/$triple/release/mau-cli$exe"
     else
-      (cd "$root/rust" && cargo build --release -p fml-cli ${feature_args[@]+"${feature_args[@]}"})
-      bin="$tdir/release/fml-cli$exe"
+      (cd "$root/rust" && cargo build --release -p mau-cli ${feature_args[@]+"${feature_args[@]}"})
+      bin="$tdir/release/mau-cli$exe"
     fi
     [ -f "$bin" ] || { echo "the command-line binary was not found at $bin" >&2; exit 1; }
     # the archive's label: the system and, on a Mac, the architecture
@@ -634,14 +641,14 @@ release_it() {
     case "$ans" in y|Y|yes) ;; *) echo "stopped"; exit 1 ;; esac
   fi
 
-  git rev-parse -q --verify "refs/tags/$tag" >/dev/null || run git tag -a "$tag" -m "fml $version" "$commit"
+  git rev-parse -q --verify "refs/tags/$tag" >/dev/null || run git tag -a "$tag" -m "mau $version" "$commit"
   run git push origin "$tag"
   if [ "$exists" = 1 ]; then
     run gh release upload "$tag" "${assets[@]}" --clobber
   else
     local draft_args=()
     [ "$draft" = 1 ] && draft_args=(--draft)
-    run gh release create "$tag" "${assets[@]}" --title "fml $version" "${notes_args[@]}" ${draft_args[@]+"${draft_args[@]}"}
+    run gh release create "$tag" "${assets[@]}" --title "mau $version" "${notes_args[@]}" ${draft_args[@]+"${draft_args[@]}"}
   fi
   rm -f "$notes"
   if [ "$dry" = 1 ]; then echo "dry run: nothing was tagged, pushed or published"; return; fi

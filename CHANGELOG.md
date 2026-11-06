@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-11-06
+
+### Added
+- The sandboxed Mac app's `Contents/Resources/licences` has the texts of Qt's own licence terms: the Qt Company GPL Exception 1.0 (`Qt-GPL-exception-1.0`), the GNU Free Documentation License 1.3 without invariant sections (`GFDL-1.3-no-invariants-only`), and the BSD 3-clause licence Qt uses (`BSD-3-Clause`). They come from Qt's source (`LICENSES/` in qtbase 6.12.0, checked against the SHA-256 Homebrew records), so the app's `NOTICE.txt` no longer warns that they are missing. The BSD text is Qt's template, so its copyright line is generic; the holders are named in the Qt source headers.
+
+## [1.6.0] - 2026-11-06
+
+### Changed
+- The test suite accepts either codec name for a subtitle track in `--info` on an MKV: the Rust version prints ffprobe's `subrip`, and `fml.py` prints mkvmerge's `SubRip/SRT`. The two differ on purpose or not; see the open item in `TODO.md`. No change to what the command does.
+
+## [1.5.9] - 2026-11-06
+
+### Fixed
+- `--dir` with `--recursive` follows a symbolic link to a folder, so a season folder that is a link is searched. Before, it was skipped without a word and the command reported nothing. The app's dropped folders and the subtitle search (`--sub-dir`) follow links the same way.
+- A folder reached twice, such as a link back up the tree, is read once, so nothing loops and no file is listed twice. A file reached through two links is listed and changed once.
+- A folder with no media files now says `no media files found in "<folder>"` on stderr, so an empty result is no longer silent.
+
+## [1.5.8] - 2026-11-06
+
+### Fixed
+- A media file that is a symbolic link is changed where it points to. Before, the edited copy replaced the link, so the real file was left as it was and the link became an ordinary file. The file is named by its real path in the output and the log, and `--undo` finds it there. A link that points nowhere is still reported as not existing.
+
+## [1.5.7] - 2026-11-06
+
+### Changed
+- The project is renamed from `fml` (Fix Media Language) to `mau` (Media Audio Utility). The crates are `mau-core`, `mau-cli` and `mau-gui`; the command is `mau-cli`, the desktop app is `mau` (`mau.app`, and installers named `mau_<version>_...`), and the wrapper in a checkout is `./mau` (it was `./fml`). The README, `--help`, the app's title and About text, `build.sh`, the CI workflows and the tests use the new name.
+- The environment variables are `MAU_WHISPER`, `MAU_WHISPER_MODEL`, `MAU_WHISPER_MODEL_URL`, `MAU_OPENSUBTITLES_KEY`, `MAU_OPENSUBTITLES_USER`, `MAU_OPENSUBTITLES_PASSWORD`, `MAU_OPENSUBTITLES_URL`, `MAU_GUI`, `MAU_APP_DIRS`, `MAU_NO_BUILD` and `MAU_NOTARY_ENV`. The `FML_` name of each is still read when the `MAU_` one is not set. The switches for debugging the app (`MAU_GUI_REPORT`, `MAU_GUI_SCRIPT`, `MAU_GUI_THEME`, `MAU_GUI_SIZE`), `MAU_SPIKE_NO_MKVTOOLNIX` and the tests' `MAU_BIN` have no old-name fallback.
+- mau keeps its files (the whisper model and the saved OpenSubtitles account) in a `mau` folder in the user's data folder. An existing `fml` folder is still used until a `mau` folder exists, so nothing has to be moved or downloaded again. `build.sh` does the same for `~/.config/fml/notary.env`.
+- The app's identifier is `au.com.lateralblast.mau` (it was `au.com.lateralblast.fml`), so macOS sees the installed app as a new one. The log file the app suggests is `mau-log.jsonl`, and the Rust engine type `Fml` is `Mau`.
+- Not renamed, on purpose: the `.fml-tmp` and `.fml-bak` suffixes of temporary files and `--backup` copies (so `--dir` still skips backups made by earlier versions, and the archived Python version agrees), and `archived/fml.py` and `archived/fml.sh`, which keep their names (`fml.py` only has its version number changed). The Python package built from `pyproject.toml` is still `fml`, since it is the archived script.
+
 ## [1.5.6] - 2026-11-06
 
 ### Added

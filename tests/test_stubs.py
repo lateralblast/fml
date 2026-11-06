@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 import pytest
 from conftest import (
-    FML_BIN,
+    MAU_BIN,
     MP4_HEADER,
     NO_MKVTOOLNIX,
     Ran,
@@ -116,15 +116,15 @@ def test_a_good_edit_replaces_the_file_with_the_checked_copy(
         run: Callable[..., Ran], fake_mkv: Path, mkv_stubs: Stubs) -> None:
     after = mkv_stub_tracks([("ita", False), ("eng", True), ("fre", False)], SUBS2)
     mkv_stubs.set(mkv_after=after)
-    fake_mkv.write_bytes(fml_header() + b"original")
+    fake_mkv.write_bytes(mau_header() + b"original")
     ran = run("--set", "lang", "--default", "English", "-i", fake_mkv)
     assert ran.code == 0, ran.err
     # the copy was replaced by the checked one (the stub writes a Matroska header and a marker)
-    assert fake_mkv.read_bytes().startswith(fml_header())
+    assert fake_mkv.read_bytes().startswith(mau_header())
     assert leftovers(fake_mkv.parent) == []
 
 
-def fml_header() -> bytes:
+def mau_header() -> bytes:
     from conftest import MKV_HEADER
     return MKV_HEADER
 
@@ -228,7 +228,7 @@ def test_one_bad_file_does_not_stop_the_rest(run: Callable[..., Ran], tmp_path: 
                                              mkv_stubs: Stubs) -> None:
     mkv_stubs.set(mkvpropedit_exit=2)
     for name in ("a.mkv", "b.mkv", "c.mkv"):
-        (tmp_path / name).write_bytes(fml_header())
+        (tmp_path / name).write_bytes(mau_header())
     ran = run("--set", "lang", "--default", "English", "-d", tmp_path, "-F", "json")
     results = json.loads(ran.out)["results"]
     assert [r["status"] for r in results] == ["error"] * 3  # each was tried
@@ -361,8 +361,8 @@ def test_main_installs_a_sigterm_handler(run: Callable[..., Ran]) -> None:
 def test_leftover_temporary_files_are_not_treated_as_media(run: Callable[..., Ran],
                                                            tmp_path: Path,
                                                            mkv_stubs: Stubs) -> None:
-    (tmp_path / "a.mkv").write_bytes(fml_header())
-    (tmp_path / "a.mkv.fml-tmp").write_bytes(fml_header())
+    (tmp_path / "a.mkv").write_bytes(mau_header())
+    (tmp_path / "a.mkv.fml-tmp").write_bytes(mau_header())
     (tmp_path / "b.fml-tmp.mp4").write_bytes(MP4_HEADER)
     ran = run("--info", "-d", tmp_path)
     assert ran.out.count("(Matroska)") == 1 and "fml-tmp" not in ran.out
@@ -370,10 +370,10 @@ def test_leftover_temporary_files_are_not_treated_as_media(run: Callable[..., Ra
 
 def test_directory_mode_skips_other_files_quietly(run: Callable[..., Ran], tmp_path: Path,
                                                   mkv_stubs: Stubs) -> None:
-    (tmp_path / "a.mkv").write_bytes(fml_header())
+    (tmp_path / "a.mkv").write_bytes(mau_header())
     (tmp_path / "notes.txt").write_text("not media")
     (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / "b.mkv").write_bytes(fml_header())
+    (tmp_path / "sub" / "b.mkv").write_bytes(mau_header())
     flat = run("--get", "lang", "-d", tmp_path)
     assert flat.out.splitlines() == [f"{tmp_path / 'a.mkv'}: ita"] and flat.err == ""
     deep = run("--get", "lang", "-d", tmp_path, "-r")
@@ -384,7 +384,7 @@ def test_directory_mode_skips_other_files_quietly(run: Callable[..., Ran], tmp_p
 def test_directory_mode_is_in_sorted_order(run: Callable[..., Ran], tmp_path: Path,
                                            mkv_stubs: Stubs) -> None:
     for name in ("c.mkv", "a.mkv", "b.mkv"):
-        (tmp_path / name).write_bytes(fml_header())
+        (tmp_path / name).write_bytes(mau_header())
     names = [line.split(":")[0] for line in run("--get", "lang", "-d", tmp_path).out.splitlines()]
     assert names == [str(tmp_path / n) for n in ("a.mkv", "b.mkv", "c.mkv")]
 
@@ -422,9 +422,9 @@ def no_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_check_lists_what_is_missing(run: Callable[..., Ran], no_tools: Path) -> None:
     ran = run("--check")
     assert ran.code == 1
-    # the optional whisper-cli and FML_WHISPER_MODEL lines (Rust only) are not part of the list
+    # the optional whisper-cli and MAU_WHISPER_MODEL lines (Rust only) are not part of the list
     lines = [line for line in ran.out.splitlines()
-             if "whisper" not in line and "FML_WHISPER" not in line]
+             if "whisper" not in line and "MAU_WHISPER" not in line]
     assert lines == [f"Missing:\t{tool}" for tool, _ in required_here()]
     names = ", ".join(tool for tool, _ in required_here())
     assert f"missing: {names} (use --install" in ran.err
@@ -446,7 +446,7 @@ def test_install_dry_run_installs_each_package_once(run: Callable[..., Ran],
     # (the Rust binary also tries whisper.cpp, which is optional: it is left out here)
     commands = [line.split("\t")[1] for line in ran.err.splitlines() if "whisper" not in line]
     # the Python tests pretend to be Ubuntu; the Rust binary installs the way the real system does
-    install = "brew install" if FML_BIN and sys.platform == "darwin" else "sudo apt install -y"
+    install = "brew install" if MAU_BIN and sys.platform == "darwin" else "sudo apt install -y"
     packages = ["mkvtoolnix"] if not NO_MKVTOOLNIX else []
     assert commands == [f"{install} {p}" for p in packages + ["mediainfo", "ffmpeg"]]
 
@@ -660,9 +660,9 @@ def test_backup_is_not_made_when_nothing_changes(run: Callable[..., Ran], fake_m
 
 def test_backups_are_not_treated_as_media(run: Callable[..., Ran], tmp_path: Path,
                                           mkv_stubs: Stubs) -> None:
-    (tmp_path / "a.mkv").write_bytes(fml_header())
-    (tmp_path / f"a.mkv{fml.BACKUP_MARK}").write_bytes(fml_header())
-    (tmp_path / f"a.mkv{fml.BACKUP_MARK}.1").write_bytes(fml_header())
+    (tmp_path / "a.mkv").write_bytes(mau_header())
+    (tmp_path / f"a.mkv{fml.BACKUP_MARK}").write_bytes(mau_header())
+    (tmp_path / f"a.mkv{fml.BACKUP_MARK}.1").write_bytes(mau_header())
     assert run("--info", "-d", tmp_path).out.count("(Matroska)") == 1
 
 
@@ -731,7 +731,7 @@ def library(tmp_path: Path, mkv_stubs: Stubs) -> Path:
                  "Season 2/e1.mkv", "Extras/x.mkv", "top.mkv", "Season 2/clip.mp4"):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(MP4_HEADER if name.endswith(".mp4") else fml_header())
+        path.write_bytes(MP4_HEADER if name.endswith(".mp4") else mau_header())
     mkv_stubs.set(mi=[mi_track("Audio", 1, "it", True)])
     return tmp_path
 
@@ -782,7 +782,7 @@ def many(tmp_path: Path, mkv_stubs: Stubs) -> list[Path]:
     paths = []
     for number in range(8):
         path = tmp_path / f"e{number}.mkv"
-        path.write_bytes(fml_header() + bytes([number]))
+        path.write_bytes(mau_header() + bytes([number]))
         paths.append(path)
     good_edit(mkv_stubs)
     return paths

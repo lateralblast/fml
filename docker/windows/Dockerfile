@@ -1,7 +1,7 @@
 # Build image for `./build.sh --target windows` on Linux or a Mac: cross-compiles the Windows
-# installer (NSIS) and fml-cli.exe (x86_64-pc-windows-gnu, MinGW) in a container, so no Windows
+# installer (NSIS) and mau-cli.exe (x86_64-pc-windows-gnu, MinGW) in a container, so no Windows
 # machine is needed. Nothing here is Windows software; it runs natively (no --platform).
-# Adapted from ~/code/pampas/docker/windows: fml has no Node step and no crypto library that
+# Adapted from ~/code/pampas/docker/windows: mau has no Node step and no crypto library that
 # needs NASM or CMake, so those are left out.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive

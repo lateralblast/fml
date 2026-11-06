@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 import pytest
 from conftest import (
-    FML_BIN,
+    MAU_BIN,
     NO_MKVTOOLNIX,
     Ran,
     leftovers,
@@ -45,7 +45,9 @@ def test_info_lists_the_tracks(run: Callable[..., Ran], film_mkv: Path) -> None:
     assert [r[0] for r in rows[2:]] == ["video:1", "audio:1", "audio:2", "audio:3",
                                         "subtitles:1", "subtitles:2", "subtitles:3"]
     assert rows[3][3:5] == ["ita", "yes"]
-    assert rows[6][:5] == ["subtitles:1", "4", "subrip", "eng", "-"]
+    # Rust reads MKV tracks with ffprobe ("subrip"), fml.py with mkvmerge ("SubRip/SRT")
+    assert rows[6][:5] in (["subtitles:1", "4", "subrip", "eng", "-"],
+                           ["subtitles:1", "4", "SubRip/SRT", "eng", "-"])
     assert rows[7][5] == "yes"  # the forced subtitle track
 
 
@@ -301,7 +303,7 @@ def test_delete_a_track_by_number(run: Callable[..., Ran], film_mkv: Path) -> No
     assert mkv_layout(film_mkv) == ["a:ita*", "a:eng", "s:eng", "s:ita"]
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--track kind:N, id:N and name:TEXT are Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--track kind:N, id:N and name:TEXT are Rust only")
 @pytest.mark.parametrize("spec, expected", [
     ("subtitles:2", ["a:ita*", "a:eng", "a:fre", "s:eng", "s:ita"]),
     ("sub:last", ["a:ita*", "a:eng", "a:fre", "s:eng", "s:engF"]),
@@ -318,7 +320,7 @@ def test_delete_a_track_of_any_kind_by_place_id_or_name(
     assert leftovers(film_mkv.parent) == []
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--track kind:N, id:N and name:TEXT are Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--track kind:N, id:N and name:TEXT are Rust only")
 def test_delete_a_track_that_is_not_there_changes_nothing(run: Callable[..., Ran],
                                                           film_mkv: Path) -> None:
     before = mkv_layout(film_mkv)
@@ -403,7 +405,7 @@ def test_several_actions_run_in_order(run: Callable[..., Ran], film_mkv: Path) -
     assert ran.out.splitlines()[-1] == "eng"
 
 
-@pytest.mark.skipif(bool(FML_BIN), reason="the Rust version gives each action its own settings")
+@pytest.mark.skipif(bool(MAU_BIN), reason="the Rust version gives each action its own settings")
 def test_settings_are_shared_by_every_action(run: Callable[..., Ran], film_mkv: Path) -> None:
     """In the archived Python version --lang is one setting for the whole command."""
     ran = run("--set", "lang", "--default", "English", "--delete", "lang", "--lang", "ita",
@@ -413,7 +415,7 @@ def test_settings_are_shared_by_every_action(run: Callable[..., Ran], film_mkv: 
 
 # Settings that belong to an action ---------------------------------------------
 
-@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="settings per action are Rust only")
 def test_each_action_has_the_settings_that_follow_it(run: Callable[..., Ran],
                                                      film_mkv: Path) -> None:
     ran = run("--set", "lang", "--default", "English", "--delete", "lang", "--lang", "ita",
@@ -423,7 +425,7 @@ def test_each_action_has_the_settings_that_follow_it(run: Callable[..., Ran],
                                         "a:fre"]  # English made default, then Italian removed
 
 
-@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="settings per action are Rust only")
 def test_settings_before_the_first_action_are_shared(run: Callable[..., Ran],
                                                      film_mkv: Path) -> None:
     ran = run("--kind", "sub", "--get", "lang", "--info", "-i", film_mkv)
@@ -435,7 +437,7 @@ def test_settings_before_the_first_action_are_shared(run: Callable[..., Ran],
     assert "removed subtitle track 3 (ita)" in both.out
 
 
-@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="settings per action are Rust only")
 def test_a_switch_belongs_to_the_action_before_it(run: Callable[..., Ran], film_mkv: Path) -> None:
     """--move after the first action does not apply to the second one."""
     ran = run("--set", "lang", "--default", "French", "--move", "--set", "lang", "--default",
@@ -450,14 +452,14 @@ def test_a_switch_belongs_to_the_action_before_it(run: Callable[..., Ran], film_
         assert any("mkvmerge" in c and "--track-order" in c for c in commands)
 
 
-@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="settings per action are Rust only")
 def test_the_last_value_of_a_setting_for_an_action_wins(run: Callable[..., Ran],
                                                         film_mkv: Path) -> None:
     ran = run("--delete", "lang", "--lang", "fre", "--lang", "eng", "--dryrun", "-i", film_mkv)
     assert "removed audio track 2 (eng)" in ran.out and "fre" not in ran.out
 
 
-@pytest.mark.skipif(not FML_BIN, reason="settings per action are Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="settings per action are Rust only")
 def test_a_conflict_is_reported_for_the_action_it_is_in(run: Callable[..., Ran],
                                                         film_mkv: Path) -> None:
     before = film_mkv.read_bytes()
@@ -528,7 +530,7 @@ def test_remove_a_track_name(run: Callable[..., Ran], film_mkv: Path) -> None:
 
 
 @pytest.mark.skipif(
-    sys.platform == "darwin" and not FML_BIN,
+    sys.platform == "darwin" and not MAU_BIN,
     reason="archived fml.py compares names byte for byte; "
            "mkvtoolnix on macOS stores accents decomposed",
 )
@@ -631,7 +633,7 @@ def subtitle_codec(path: Path) -> str:
     return out.split()[0]
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--extract is Rust only")
 def test_extract_a_subtitle_track_to_a_file_named_after_the_media(run: Callable[..., Ran],
                                                                   film_mkv: Path) -> None:
     before = film_mkv.read_bytes()
@@ -645,7 +647,7 @@ def test_extract_a_subtitle_track_to_a_file_named_after_the_media(run: Callable[
     assert leftovers(film_mkv.parent) == []
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--extract is Rust only")
 def test_extract_to_a_folder_or_a_named_file(run: Callable[..., Ran], film_mkv: Path,
                                              tmp_path: Path) -> None:
     folder = tmp_path / "subs"
@@ -661,7 +663,7 @@ def test_extract_to_a_folder_or_a_named_file(run: Callable[..., Ran], film_mkv: 
     assert "does not exist" in missing.err and not (tmp_path / "nope").exists()
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--extract is Rust only")
 def test_extract_never_replaces_a_file_without_force(run: Callable[..., Ran], film_mkv: Path,
                                                    tmp_path: Path) -> None:
     target = tmp_path / "keep.srt"
@@ -678,14 +680,14 @@ def test_extract_never_replaces_a_file_without_force(run: Callable[..., Ran], fi
     assert leftovers(film_mkv.parent) == [] and leftovers(tmp_path) == []
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--extract is Rust only")
 def test_a_dry_run_extract_writes_nothing(run: Callable[..., Ran], film_mkv: Path) -> None:
     ran = run("--extract", "subtitle", "--track", "1", "--dryrun", "-i", film_mkv)
     assert ran.code == 0 and "extracted subtitle track 1 (eng)" in ran.out
     assert not film_mkv.with_name("film.eng.srt").exists()
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--extract is Rust only")
 @pytest.mark.parametrize("extra, message", [
     ([], "needs --track"),
     (["--track", "1", "--lang", "it"], "not --lang"),
@@ -696,14 +698,14 @@ def test_a_bad_extract_is_refused(run: Callable[..., Ran], film_mkv: Path, extra
     assert ran.code == 2 and message in ran.err, ran.err
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--extract is Rust only")
 def test_output_needs_extract(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
     ran = run("--set", "name", "--track", "1", "--name", "x", "--output", tmp_path / "a.srt", "-i",
               film_mkv)
     assert ran.code == 2 and "--output only works with --extract subtitle" in ran.err
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--extract is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--extract is Rust only")
 def test_extract_a_track_that_is_not_there_says_so(run: Callable[..., Ran], film_mkv: Path) -> None:
     ran = run("--extract", "subtitle", "--track", "9", "-i", film_mkv)
     assert "has no subtitle track 9 (3 subtitle tracks)" in ran.err
@@ -722,7 +724,7 @@ def subs_folder(root: Path, *names: str) -> Path:
     return folder
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--sub-dir is Rust only")
 def test_add_the_subtitle_files_of_a_folder_by_name(run: Callable[..., Ran], film_mkv: Path,
                                                     tmp_path: Path) -> None:
     folder = subs_folder(tmp_path, "film.ger.srt", "film.spa.forced.srt", "other.ita.srt",
@@ -737,7 +739,7 @@ def test_add_the_subtitle_files_of_a_folder_by_name(run: Callable[..., Ran], fil
     assert leftovers(film_mkv.parent) == []
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--sub-dir is Rust only")
 def test_a_second_run_adds_nothing(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
     folder = subs_folder(tmp_path, "film.ger.srt")
     assert run("--add", "subtitle", "--sub-dir", folder, "-i", film_mkv).code == 0
@@ -747,7 +749,7 @@ def test_a_second_run_adds_nothing(run: Callable[..., Ran], film_mkv: Path, tmp_
     assert film_mkv.read_bytes() == done  # not rewritten
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--sub-dir is Rust only")
 def test_lang_is_used_where_the_name_has_no_language(run: Callable[..., Ran], film_mkv: Path,
                                                       tmp_path: Path) -> None:
     folder = subs_folder(tmp_path, "film.srt")
@@ -759,7 +761,7 @@ def test_lang_is_used_where_the_name_has_no_language(run: Callable[..., Ran], fi
     assert mkv_layout(film_mkv)[-1] == "s:por"
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--sub-dir is Rust only")
 def test_a_season_is_matched_by_name_or_by_episode(run: Callable[..., Ran], make: Callable[...,
                                                                                            Path],
                                                     tmp_path: Path) -> None:
@@ -777,7 +779,7 @@ def test_a_season_is_matched_by_name_or_by_episode(run: Callable[..., Ran], make
     assert "Show.S01E03.1080p.mkv: no subtitle file" in ran.err
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--sub-dir is Rust only")
 @pytest.mark.parametrize("extra, message", [
     (["--sub-dir", "NOFOLDER"], "is not a folder"),
     (["--sub-dir", "FOLDER", "--sub-file", "FILE"], "not --sub-file or --name"),
@@ -795,7 +797,7 @@ def test_a_bad_sub_dir_is_refused(run: Callable[..., Ran], film_mkv: Path, tmp_p
     assert film_mkv.read_bytes() == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--sub-dir is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--sub-dir is Rust only")
 def test_sub_dir_needs_add_subtitle(run: Callable[..., Ran], film_mkv: Path,
                                     tmp_path: Path) -> None:
     ran = run("--get", "lang", "--sub-dir", subs_folder(tmp_path, "film.ger.srt"), "-i", film_mkv)
@@ -804,7 +806,7 @@ def test_sub_dir_needs_add_subtitle(run: Callable[..., Ran], film_mkv: Path,
 
 # Changing several properties of a track at once -----------------------------
 
-@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set track is Rust only")
 def test_set_track_changes_language_name_and_forced_together(run: Callable[..., Ran],
                                                              film_mkv: Path,
                                                              tmp_path: Path) -> None:
@@ -823,7 +825,7 @@ def test_set_track_changes_language_name_and_forced_together(run: Callable[..., 
     assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set track is Rust only")
 def test_set_track_only_touches_what_is_given(run: Callable[..., Ran], film_mkv: Path) -> None:
     ran = run("--set", "track", "--track", "2", "--name", "English 5.1", "-i", film_mkv)
     assert 'name "English" -> "English 5.1"' in ran.out and "language" not in ran.out
@@ -835,7 +837,7 @@ def test_set_track_only_touches_what_is_given(run: Callable[..., Ran], film_mkv:
     assert mkv_names(film_mkv)[1] == "" and gone.code == 0
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set track is Rust only")
 @pytest.mark.parametrize("extra, message", [
     ([], "needs --track"),
     (["--track", "1"], "needs at least one of --lang, --name and --forced-flag"),
@@ -850,7 +852,7 @@ def test_a_bad_set_track_is_refused(run: Callable[..., Ran], film_mkv: Path, ext
     assert film_mkv.read_bytes() == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set track is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set track is Rust only")
 def test_forced_flag_needs_set_track(run: Callable[..., Ran], film_mkv: Path) -> None:
     ran = run("--set", "name", "--track", "1", "--name", "x", "--forced-flag", "yes", "-i",
               film_mkv)
@@ -865,7 +867,7 @@ def srt(folder: Path, name: str = "it.srt") -> Path:
     return path
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--add subtitle is Rust only")
 def test_add_a_subtitle_file_as_the_last_subtitle_track(run: Callable[..., Ran], film_mkv: Path,
                                                          tmp_path: Path) -> None:
     before = mkv_json(film_mkv)
@@ -882,7 +884,7 @@ def test_add_a_subtitle_file_as_the_last_subtitle_track(run: Callable[..., Ran],
     assert leftovers(film_mkv.parent) == []
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--add subtitle is Rust only")
 def test_a_new_subtitle_is_never_default_or_forced(run: Callable[..., Ran], und_mkv: Path,
                                                    tmp_path: Path) -> None:
     assert run("--add", "subtitle", "--sub-file", srt(tmp_path), "--lang", "eng", "-i",
@@ -890,7 +892,7 @@ def test_a_new_subtitle_is_never_default_or_forced(run: Callable[..., Ran], und_
     assert mkv_layout(und_mkv)[-1] == "s:eng"  # no star: not default, no F: not forced
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--add subtitle is Rust only")
 def test_undo_an_added_subtitle_from_the_backup(run: Callable[..., Ran], film_mkv: Path,
                                                tmp_path: Path) -> None:
     log = tmp_path / "c.jsonl"
@@ -902,7 +904,7 @@ def test_undo_an_added_subtitle_from_the_backup(run: Callable[..., Ran], film_mk
     assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--add subtitle is Rust only")
 def test_undo_an_added_subtitle_without_a_backup_says_why(run: Callable[..., Ran], film_mkv: Path,
                                                           tmp_path: Path) -> None:
     log = tmp_path / "c.jsonl"
@@ -913,7 +915,7 @@ def test_undo_an_added_subtitle_without_a_backup_says_why(run: Callable[..., Ran
     assert len(mkv_layout(film_mkv)) == 7
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--add subtitle is Rust only")
 @pytest.mark.parametrize("extra, message", [
     (["--lang", "ita", "--sub-file", "missing.srt"], "is not a file"),
     (["--lang", "ita", "--sub-file", "notes.txt"], "not a subtitle file I can add"),
@@ -933,7 +935,7 @@ def test_a_bad_add_is_refused_and_changes_nothing(run: Callable[..., Ran], film_
     assert film_mkv.read_bytes() == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--add subtitle is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--add subtitle is Rust only")
 def test_sub_file_needs_add(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
     ran = run("--set", "name", "--track", "1", "--name", "x", "--sub-file", srt(tmp_path), "-i",
               film_mkv)
@@ -952,7 +954,7 @@ def layouts(ran: Ran) -> tuple[list[str], list[str]]:
     return show(layout["before"]), show(layout["after"])
 
 
-@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="data.layout is Rust only")
 def test_a_dry_run_says_what_the_tracks_will_be(run: Callable[..., Ran], film_mkv: Path,
                                                 tmp_path: Path) -> None:
     before = film_mkv.read_bytes()
@@ -968,7 +970,7 @@ def test_a_dry_run_says_what_the_tracks_will_be(run: Callable[..., Ran], film_mk
     assert mkv_layout(film_mkv) == shown_after
 
 
-@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="data.layout is Rust only")
 @pytest.mark.parametrize("args, after", [
     (["--delete", "lang", "--lang", "eng"], ["a:ita*", "a:fre", "s:eng", "s:engF", "s:ita"]),
     (["--delete", "track", "--track", "subtitles:2"], ["a:ita*", "a:eng", "a:fre", "s:eng",
@@ -985,7 +987,7 @@ def test_the_layout_matches_the_result_for_each_kind_of_change(
     assert mkv_layout(film_mkv) == after
 
 
-@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="data.layout is Rust only")
 def test_adding_a_subtitle_says_what_the_tracks_will_be(run: Callable[..., Ran], film_mkv: Path,
                                                          tmp_path: Path) -> None:
     sub = tmp_path / "x.srt"
@@ -995,7 +997,7 @@ def test_adding_a_subtitle_says_what_the_tracks_will_be(run: Callable[..., Ran],
     assert layouts(ran)[1][-2:] == ["s:ita", "s:fre"]
 
 
-@pytest.mark.skipif(not FML_BIN, reason="data.layout is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="data.layout is Rust only")
 def test_a_result_with_nothing_to_show_has_no_layout(run: Callable[..., Ran],
                                                      film_mkv: Path) -> None:
     ran = run("--set", "lang", "--default", "Italian", "--format", "json", "-i", film_mkv)
@@ -1005,7 +1007,7 @@ def test_a_result_with_nothing_to_show_has_no_layout(run: Callable[..., Ran],
 
 # Reordering ------------------------------------------------------------------
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 @pytest.mark.parametrize("kind, order, expected, names", [
     ("audio", "3,1,2", ["a:fre", "a:ita*", "a:eng", "s:eng", "s:engF", "s:ita"],
      ["French", "Italian", "English"]),
@@ -1025,7 +1027,7 @@ def test_put_the_tracks_in_any_order(run: Callable[..., Ran], film_mkv: Path, ki
                "-i", film_mkv).code == 0  # a second order is applied to what is there now
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 def test_an_order_in_the_order_it_is_changes_nothing(run: Callable[..., Ran],
                                                      film_mkv: Path) -> None:
     before = film_mkv.read_bytes()
@@ -1034,7 +1036,7 @@ def test_an_order_in_the_order_it_is_changes_nothing(run: Callable[..., Ran],
     assert film_mkv.read_bytes() == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 @pytest.mark.parametrize("order, message", [
     ("1,2", "must list each of the 3 audio tracks once"),
     ("1,2,3,4", "must list each of the 3 audio tracks once"),
@@ -1050,7 +1052,7 @@ def test_a_bad_order_is_refused_and_changes_nothing(run: Callable[..., Ran], fil
     assert film_mkv.read_bytes() == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 def test_order_needs_its_own_settings(run: Callable[..., Ran], film_mkv: Path) -> None:
     assert "needs one of --order" in run("--set", "order", "-i", film_mkv).err
     assert "needs one of --order" in run("--set", "order", "--order", "1,2,3", "--order-lang",
@@ -1063,7 +1065,7 @@ def test_order_needs_its_own_settings(run: Callable[..., Ran], film_mkv: Path) -
                                 film_mkv).err
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 def test_undo_a_reorder(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path) -> None:
     log = tmp_path / "c.jsonl"
     before = (mkv_layout(film_mkv), mkv_names(film_mkv))
@@ -1074,7 +1076,7 @@ def test_undo_a_reorder(run: Callable[..., Ran], film_mkv: Path, tmp_path: Path)
     assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 def test_order_can_make_the_new_first_track_the_default(run: Callable[..., Ran], film_mkv: Path,
                                                         tmp_path: Path) -> None:
     log = tmp_path / "c.jsonl"
@@ -1088,7 +1090,7 @@ def test_order_can_make_the_new_first_track_the_default(run: Callable[..., Ran],
     assert (mkv_layout(film_mkv), mkv_names(film_mkv)) == before
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 def test_default_first_fixes_the_flag_when_the_order_is_already_right(run: Callable[..., Ran],
                                                                     film_mkv: Path) -> None:
     run("--set", "order", "--order", "2,1,3", "-i", film_mkv)
@@ -1100,13 +1102,13 @@ def test_default_first_fixes_the_flag_when_the_order_is_already_right(run: Calla
     assert "already in that order and the first is the default" in again.out
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 def test_default_first_needs_set_order(run: Callable[..., Ran], film_mkv: Path) -> None:
     ran = run("--set", "lang", "--default", "eng", "--default-first", "-i", film_mkv)
     assert ran.code == 2 and "--default-first only works with --set order" in ran.err
 
 
-@pytest.mark.skipif(not FML_BIN, reason="--set order is Rust only")
+@pytest.mark.skipif(not MAU_BIN, reason="--set order is Rust only")
 def test_order_by_language_suits_files_with_different_tracks(run: Callable[..., Ran],
                                                              make: Callable[..., Path],
                                                              tmp_path: Path) -> None:
@@ -1299,3 +1301,43 @@ def test_jobs_with_backups_and_a_log(run: Callable[..., Ran], tmp_path: Path,
     assert len(list(folder.glob("*.fml-bak"))) == 5 and len(log.read_text().splitlines()) == 5
     run("--undo", log)
     assert all(mkv_layout(folder / f"e{n}.mkv") == ["a:ita*", "a:eng"] for n in range(5))
+
+
+# Symbolic links -------------------------------------------------------------
+
+@pytest.mark.skipif(not MAU_BIN, reason="the Rust version follows a symbolic link, fml.py does not")
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows needs extra rights to make a link")
+def test_a_symbolic_link_changes_the_file_it_points_to(run: Callable[..., Ran], film_mkv: Path,
+                                                       tmp_path: Path) -> None:
+    link = tmp_path / "link.mkv"
+    link.symlink_to(film_mkv)
+    ran = run("--set", "lang", "--default", "English", "--move", "--file", link)
+    assert ran.code == 0, ran.err
+    assert link.is_symlink(), "the link is still a link"
+    assert mkv_layout(film_mkv)[0] == "a:eng*", "the real file is the one that changed"
+    assert not leftovers(film_mkv)
+
+
+@pytest.mark.skipif(not MAU_BIN, reason="the Rust version follows a linked folder, fml.py may not")
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows needs extra rights to make a link")
+def test_a_linked_folder_is_searched_and_its_files_changed(run: Callable[..., Ran], film_mkv: Path,
+                                                           tmp_path: Path) -> None:
+    store = tmp_path / "store" / "Season 1"
+    store.mkdir(parents=True)
+    film = store / "film.mkv"
+    film.write_bytes(film_mkv.read_bytes())
+    library = tmp_path / "library"
+    library.mkdir()
+    (library / "Season 1").symlink_to(store, target_is_directory=True)
+    ran = run("--set", "lang", "--default", "English", "--move", "--dir", library, "--recursive")
+    assert ran.code == 0, ran.err
+    assert "no media files" not in ran.err
+    assert mkv_layout(film)[0] == "a:eng*", "the file in the linked folder is the one changed"
+
+
+@pytest.mark.skipif(not MAU_BIN, reason="the Rust version warns about an empty folder")
+def test_an_empty_folder_says_so(run: Callable[..., Ran], tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+    ran = run("--set", "lang", "--default", "English", "--dir", tmp_path / "empty", "--recursive")
+    assert ran.code == 0
+    assert "no media files found" in ran.err

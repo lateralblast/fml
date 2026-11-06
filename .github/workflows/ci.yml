@@ -3,7 +3,7 @@
 #   python        the archived fml.py, which the Rust build is tested against: ruff, mypy and pytest on each
 #                 Python the project supports, with the real mkvtoolnix, mediainfo and ffmpeg
 #   rust          the command line tool and the app on Linux and macOS: build without warnings, cargo test,
-#                 then the same pytest suite run against the built fml-cli (FML_BIN)
+#                 then the same pytest suite run against the built mau-cli (MAU_BIN)
 #   rust-minimum  the core and the command line tool on the oldest Rust the README says they build with
 #   windows       the code for Windows compiles (it is not run: there is no Windows runner step for it yet)
 #
@@ -85,9 +85,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run the pytest suite against the built fml-cli
+      - name: Run the pytest suite against the built mau-cli
         env:
-          FML_BIN: ${{ github.workspace }}/rust/target/release/fml-cli
+          MAU_BIN: ${{ github.workspace }}/rust/target/release/mau-cli
         run: |
           pip install pytest
           pytest -q
@@ -103,7 +103,7 @@ jobs:
           workspaces: rust
       - name: Build with the oldest supported Rust
         working-directory: rust
-        run: cargo build --locked -p fml-core -p fml-cli
+        run: cargo build --locked -p mau-core -p mau-cli
 
   windows:
     name: windows (compiles)
@@ -118,4 +118,4 @@ jobs:
           workspaces: rust
       - name: Check the code for Windows
         working-directory: rust
-        run: cargo check --locked -p fml-core -p fml-cli --target x86_64-pc-windows-gnu
+        run: cargo check --locked -p mau-core -p mau-cli --target x86_64-pc-windows-gnu

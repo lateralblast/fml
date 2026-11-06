@@ -1,12 +1,12 @@
-<img src="fml.png" alt="fml" width="110" align="right">
+<img src="mau.png" alt="mau" width="110" align="right">
 
-# fml
+# mau
 
-**Fix Media Language**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
+**Media Audio Utility**: change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.5.6
+Version 1.6.1
 
-![The fml desktop app](docs/images/app-main.png)
+![The mau desktop app](docs/images/app-main.png)
 
 ## Contents
 
@@ -52,7 +52,7 @@ Version 1.5.6
 
 ## What it does
 
-`fml` makes the audio and subtitle tracks of your media files what you want them to be, from the command line or a
+`mau` makes the audio and subtitle tracks of your media files what you want them to be, from the command line or a
 desktop app. It was designed for one job, and has grown from there:
 
 - **Make the right track the default**, and the first, for players that ignore the default flag. If a file has
@@ -72,20 +72,20 @@ have to be removed, are rewritten without re-encoding anything.
 ## Quick start
 
 ```
-./fml --check                                             # are the tools it needs installed?
-./fml --info --file video.mkv                             # show the tracks of a file
-./fml --set lang --default English --file video.mkv --dryrun    # show what would change
-./fml --set lang --default English --move --dir /media/Show.S01 # make English the default and first, for a season
-./fml --gui                                               # or do it in the desktop app
+./mau --check                                             # are the tools it needs installed?
+./mau --info --file video.mkv                             # show the tracks of a file
+./mau --set lang --default English --file video.mkv --dryrun    # show what would change
+./mau --set lang --default English --move --dir /media/Show.S01 # make English the default and first, for a season
+./mau --gui                                               # or do it in the desktop app
 ```
 
-`./fml` runs the build in this directory (see [Installing](#installing)); with `fml-cli` on your `PATH` use that name.
-Before it runs, `./fml` brings that build up to date with `cargo` (a quick check that does nothing when the sources have not
-changed), and `./fml --gui` does the same for the app. Set `FML_NO_BUILD=1` to skip the check and run what is built.
+`./mau` runs the build in this directory (see [Installing](#installing)); with `mau-cli` on your `PATH` use that name.
+Before it runs, `./mau` brings that build up to date with `cargo` (a quick check that does nothing when the sources have not
+changed), and `./mau --gui` does the same for the app. Set `MAU_NO_BUILD=1` to skip the check and run what is built.
 
 ## Requirements
 
-`fml` is built with Rust (`cargo` 1.85 or newer, 1.90 for the desktop app; see [Installing](#installing)) and has no other
+`mau` is built with Rust (`cargo` 1.85 or newer, 1.90 for the desktop app; see [Installing](#installing)) and has no other
 dependencies of its own. It needs these commands:
 
 | Command                   | Package    | Used for                      |
@@ -101,7 +101,7 @@ the `no-mkvtoolnix` Cargo feature, and is the one for the App Store) does every 
 tracks, and extracting subtitles. It never runs the mkvtoolnix commands, even when they are installed, and `--check`
 does not ask for them.
 Its installers and archive are named with `-no-mkvtoolnix`, and it is built in `rust/target-nomkv`, so the normal build's
-files are not replaced. The test suite runs it with `FML_BIN` set to that binary and `FML_SPIKE_NO_MKVTOOLNIX=1`.
+files are not replaced. The test suite runs it with `MAU_BIN` set to that binary and `MAU_SPIKE_NO_MKVTOOLNIX=1`.
 
 Optional, for `--detect` (see [Guessing the language of a track](#guessing-the-language-of-a-track)):
 
@@ -109,12 +109,12 @@ Optional, for `--detect` (see [Guessing the language of a track](#guessing-the-l
 |---------------------------|-------------|-------------------------------|
 | `whisper-cli`             | whisper.cpp | guessing a track's language   |
 
-`--check` lists it and says it is optional, and `FML_WHISPER_MODEL` (the model file). `--check --install` installs
+`--check` lists it and says it is optional, and `MAU_WHISPER_MODEL` (the model file). `--check --install` installs
 `whisper.cpp` with apt (`whisper.cpp`) or Homebrew (`whisper-cpp`); on other systems it says to install it by hand.
 It also downloads the model, if there is none: see [Guessing the language of a track](#guessing-the-language-of-a-track).
 
-Check they are installed with `./fml --check`, and install any that are missing
-with `./fml --check --install`, which uses the package manager of the system:
+Check they are installed with `./mau --check`, and install any that are missing
+with `./mau --check --install`, which uses the package manager of the system:
 
 | System                                      | Command                                        |
 |---------------------------------------------|------------------------------------------------|
@@ -128,10 +128,10 @@ A Linux distribution is recognised by the `ID` and `ID_LIKE` in `/etc/os-release
 these is covered too. Any other system is told it is not known. The package names were checked against the
 package repositories, but the installs on Fedora, Arch and Windows have not been run on those systems (only
 the commands that would be run are tested; `--dryrun --verbose` shows them). Fedora's `ffmpeg-free` is enough for
-fml, which copies streams; the full `ffmpeg` needs RPM Fusion.
+mau, which copies streams; the full `ffmpeg` needs RPM Fusion.
 Each action only needs the commands it uses, so an MKV-only setup works without `ffmpeg`.
 
-The desktop app (`./fml --gui`) is optional and also needs the system webview (see [Installing](#installing)).
+The desktop app (`./mau --gui`) is optional and also needs the system webview (see [Installing](#installing)).
 
 ## Installing
 
@@ -142,34 +142,34 @@ needs the system webview, on Ubuntu `libwebkit2gtk-4.1-dev` and `libgtk-3-dev`):
 
 ```
 cd rust
-cargo build --release                # the command line tool: rust/target/release/fml-cli
-cargo build -p fml-gui --release     # the desktop app: rust/target/release/fml
+cargo build --release                # the command line tool: rust/target/release/mau-cli
+cargo build -p mau-gui --release     # the desktop app: rust/target/release/mau
 ```
 
 ### Put the commands on your PATH
 
-`./fml` in this directory runs the release build (or the debug build if there is no release one), rebuilding it first
-if its sources have changed, and `./fml --gui` opens the desktop app (rebuilt the same way). To get an `fml-cli` command on your `PATH` instead, copy the built files
-into a directory on it, the app beside the command (`fml-cli --gui` looks for the app, the program called `fml`, next to itself, then
-on `PATH` (skipping scripts, such as the archived Python `fml`), or at the path in `FML_GUI`):
+`./mau` in this directory runs the release build (or the debug build if there is no release one), rebuilding it first
+if its sources have changed, and `./mau --gui` opens the desktop app (rebuilt the same way). To get an `mau-cli` command on your `PATH` instead, copy the built files
+into a directory on it, the app beside the command (`mau-cli --gui` looks for the app, the program called `mau`, next to itself, then
+on `PATH` (skipping scripts, such as the archived Python `fml`), or at the path in `MAU_GUI`):
 
 ```
-install -m 755 rust/target/release/fml-cli rust/target/release/fml ~/.local/bin/
-fml-cli --version
+install -m 755 rust/target/release/mau-cli rust/target/release/mau ~/.local/bin/
+mau-cli --version
 ```
 
 ### Linux package
 
-For a package of the app, `cd rust/fml-gui && cargo tauri build --bundles deb` leaves a `.deb` in
+For a package of the app, `cd rust/mau-gui && cargo tauri build --bundles deb` leaves a `.deb` in
 `rust/target/release/bundle/deb` (it needs `cargo install tauri-cli` first). The commands in
-[Requirements](#requirements) are still needed, and `fml-cli --check --install` installs them.
+[Requirements](#requirements) are still needed, and `mau-cli --check --install` installs them.
 
 ### macOS
 
-On macOS, `brew install mkvtoolnix mediainfo ffmpeg` installs the commands (or `fml-cli --check --install`), and
-`./build.sh --target mac [--arch arm64|x64|universal]` builds `fml_<version>_<arch>.dmg` and the `fml-cli` archive
-into `dist/` (it needs `cargo install tauri-cli --version '^2'`; the system web view is built in). Drag `fml.app` to
-`/Applications`, and `fml-cli --gui` will find it. The app adds Homebrew's folders (`/opt/homebrew/bin`,
+On macOS, `brew install mkvtoolnix mediainfo ffmpeg` installs the commands (or `mau-cli --check --install`), and
+`./build.sh --target mac [--arch arm64|x64|universal]` builds `mau_<version>_<arch>.dmg` and the `mau-cli` archive
+into `dist/` (it needs `cargo install tauri-cli --version '^2'`; the system web view is built in). Drag `mau.app` to
+`/Applications`, and `mau-cli --gui` will find it. The app adds Homebrew's folders (`/opt/homebrew/bin`,
 `/usr/local/bin`) to its `PATH`, so it finds the commands even when opened from Finder. The `.dmg` is not signed or
 notarised, so macOS may ask you to allow it in System Settings, Privacy & Security.
 
@@ -179,7 +179,7 @@ the command-line tools it uses (`mkvmerge`, `mkvpropedit`, `mkvextract`, `mediai
 from Homebrew by `packaging/mac/bundle_tools.py`, their references are rewritten to the copies, and each is signed with the
 inherit entitlement (`packaging/mac/tool.entitlements`), so it runs under the sandbox of the app that starts it. The app itself
 is sandboxed (`packaging/mac/app.entitlements`: files the user chooses, and network access). It uses the bundled tools in
-preference to any installed ones. The disk image is named `fml_<version>_<arch>-sandboxed.dmg`, so it sits in `dist/` beside
+preference to any installed ones. The disk image is named `mau_<version>_<arch>-sandboxed.dmg`, so it sits in `dist/` beside
 the usual one. The app carries the licence of each package its tools come from, with a `NOTICE.txt` (see "License and
 support"). It is for a Mac with the tools installed (`mkvtoolnix`, `mediainfo`, `ffmpeg`) to build from, and it is
 signed and notarised like the usual build. The tools' licences (GPL, for mkvtoolnix and ffmpeg) apply to the app when it is
@@ -188,7 +188,7 @@ distributed this way.
 **An LGPL build.** `./build.sh --target mac --lgpl` builds the sandboxed app above without mkvtoolnix (which is GPL-licensed),
 and with ffmpeg and ffprobe built from source as LGPL-only tools. `packaging/ffmpeg/build-lgpl.sh` downloads ffmpeg 9.0.2 from
 ffmpeg.org, checks it against its SHA-256 and builds it with `--disable-gpl --disable-nonfree --enable-shared` and no external
-codec libraries. It is built once, into `rust/target/lgpl-ffmpeg`: delete that folder to build it again. fml needs nothing that is
+codec libraries. It is built once, into `rust/target/lgpl-ffmpeg`: delete that folder to build it again. mau needs nothing that is
 GPL-only: it copies streams, and its subtitle conversions use encoders built into ffmpeg (`srt`, `mov_text`, `pcm_s16le`). The
 disk image is named `-lgpl.dmg`. It is for a local build on a Mac, with Xcode's command line tools to compile ffmpeg. The app
 carries ffmpeg's licence text and a `SOURCE.txt` (where its source is, its SHA-256, and how it was configured) in
@@ -199,17 +199,18 @@ with it, and by default (`--notarize`) it also notarises the app and the `.dmg`,
 `stapler` and `spctl`. `--nonotarize` signs without notarising. With no such certificate the app is built unsigned, and the
 build says so. If a certificate is found but the notary credentials are not, the build stops before it starts, rather than
 making a signed build that is not notarised. The credentials are read from the environment, or from the file named by
-`FML_NOTARY_ENV` (default `~/.config/fml/notary.env`), which holds `APPLE_API_KEY` (the key ID), `APPLE_API_ISSUER` and
+`MAU_NOTARY_ENV` (default `~/.config/mau/notary.env`), which holds `APPLE_API_KEY` (the key ID), `APPLE_API_ISSUER` and
 `APPLE_API_KEY_PATH` (the App Store Connect `.p8` key), or `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password) and
 `APPLE_TEAM_ID`. Keep that file out of the repository, readable only by you (`chmod 600`). The `APPLE_ID` route passes the
 password on the command line of `xcrun`, so the App Store Connect key is the safer choice. `APPLE_SIGNING_IDENTITY` names the
-certificate when there is more than one.
+certificate when there is more than one. The step-by-step setup (the certificate, the App Store Connect key, `notary.env`
+and the GitHub secrets) is in [APPSTORE.md](APPSTORE.md).
 
 ### Windows
 
-`./build.sh --target windows` on Linux or a Mac cross-compiles the Windows installer (`fml_<version>_x64-setup.exe`)
-and `fml-cli-<version>-windows.zip` in a Docker container (MinGW, `x86_64-pc-windows-gnu`; needs `docker`, nothing
-else), and leaves them in `dist/`. `docker/windows/smoke.sh` then runs the built `fml-cli.exe` under Wine against
+`./build.sh --target windows` on Linux or a Mac cross-compiles the Windows installer (`mau_<version>_x64-setup.exe`)
+and `mau-cli-<version>-windows.zip` in a Docker container (MinGW, `x86_64-pc-windows-gnu`; needs `docker`, nothing
+else), and leaves them in `dist/`. `docker/windows/smoke.sh` then runs the built `mau-cli.exe` under Wine against
 stand-in tools as a smoke test. On Windows itself the installer's tools (Rust, tauri-cli) are needed and
 `./build.sh --target windows` builds there. The Windows build has not been run on a real Windows machine yet; the
 `mkvtoolnix`, `mediainfo` and `ffmpeg` commands must be on `PATH` there too.
@@ -233,7 +234,7 @@ the commands without starting anything. The Windows job builds on Windows itself
 ## The desktop app
 
 The app does everything the command line does on whole folders, and the Edit dialog works on one file. Open it with
-`./fml --gui` (or `fml-cli --gui`, or `fml.app` on a Mac), after building it as described in [Installing](#installing).
+`./mau --gui` (or `mau-cli --gui`, or `mau.app` on a Mac), after building it as described in [Installing](#installing).
 It follows the system's light or dark appearance. It uses the same engine as the command line, so changes are made
 the same careful way, and the logs it writes can be used with `--undo` and the other way round. The chip at the top
 right lists the commands found (`mkvtoolnix, ffmpeg, mediainfo`, and `whisper-cli` when the optional language
@@ -296,7 +297,7 @@ that `--track id:N` uses, and under **Full technical report** everything `mediai
 - **Add a subtitle file**: choose the file, its language (guessed from the file name when it holds one, as in
   `Film.ita.srt`) and an optional name.
 - **Search online**: under **Add a subtitle file**, **Search online (OpenSubtitles)…** looks for subtitles for the
-  file (see below). It is off unless the app is started with `--enable search` (`./fml --gui --enable search`); without
+  file (see below). It is off unless the app is started with `--enable search` (`./mau --gui --enable search`); without
   it the button is not shown.
 
 ![The Edit dialog, with "keep only English" previewed](docs/images/app-edit.png)
@@ -304,7 +305,7 @@ that `--track id:N` uses, and under **Full technical report** everything `mediai
 #### Searching OpenSubtitles
 
 The online search is **off by default**, because it has not been tested fully yet. Turn it on with `--enable search`:
-`./fml --gui --enable search` shows the button, and the command line needs `--enable search` for `--search subtitle` and
+`./mau --gui --enable search` shows the button, and the command line needs `--enable search` for `--search subtitle` and
 `--add subtitle --online` (without it they are refused, and nothing is sent). Adding a subtitle file from disk is not
 affected.
 
@@ -323,16 +324,16 @@ What it needs and sends:
 
 - **An API key** to search (free: make an account at opensubtitles.com and add an API consumer in its settings), and
   that account's **user name and password** to download (the free account is enough; the service limits downloads per
-  day). Enter them under **OpenSubtitles account**. They are kept in `opensubtitles.json` in fml's data folder
-  (`~/.local/share/fml` on Linux, `~/Library/Application Support/fml` on macOS, `%APPDATA%\fml` on Windows), in a file
-  only you can read. `FML_OPENSUBTITLES_KEY`, `FML_OPENSUBTITLES_USER` and `FML_OPENSUBTITLES_PASSWORD` take the place
+  day). Enter them under **OpenSubtitles account**. They are kept in `opensubtitles.json` in mau's data folder
+  (`~/.local/share/mau` on Linux, `~/Library/Application Support/mau` on macOS, `%APPDATA%\mau` on Windows), in a file
+  only you can read. `MAU_OPENSUBTITLES_KEY`, `MAU_OPENSUBTITLES_USER` and `MAU_OPENSUBTITLES_PASSWORD` take the place
   of what is saved. They are never put on a command line.
 - **What leaves your computer**: the title guessed from the file name (or typed), the season and episode or year, the
   languages, and the file's *OpenSubtitles hash* (a number made from its size and 128 KB of it, so the service can
   recognise the exact file; none of the file itself is sent). The requests are made with `curl`, which must be
   installed (it is on macOS, Windows 10 and later, and most Linux systems). The app does nothing online until you press
   **Search**; the command line only when you use `--search subtitle` or `--add subtitle --online`.
-- `FML_OPENSUBTITLES_URL` gives another address for the service (a test server).
+- `MAU_OPENSUBTITLES_URL` gives another address for the service (a test server).
 
 ### Adding subtitles to many files
 
@@ -347,44 +348,44 @@ then **Preview** or add; each file is rewritten once with all its new subtitles.
 
 ## Using the command line
 
-The same actions, switch by switch. `./fml --help` lists them all, and the full text is under [Help](#help).
+The same actions, switch by switch. `./mau --help` lists them all, and the full text is under [Help](#help).
 
 ### Basics
 
 Show the tracks in a file:
 
 ```
-./fml --info --file video.mkv
+./mau --info --file video.mkv
 ```
 
 Set the default audio language to English. Only the tracks whose flag has to change are edited:
 
 ```
-./fml --set lang --default English --file video.mkv
+./mau --set lang --default English --file video.mkv
 ```
 
 Get the default audio language:
 
 ```
-./fml --get lang --file video.mkv
+./mau --get lang --file video.mkv
 ```
 
 Show the audio tracks that are in a language:
 
 ```
-./fml --get lang --lang English --file video.mkv
+./mau --get lang --lang English --file video.mkv
 ```
 
 If the metadata is wrong, set the language of an audio track (the first unless `--track` says otherwise):
 
 ```
-./fml --set lang --lang Italian --track 2 --file video.mkv
+./mau --set lang --lang Italian --track 2 --file video.mkv
 ```
 
 If the metadata is poor quality, you can use the swap action to make the second audio track the default:
 
 ```
-./fml --swap lang --file video.mkv
+./mau --swap lang --file video.mkv
 ```
 
 ### Choosing a track
@@ -393,7 +394,7 @@ Files often have tracks tagged `und` (undetermined), so there is no language to 
 `--set default` makes a track the default by number, and `--lang` also tags it in the same edit:
 
 ```
-./fml --set default --track 2 --lang English --file video.mkv
+./mau --set default --track 2 --lang English --file video.mkv
 ```
 
 `--track last` is the last track. This also works with `--kind sub`.
@@ -403,9 +404,9 @@ that track whatever `--kind` says: `subtitles:18` (or `sub:18`, `audio:2`), `id:
 (the track name, ignoring case; it must match one track, else use the ID):
 
 ```
-./fml --delete track --track subtitles:18 --file video.mkv
-./fml --delete track --track id:20 --file video.mkv
-./fml --delete track --track name:Traditional --file video.mkv
+./mau --delete track --track subtitles:18 --file video.mkv
+./mau --delete track --track id:20 --file video.mkv
+./mau --delete track --track name:Traditional --file video.mkv
 ```
 
 Video tracks cannot be removed. The other `--set` actions accept the same forms for a track of the kind they work on.
@@ -417,22 +418,22 @@ Tracks can be removed, which rewrites the file (checked first, with permissions 
 Remove all the audio that is not English:
 
 ```
-./fml --preserve lang --lang eng --file video.mkv
+./mau --preserve lang --lang eng --file video.mkv
 ```
 
 Remove all the English audio, or one audio track by number (`last` is the last one):
 
 ```
-./fml --delete lang --lang eng --file video.mkv
-./fml --delete track --track 2 --file video.mkv
+./mau --delete lang --lang eng --file video.mkv
+./mau --delete track --track 2 --file video.mkv
 ```
 
 Keep several languages at once with `--keep` (a list, any order): the tracks in all of them stay and the rest
 go. Include `und` to keep tracks with no language:
 
 ```
-./fml --preserve lang --keep eng,jpn,und --file video.mkv
-./fml --preserve lang --keep eng,ita --kind sub --dir /media/shows --recursive
+./mau --preserve lang --keep eng,jpn,und --file video.mkv
+./mau --preserve lang --keep eng,ita --kind sub --dir /media/shows --recursive
 ```
 
 A language the file lacks is just not there; it is only an error (the file is left as it is, unless `--force`) when
@@ -443,8 +444,8 @@ English tracks), with `--delete dupes`. For subtitles a forced track and a full 
 duplicates of each other:
 
 ```
-./fml --delete dupes --file video.mkv
-./fml --delete dupes --kind sub --dir /media/shows --recursive
+./mau --delete dupes --file video.mkv
+./mau --delete dupes --kind sub --dir /media/shows --recursive
 ```
 
 Remove tracks by what they are with `--delete match`: every track that fits **all** of the `--lang`, `--codec`
@@ -453,8 +454,8 @@ in any case (`ac-3` matches `ac3` and `eac3`, the names `--info` shows), and `--
 6 is 5.1; the **Ch** column of `--info`, shown where the tool reports it):
 
 ```
-./fml --delete match --channels 2 --lang eng --file video.mkv   # the stereo English track
-./fml --delete match --codec dts --dir /media/films --recursive
+./mau --delete match --channels 2 --lang eng --file video.mkv   # the stereo English track
+./mau --delete match --codec dts --dir /media/films --recursive
 ```
 
 As a safeguard, `--preserve` and `--delete` refuse to leave a file with no audio at all, and
@@ -473,23 +474,23 @@ Make English the default subtitles. A track that is not forced is preferred, and
 chooses the forced track instead (the one that only subtitles foreign speech):
 
 ```
-./fml --set lang --default English --kind sub --file video.mkv
-./fml --set lang --default English --kind sub --forced --file video.mkv
+./mau --set lang --default English --kind sub --file video.mkv
+./mau --set lang --default English --kind sub --forced --file video.mkv
 ```
 
 Turn the default subtitles off, so that none show unless a viewer picks them (MKV only):
 
 ```
-./fml --set lang --default none --kind sub --file video.mkv
+./mau --set lang --default none --kind sub --file video.mkv
 ```
 
 The other actions work the same way:
 
 ```
-./fml --get lang --kind sub --file video.mkv
-./fml --delete lang --lang ita --kind sub --file video.mkv
-./fml --preserve lang --lang eng --kind sub --file video.mkv
-./fml --set lang --lang French --track 3 --kind sub --file video.mkv
+./mau --get lang --kind sub --file video.mkv
+./mau --delete lang --lang ita --kind sub --file video.mkv
+./mau --preserve lang --lang eng --kind sub --file video.mkv
+./mau --set lang --lang French --track 3 --kind sub --file video.mkv
 ```
 
 Removing every subtitle track does not need `--force`.
@@ -500,19 +501,19 @@ Removing every subtitle track does not need `--force`.
 `und` (or the wrong language) can be checked before it is named. It needs [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
 and one of its model files:
 
-- the program `whisper-cli` on `PATH` (or `whisper-cpp`), or the path to it in `FML_WHISPER`; `fml --check --install` installs it with apt or Homebrew;
-- the model file: `FML_WHISPER_MODEL`, or else `ggml-base.bin` in fml's data folder (`~/.local/share/fml` on Linux,
-  `~/Library/Application Support/fml` on macOS, `%APPDATA%\fml` on Windows).
+- the program `whisper-cli` on `PATH` (or `whisper-cpp`), or the path to it in `MAU_WHISPER`; `mau --check --install` installs it with apt or Homebrew;
+- the model file: `MAU_WHISPER_MODEL`, or else `ggml-base.bin` in mau's data folder (`~/.local/share/mau` on Linux,
+  `~/Library/Application Support/mau` on macOS, `%APPDATA%\mau` on Windows).
 
-`fml --check --install` downloads the model (`ggml-base.bin`, 148 MB, from Hugging Face) when there is none. Before it
+`mau --check --install` downloads the model (`ggml-base.bin`, 148 MB, from Hugging Face) when there is none. Before it
 does, it checks that the disk has that much room with a tenth to spare: if it doesn't, it says so and downloads
 nothing, and `--check` then reports the model missing. The download is checked against its published SHA-256 before it
 is kept, so a damaged or different file is thrown away. `--check --install --dryrun` only says what it would download.
-`FML_WHISPER_MODEL_URL` gives another address for the download (a mirror, or a test server).
+`MAU_WHISPER_MODEL_URL` gives another address for the download (a mirror, or a test server).
 
 ```
-./fml --detect --file video.mkv
-./fml --detect --track 2 --file video.mkv
+./mau --detect --file video.mkv
+./mau --detect --track 2 --file video.mkv
 ```
 
 For each track, three clips of 30 seconds are cut from the track (at 20%, 50% and 80% of its length, so an
@@ -549,7 +550,7 @@ Languages read from files are converted the same way, so a file tagged `fra` mat
 suits a library where the files differ:
 
 ```
-./fml --set lang --prefer eng,jpn,fre --dir /media/films --recursive
+./mau --set lang --prefer eng,jpn,fre --dir /media/films --recursive
 ```
 
 A file with English audio gets English, a file with only Japanese and French gets Japanese, and a file
@@ -557,7 +558,7 @@ with none of them is skipped with a warning. With `--preserve` it keeps only the
 that a file has, and removes the rest:
 
 ```
-./fml --preserve lang --prefer eng,jpn --dir /media/films
+./mau --preserve lang --prefer eng,jpn --dir /media/films
 ```
 
 ### Moving and ordering tracks
@@ -566,9 +567,9 @@ Some players ignore the default flag and just play the first track. `--move` mak
 first track of its kind as well as the default, so it works for those players too:
 
 ```
-./fml --set lang --default English --move --file video.mkv
-./fml --set lang --prefer eng,jpn --move --dir /media/films
-./fml --set default --track 3 --lang English --move --file video.mkv
+./mau --set lang --default English --move --file video.mkv
+./mau --set lang --prefer eng,jpn --move --dir /media/films
+./mau --set default --track 3 --lang English --move --file video.mkv
 ```
 
 The tracks of other kinds stay where they are (video first, then the audio, then the subtitles), and the
@@ -587,13 +588,13 @@ tracks, so the default flag does not move to the new first track unless you add 
 the track that ends up first the only default of its kind (it also fixes the flag when the order is already right). List every track of the kind once. MKV and MP4 only.
 
 ```
-./fml --set order --order 3,1,2 --file video.mkv
-./fml --set order --order 2,1 --kind sub --file video.mp4
+./mau --set order --order 3,1,2 --file video.mkv
+./mau --set order --order 2,1 --kind sub --file video.mp4
 ```
 
 `--order-lang ita,eng` does the same by language instead of by number: the tracks in the first language come
 first, then the second, then the rest in their old order. It suits a whole season whose files have different
-tracks (`./fml --set order --order-lang eng,ita --default-first --dir /media/Show.S01`).
+tracks (`./mau --set order --order-lang eng,ita --default-first --dir /media/Show.S01`).
 
 `--log` records it and `--undo` puts the old order back.
 
@@ -603,10 +604,10 @@ tracks (`./fml --set order --order-lang eng,ita --default-first --dir /media/Sho
 and clear the forced flag. They all take the track with `--track`, and `--kind sub` works on subtitles:
 
 ```
-./fml --set name --track 2 --name "English 5.1" --file video.mkv
-./fml --set name --track 1 --name "" --file video.mkv
-./fml --set forced --track 2 --kind sub --file video.mkv
-./fml --set unforced --track 2 --kind sub --file video.mkv
+./mau --set name --track 2 --name "English 5.1" --file video.mkv
+./mau --set name --track 1 --name "" --file video.mkv
+./mau --set forced --track 2 --kind sub --file video.mkv
+./mau --set unforced --track 2 --kind sub --file video.mkv
 ```
 
 A name that starts with a dash has to be written with an equals sign, `--name=-text`, or it is taken for an
@@ -621,7 +622,7 @@ what is given is changed; an empty `--name ""` removes the name. The track is ch
 (`--track 2`, `--track subtitles:3`, `--track id:5`, `--track name:Forced`). The forced flag is MKV only.
 
 ```
-./fml --set track --track 3 --kind sub --lang Spanish --name "Latino" --forced-flag yes --file video.mkv
+./mau --set track --track 3 --kind sub --lang Spanish --name "Latino" --forced-flag yes --file video.mkv
 ```
 
 ### Adding subtitle files
@@ -632,7 +633,7 @@ and not forced (change that afterwards with `--set default` or `--set forced`). 
 `mkvmerge` on a copy and checked, like every change; chapters, attachments and the other tracks are kept.
 
 ```
-./fml --add subtitle --sub-file Film.it.srt --lang Italian --name "Italiano" --file Film.mkv
+./mau --add subtitle --sub-file Film.it.srt --lang Italian --name "Italiano" --file Film.mkv
 ```
 
 It works on MKV and MP4 files, not AVI. In an MP4 the subtitle is converted to `mov_text` text subtitles with `ffmpeg`
@@ -652,8 +653,8 @@ be run again after more files arrive, and in an MP4 the ones that can't be conve
 reason. Files that match nothing are listed.
 
 ```
-./fml --add subtitle --sub-dir ~/Subs --dir /media/Show.S01 --dryrun
-./fml --add subtitle --sub-dir ~/Subs --lang English --dir /media/Show.S01
+./mau --add subtitle --sub-dir ~/Subs --dir /media/Show.S01 --dryrun
+./mau --add subtitle --sub-dir ~/Subs --lang English --dir /media/Show.S01
 ```
 
 ### Finding subtitles online
@@ -664,11 +665,11 @@ and adds it, as the app's search does. Both need `--enable search`, because the 
 until it has been tested fully: without the switch they are refused before anything is sent.
 
 ```
-./fml --enable search --search subtitle --file Show.S01E03.1080p.mkv
-./fml --enable search --search subtitle --lang Italian --query "Show Name" --file Show.S01E03.1080p.mkv
-./fml --enable search --add subtitle --online --lang Italian --file Show.S01E03.1080p.mkv
-./fml --enable search --add subtitle --online --sub-id 7123456 --file Show.S01E03.1080p.mkv
-./fml --enable search --add subtitle --online --lang Italian --dir /media/Show.S01 --dryrun
+./mau --enable search --search subtitle --file Show.S01E03.1080p.mkv
+./mau --enable search --search subtitle --lang Italian --query "Show Name" --file Show.S01E03.1080p.mkv
+./mau --enable search --add subtitle --online --lang Italian --file Show.S01E03.1080p.mkv
+./mau --enable search --add subtitle --online --sub-id 7123456 --file Show.S01E03.1080p.mkv
+./mau --enable search --add subtitle --online --lang Italian --dir /media/Show.S01 --dryrun
 ```
 
 The title, season and episode (or year) are guessed from the file name, and the file's OpenSubtitles hash is sent so that
@@ -687,8 +688,8 @@ searches, and says what it would add (`from OpenSubtitles: release (ID n)`), but
 the daily download limit.
 
 It needs `curl`, an API key, and, to download, the login of a free account. Save them under **OpenSubtitles account**
-in the app's subtitle search (see [Searching OpenSubtitles](#searching-opensubtitles)), or set `FML_OPENSUBTITLES_KEY`,
-`FML_OPENSUBTITLES_USER` and `FML_OPENSUBTITLES_PASSWORD`. In `--format json` a search has `data.hits`, a list of
+in the app's subtitle search (see [Searching OpenSubtitles](#searching-opensubtitles)), or set `MAU_OPENSUBTITLES_KEY`,
+`MAU_OPENSUBTITLES_USER` and `MAU_OPENSUBTITLES_PASSWORD`. In `--format json` a search has `data.hits`, a list of
 `{file_id, language, release, file_name, downloads, hearing_impaired, forced, machine_translated, exact}`.
 
 ### Taking a subtitle track out to a file
@@ -704,8 +705,8 @@ name to choose it. The track is chosen as with `--delete track` (`--track 2`, `-
 give `--force` with a file name.
 
 ```
-./fml --extract subtitle --track 2 --file Film.mkv
-./fml --extract subtitle --track name:Forced --output ~/Subs/ --file Film.mkv
+./mau --extract subtitle --track 2 --file Film.mkv
+./mau --extract subtitle --track name:Forced --output ~/Subs/ --file Film.mkv
 ```
 
 ### MP4 and AVI
@@ -713,9 +714,9 @@ give `--force` with a file name.
 MP4 (and M4V and MOV) files work with the same actions, including subtitles:
 
 ```
-./fml --set lang --default English --file video.mp4
-./fml --set lang --default Italian --kind sub --file video.mp4
-./fml --delete track --track last --file video.mp4
+./mau --set lang --default English --file video.mp4
+./mau --set lang --default Italian --kind sub --file video.mp4
+./mau --delete track --track last --file video.mp4
 ```
 
 MP4 has no way to edit the tracks in place, so each change rewrites the file with `ffmpeg`, copying the
@@ -738,13 +739,13 @@ way to store, so it swaps the two tracks in the file as well). `--set order --or
 the desktop app's Edit dialog and the bulk menu use when a file has exactly two audio tracks:
 
 ```
-./fml --swap lang --file video.avi
+./mau --swap lang --file video.avi
 ```
 
 Delete the last audio track from an AVI file:
 
 ```
-./fml --delete track --track last --file video.avi
+./mau --delete track --track last --file video.avi
 ```
 
 ### Many files at once
@@ -754,7 +755,7 @@ subdirectories. Files that are not media files are skipped. A failure on one fil
 and the rest are still processed.
 
 ```
-./fml --set lang --default English --dir /media/films --recursive
+./mau --set lang --default English --dir /media/films --recursive
 ```
 
 `--include` and `--exclude` choose which files `--dir` processes. Each can be given more than once, and
@@ -763,8 +764,8 @@ matching ignores case. A pattern with no `/` matches a file name, or the name of
 directory, as in `Season 1/*`:
 
 ```
-./fml --set lang --default English --dir /media/tv -r --include '*.mkv' --exclude Extras
-./fml --get lang --dir /media/tv -r --include 'Season 1/*'
+./mau --set lang --default English --dir /media/tv -r --include '*.mkv' --exclude Extras
+./mau --get lang --dir /media/tv -r --include 'Season 1/*'
 ```
 
 `--jobs N` (`-j N`) processes N files at once. Rewriting is limited by the disk, so a few jobs help and many
@@ -773,7 +774,7 @@ time and 1.4 with `-j 4`). The output is the same, and in the same order, as a r
 space each file needs is set aside while it runs, so jobs can't use it up between them.
 
 ```
-./fml --set lang --default English --move --dir /media/tv -r -j 4
+./mau --set lang --default English --move --dir /media/tv -r -j 4
 ```
 
 ### Several actions in one command
@@ -785,9 +786,9 @@ actions can need different values. Settings given before the first action are sh
 action's own settings are added on top of them (a setting given twice for one action uses the last):
 
 ```
-./fml --set lang --default English --delete lang --lang ita --file video.mkv     # English default, then no Italian
-./fml --kind sub --get lang --info --file video.mkv                              # --kind sub is for both
-./fml --set lang --default French --move --set lang --default Italian -i a.mkv   # --move only for the first
+./mau --set lang --default English --delete lang --lang ita --file video.mkv     # English default, then no Italian
+./mau --kind sub --get lang --info --file video.mkv                              # --kind sub is for both
+./mau --set lang --default French --move --set lang --default Italian -i a.mkv   # --move only for the first
 ```
 
 The settings that go with an action are `--lang`, `--default`, `--prefer`, `--track`, `--kind`, `--forced`, `--move`,
@@ -804,7 +805,7 @@ the first track. The same four steps work for any folder of MKV files.
 1. Look at the tracks of one episode:
 
    ```
-   $ ./fml --info --file Show.1x01.mkv
+   $ ./mau --info --file Show.1x01.mkv
    Show.1x01.mkv (Matroska)
    Track        ID  Codec              Language  Default  Forced  Ch  Name
    video:1      0   HEVC/H.265/MPEG-H  und       yes      -       -   HEVC
@@ -818,7 +819,7 @@ the first track. The same four steps work for any folder of MKV files.
 2. Preview the change for the whole folder. Nothing is changed:
 
    ```
-   $ ./fml --set lang --default English --move --dir /media/Show.S01 --dryrun
+   $ ./mau --set lang --default English --move --dir /media/Show.S01 --dryrun
    [dry-run] Show.1x01.mkv: audio track 1 (ita): default yes -> no
    [dry-run] Show.1x01.mkv: audio track 2 (eng): default no -> yes, moved to the first audio track
    ...
@@ -828,13 +829,13 @@ the first track. The same four steps work for any folder of MKV files.
    worked, so a failure on one episode leaves it as it was and the rest are still done:
 
    ```
-   ./fml --set lang --default English --move --dir /media/Show.S01
+   ./mau --set lang --default English --move --dir /media/Show.S01
    ```
 
 4. Check the result: English is now the first audio track and the default.
 
    ```
-   $ ./fml --get lang --dir /media/Show.S01
+   $ ./mau --get lang --dir /media/Show.S01
    Show.1x01.mkv: eng
    Show.1x02.mkv: eng
    ...
@@ -844,7 +845,7 @@ The forced Italian subtitle track in this example is still the default, so a pla
 over the English audio. Turn the default subtitles off with:
 
 ```
-./fml --set lang --default none --kind sub --dir /media/Show.S01
+./mau --set lang --default none --kind sub --dir /media/Show.S01
 ```
 
 Each episode needs free space for a second copy while it is being rewritten, and the files are replaced, so
@@ -852,14 +853,14 @@ stop a torrent client seeding them first, or it will see them as changed.
 
 ## Safety
 
-Everything `fml` does is made to be checked and, where it can be, undone.
+Everything `mau` does is made to be checked and, where it can be, undone.
 
 ### Dry runs
 
 `--dryrun` shows what would change and changes nothing:
 
 ```
-$ ./fml --set lang --default English --file video.mkv --dryrun
+$ ./mau --set lang --default English --file video.mkv --dryrun
 [dry-run] video.mkv: audio track 1 (ita): default yes -> no
 [dry-run] video.mkv: audio track 2 (eng): default no -> yes
 ```
@@ -869,7 +870,7 @@ so stdout only has the results.
 
 ### Safe changes
 
-`fml` never changes your file until the new version is known to be good. Whatever it does, it works
+`mau` never changes your file until the new version is known to be good. Whatever it does, it works
 on a separate copy and swaps it in at the end:
 
 | Change                                              | How it is made                                                     |
@@ -884,7 +885,7 @@ or can lose something. If the check or the tool fails, the original is left as i
 the copy is removed, and the file is reported as an error. The new file replaces the original in a single atomic
 step (there is never a moment with no file), and keeps its permissions and timestamps.
 
-This needs free space beside the file for a second copy of it, and `fml` checks that first. If you stop it
+This needs free space beside the file for a second copy of it, and `mau` checks that first. If you stop it
 with Ctrl-C or `kill`, the copy is removed.
 
 Copying a large file takes time: every change is made on a copy, which replaces the file only once it has been checked.
@@ -895,7 +896,7 @@ Copying a large file takes time: every change is made on a copy, which replaces 
 that name is taken):
 
 ```
-./fml --delete lang --lang eng --file video.mkv --backup
+./mau --delete lang --lang eng --file video.mkv --backup
 ```
 
 The backup is a hard link to the original, made just before the new file replaces it, so it costs no space
@@ -908,7 +909,7 @@ they end in `.fml-bak`. The JSON output has a `backup` field with the path.
 `--log FILE` records each change, one JSON line per changed file, with the tracks before and after:
 
 ```
-./fml --set lang --default English --move --dir /media/tv -r --log changes.jsonl
+./mau --set lang --default English --move --dir /media/tv -r --log changes.jsonl
 ```
 
 `--undo FILE` (`-u`) then reverses them, newest first. A change is only undone if the file is still exactly as
@@ -916,9 +917,9 @@ that change left it, so a file that has been changed since is left alone and rep
 limits it to some of the files, and `--dryrun` shows what would be undone:
 
 ```
-./fml --undo changes.jsonl --dryrun
-./fml --undo changes.jsonl
-./fml --undo changes.jsonl --dir "/media/tv/Season 1"
+./mau --undo changes.jsonl --dryrun
+./mau --undo changes.jsonl
+./mau --undo changes.jsonl --dir "/media/tv/Season 1"
 ```
 
 Changes to flags, languages, names and the order of tracks are undone by editing the file back. A removal
@@ -934,7 +935,7 @@ checked, as the older ones depend on it.
 `--format json` prints a single JSON document instead of text, for use in scripts:
 
 ```
-./fml --set lang --default English --dir /media/films --dryrun --format json
+./mau --set lang --default English --dir /media/films --dryrun --format json
 ```
 
 ```json
@@ -981,11 +982,11 @@ average probability (`confidence`), the clips listened to and how many of them n
 ### Help
 
 ```
-./fml --help
+./mau --help
 ```
 
 ```
-usage: fml-cli [OPTIONS]
+usage: mau-cli [OPTIONS]
 
 Fix the default audio and subtitle languages, and the tracks, of media files.
 
@@ -1006,7 +1007,7 @@ actions (may be combined; they run in the order given):
   -I, --info
           list the tracks of the file
       --detect
-          guess the language of each audio track (or of --track) from its speech, with whisper.cpp (FML_WHISPER_MODEL names its model); the file is not changed
+          guess the language of each audio track (or of --track) from its speech, with whisper.cpp (MAU_WHISPER_MODEL names its model); the file is not changed
       --update
           set the language of each audio track (or of --track) to the language it sounds like, as --detect finds it (AVI files have no language to set); the file is changed
   -u, --undo <LOG>
@@ -1058,24 +1059,24 @@ settings:
       --enable <FEATURE>        turn on an optional feature that is off by default: search (the online subtitle search on OpenSubtitles; not fully tested yet)
   -v, --verbose                 show the commands that are run
   -F, --format <format>         output format (default text) [default: text]
-      --gui                     open the desktop app (fml) instead; takes no other options than --enable search
+      --gui                     open the desktop app (mau) instead; takes no other options than --enable search
       --install                 install missing commands (apt, dnf, pacman, brew, winget or choco, by system)
 
 
 
 examples:
-  fml --set lang --default English --file video.mkv     make English the default audio
-  fml --set lang --default English --move -i video.mkv  ... and move it to be the first audio track
-  fml --set lang --prefer eng,jpn,fre --dir films       the best of those languages in each file
-  fml --set default --track 2 --lang English -i a.mkv   make audio track 2 the default and English
-  fml --set lang --default English --kind sub -i a.mkv  make English the default subtitles
-  fml --set lang --default English --kind sub --forced  ... using the forced subtitle track
-  fml --set lang --default none --kind sub -i a.mkv     turn the default subtitles off
-  fml --get lang --dir /media/films --recursive         default audio language of each film
-  fml --preserve lang --lang eng --file video.mkv       remove the audio that isn't English
-  fml --delete track --track last --file video.mp4      remove the last audio track
-  fml --set lang --default French --dir films --dryrun  show what would change
-  fml --set lang --default eng --delete lang --lang ita -i a.mkv   each action has its own settings
+  mau --set lang --default English --file video.mkv     make English the default audio
+  mau --set lang --default English --move -i video.mkv  ... and move it to be the first audio track
+  mau --set lang --prefer eng,jpn,fre --dir films       the best of those languages in each file
+  mau --set default --track 2 --lang English -i a.mkv   make audio track 2 the default and English
+  mau --set lang --default English --kind sub -i a.mkv  make English the default subtitles
+  mau --set lang --default English --kind sub --forced  ... using the forced subtitle track
+  mau --set lang --default none --kind sub -i a.mkv     turn the default subtitles off
+  mau --get lang --dir /media/films --recursive         default audio language of each film
+  mau --preserve lang --lang eng --file video.mkv       remove the audio that isn't English
+  mau --delete track --track last --file video.mp4      remove the last audio track
+  mau --set lang --default French --dir films --dryrun  show what would change
+  mau --set lang --default eng --delete lang --lang ita -i a.mkv   each action has its own settings
 ```
 
 ## Development
@@ -1085,13 +1086,13 @@ cd rust
 cargo build --release     # the command line tool
 cargo test                # unit tests of the library, the command line and the app backend
 cd ..
-FML_BIN=rust/target/release/fml-cli pytest     # the Python test suite, run against the Rust binary
+MAU_BIN=rust/target/release/mau-cli pytest     # the Python test suite, run against the Rust binary
 ```
 
 The tests in `tests/` need nothing but `pytest` for most of them (they use stand-ins for the media tools).
 The ones marked `real` generate media files with `ffmpeg` and check the results with `mkvmerge`, `mediainfo` and
 `ffprobe`, and are skipped if those are not installed (`pytest -m "not real"` leaves them out). They only
-write to temporary directories. With `FML_BIN` set, the tests that call the archived `fml.py`'s own functions
+write to temporary directories. With `MAU_BIN` set, the tests that call the archived `fml.py`'s own functions
 are skipped (see [`rust/README.md`](rust/README.md)). `rust/README.md` also says what the suite does not cover.
 
 Continuous integration (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
@@ -1099,7 +1100,7 @@ Continuous integration (`.github/workflows/ci.yml`) runs on every push to `main`
 | Job            | What it checks                                                                                      |
 |----------------|-----------------------------------------------------------------------------------------------------|
 | `python`       | `ruff`, `mypy` (not on 3.9) and `pytest` of the archived `fml.py` on Python 3.9 to 3.14, with the real tools |
-| `rust`         | on Linux and macOS: a build with warnings as errors, `cargo test --workspace`, and the whole `pytest` suite run against the built `fml-cli` |
+| `rust`         | on Linux and macOS: a build with warnings as errors, `cargo test --workspace`, and the whole `pytest` suite run against the built `mau-cli` |
 | `rust-minimum` | the core and command line tool build with Rust 1.85, the oldest they can (the app needs 1.90)         |
 | `windows`      | the code for Windows compiles (`cargo check`); it is not run there yet                               |
 
@@ -1109,23 +1110,23 @@ a Mac, and the Linux steps in an Ubuntu container, but it has not yet run on Git
 ## The archived scripts
 
 **The Python script, `archived/fml.py`, is archived.** The maintained version is the Rust one in
-[`rust/`](rust/README.md): the `fml` command and a desktop app, at the same version (it is kept at the same version number as the Rust one, so the tests can compare them), with
+[`rust/`](rust/README.md): the `mau` command and a desktop app, at the same version (it is kept at the same version number as the Rust one, so the tests can compare them), with
 the same switches and output as this document describes. It is kept in the repository as
-the reference the Rust version is tested against (`FML_BIN=rust/target/release/fml-cli pytest`) and
-gets no fixes or new features. The Rust command is `fml-cli`; `./fml` in this directory is a wrapper that runs
-the Rust build, and `./fml --gui` opens the desktop app.
+the reference the Rust version is tested against (`MAU_BIN=rust/target/release/mau-cli pytest`) and
+gets no fixes or new features. The Rust command is `mau-cli`; `./mau` in this directory is a wrapper that runs
+the Rust build, and `./mau --gui` opens the desktop app.
 
 **The shell script, `archived/fml.sh`, is no longer maintained.** It is kept in the repository for
-reference only and receives no fixes or new features. Use the Rust `fml`, which replaces it;
+reference only and receives no fixes or new features. Use the Rust `mau`, which replaces it;
 see [Moving from fml.sh](#moving-from-fmlsh) for what changed.
 
 ### Moving from fml.sh
 
 `fml.sh` is the original bash version. It is archived and **no longer maintained**: it is kept in the repository,
-and still has its own `./fml.sh --help`, but it gets no fixes or new features, and `fml` replaces it.
+and still has its own `./fml.sh --help`, but it gets no fixes or new features, and `mau` replaces it.
 The main changes are:
 
-| fml.sh                                         | fml                                                     |
+| fml.sh                                         | mau                                                     |
 |------------------------------------------------|---------------------------------------------------------|
 | `--options verbose,dryrun`                     | `--verbose --dryrun`                                    |
 | `--options install`                            | `--install`                                             |
@@ -1142,19 +1143,20 @@ The main changes are:
 
 ## License and support
 
-The app's **About** button (top right), or **About fml** in the app menu on a Mac, opens the About window. It shows the app
+The app's **About** button (top right), or **About mau** in the app menu on a Mac, opens the About window. It shows the app
 icon, the version and `ABOUT.md`, which is compiled into the app, so the window and the file in the repository are the same.
 Its web links open in your browser.
 
-fml is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE), or https://www.apache.org/licenses/LICENSE-2.0.
+mau is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE), or https://www.apache.org/licenses/LICENSE-2.0.
 It comes with no warranty. Versions up to 1.3.x were licensed under CC BY-NC-SA 4.0, and 1.5.1 and earlier under
 GPL-3.0-or-later; those versions keep the licence they were released under. The command-line tools that the sandboxed Mac
 app bundles keep their own licences. In the default sandboxed build these are mkvtoolnix (GPL-2.0-or-later) and ffmpeg from
 Homebrew (GPL-3.0-or-later). The `--lgpl` build leaves mkvtoolnix out and builds ffmpeg under LGPL-2.1-or-later (see
 "An LGPL build"). Every other bundled package keeps its licence too, and the app carries it: `Contents/Resources/licences/`
 has a folder per package with its licence files (from the package, or the standard text of its licence), and `NOTICE.txt`
-lists each package with its version and the address of its source. Qt's own exception and GFDL texts are not in the app yet
-(see TODO.md).
+lists each package with its version and the address of its source. Qt's own exception, GFDL and BSD-3-Clause texts are in the
+app too, from Qt's source (`LICENSES/`, the same checksum Homebrew records). The BSD text is Qt's template, so its copyright
+line is generic: the copyright holders are named in the headers of the Qt source files.
 
 Fund me here: https://ko-fi.com/richardatlateralblast
 

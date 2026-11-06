@@ -58,7 +58,7 @@ def isolate_model(tmp_path_factory: pytest.TempPathFactory,
     home = tmp_path_factory.mktemp("home")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_DATA_HOME", str(home / "data"))
-    monkeypatch.setenv("FML_WHISPER_MODEL_URL", "http://127.0.0.1:9/no-model")
+    monkeypatch.setenv("MAU_WHISPER_MODEL_URL", "http://127.0.0.1:9/no-model")
 
 
 @pytest.fixture(autouse=True)
@@ -71,13 +71,13 @@ def isolate(monkeypatch: pytest.MonkeyPatch) -> Any:
     signal.signal(signal.SIGTERM, previous)
 
 
-# Set FML_BIN to the path of the Rust build (rust/target/release/fml-cli) to run the tests that
+# Set MAU_BIN to the path of the Rust build (rust/target/release/mau-cli) to run the tests that
 # go through ``run`` against it instead of fml.py. Tests that reach into fml.py's own functions
 # are skipped then (see pytest_collection_modifyitems).
-FML_BIN = os.environ.get("FML_BIN", "")
-# The build without mkvtoolnix (the App Store build) is run by setting FML_SPIKE_NO_MKVTOOLNIX: the
+MAU_BIN = os.environ.get("MAU_BIN", "")
+# The build without mkvtoolnix (the App Store build) is run by setting MAU_SPIKE_NO_MKVTOOLNIX: the
 # binary then does the MKV work with ffmpeg. Tests that need mkvtoolnix are skipped in that build.
-NO_MKVTOOLNIX = bool(os.environ.get("FML_SPIKE_NO_MKVTOOLNIX"))
+NO_MKVTOOLNIX = bool(os.environ.get("MAU_SPIKE_NO_MKVTOOLNIX"))
 needs_mkvtoolnix = pytest.mark.skipif(
     NO_MKVTOOLNIX, reason="needs mkvtoolnix (not in the App Store build)")
 
@@ -93,7 +93,7 @@ PYTHON_ONLY = re.compile(
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    if not FML_BIN:
+    if not MAU_BIN:
         return
     skip = pytest.mark.skip(reason="tests fml.py's own functions, not the command line")
     for item in items:
@@ -106,9 +106,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 @pytest.fixture
 def run(capsys: pytest.CaptureFixture[str]) -> Callable[..., Ran]:
     """Run fml.main with arguments and return its exit status, stdout and stderr."""
-    if FML_BIN:
+    if MAU_BIN:
         def external(*args: object) -> Ran:
-            done = subprocess.run([FML_BIN, *[str(arg) for arg in args]],
+            done = subprocess.run([MAU_BIN, *[str(arg) for arg in args]],
                                   capture_output=True, text=True, check=False)
             return Ran(done.returncode, done.stdout, done.stderr)
         return external

@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from conftest import FML_BIN, Ran, leftovers, mkv_json, mkv_layout, mp4_layout, requires_tools
+from conftest import MAU_BIN, Ran, leftovers, mkv_json, mkv_layout, mp4_layout, requires_tools
 
 pytestmark = [pytest.mark.real, requires_tools,
-              pytest.mark.skipif(not FML_BIN, reason="these switches are Rust only")]
+              pytest.mark.skipif(not MAU_BIN, reason="these switches are Rust only")]
 
 AUDIO = [("eng", "English 5.1", True), ("eng", "Stereo", False), ("jpn", None, False),
          ("ita", None, False)]

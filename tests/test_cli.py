@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from conftest import FML_BIN, NO_MKVTOOLNIX, Ran, Stubs, mkv_stub_tracks
+from conftest import MAU_BIN, NO_MKVTOOLNIX, Ran, Stubs, mkv_stub_tracks
 
 import fml
 
@@ -14,7 +14,7 @@ import fml
 def test_no_arguments_prints_the_help(run: Callable[..., Ran]) -> None:
     ran = run()
     assert ran.code == 0
-    assert ran.out.startswith("usage: fml")
+    assert ran.out.startswith(("usage: fml", "usage: mau"))
     assert "--set" in ran.out and "--move" in ran.out
 
 
@@ -27,8 +27,8 @@ def test_help(run: Callable[..., Ran], flag: str) -> None:
 @pytest.mark.parametrize("flag", ["--version", "-V"])
 def test_version(run: Callable[..., Ran], flag: str) -> None:
     ran = run(flag)
-    # the Rust command is called fml-cli, the archived Python script fml
-    program = "fml-cli" if FML_BIN else "fml"
+    # the Rust command is called mau-cli, the archived Python script fml
+    program = "mau-cli" if MAU_BIN else "fml"
     assert ran.code == 0 and ran.out.strip() == f"{program} {fml.__version__}"
 
 
@@ -153,7 +153,7 @@ def test_check_needs_no_file(run: Callable[..., Ran], stubs: Stubs) -> None:
     # or two without mkvtoolnix
     required = [line for line in ran.out.splitlines()
                 if line.startswith("Found:")
-                and "whisper" not in line and "FML_WHISPER" not in line]
+                and "whisper" not in line and "MAU_WHISPER" not in line]
     assert len(required) == (2 if NO_MKVTOOLNIX else 4)
 
 

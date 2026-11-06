@@ -1,4 +1,4 @@
-fml - Fix Media Language 
+mau - Media Audio Utility 
 
 Change the default audio and subtitle tracks of your media files, and tidy their tracks, from the command line or a desktop app.
 

@@ -3,7 +3,7 @@
 #
 # The entries below are the development tools the script is checked and tested with. Install them
 # with `pip install -r requirements.txt` (or `pip install -e ".[dev]"`, which also installs the
-# `fml` command) and run
+# `mau` command) and run
 #   ruff check
 #   mypy
 #   pytest

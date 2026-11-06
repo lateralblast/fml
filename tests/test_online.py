@@ -10,17 +10,17 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pytest
-from conftest import FML_BIN, Ran, leftovers, mkv_layout, mkv_names, requires_tools
+from conftest import MAU_BIN, Ran, leftovers, mkv_layout, mkv_names, requires_tools
 
 pytestmark = [pytest.mark.real, requires_tools,
-              pytest.mark.skipif(not FML_BIN, reason="online subtitles are Rust only")]
+              pytest.mark.skipif(not MAU_BIN, reason="online subtitles are Rust only")]
 
 SUBTITLE = "1\n00:00:00,000 --> 00:00:01,000\nCiao\n"
 
 
 @pytest.fixture
 def online(run: Callable[..., Ran]) -> Callable[..., Ran]:
-    """fml with the online search turned on: it is off by default (see the off test below)."""
+    """mau with the online search turned on: it is off by default (see the off test below)."""
 
     def turned_on(*args: object) -> Ran:
         return run("--enable", "search", *args)
@@ -80,10 +80,10 @@ def service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Service
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    monkeypatch.setenv("FML_OPENSUBTITLES_URL", f"http://127.0.0.1:{server.server_port}/api/v1")
-    monkeypatch.setenv("FML_OPENSUBTITLES_KEY", "key")
-    monkeypatch.setenv("FML_OPENSUBTITLES_USER", "me")
-    monkeypatch.setenv("FML_OPENSUBTITLES_PASSWORD", "pw")
+    monkeypatch.setenv("MAU_OPENSUBTITLES_URL", f"http://127.0.0.1:{server.server_port}/api/v1")
+    monkeypatch.setenv("MAU_OPENSUBTITLES_KEY", "key")
+    monkeypatch.setenv("MAU_OPENSUBTITLES_USER", "me")
+    monkeypatch.setenv("MAU_OPENSUBTITLES_PASSWORD", "pw")
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     (tmp_path / "tmp").mkdir()
     yield state
@@ -143,7 +143,7 @@ def test_search_that_finds_nothing_says_so(online: Callable[..., Ran], service: 
 def test_search_without_a_key_is_an_error(online: Callable[..., Ran], service: Service,
                                           episode: Path, monkeypatch: pytest.MonkeyPatch,
                                           tmp_path: Path) -> None:
-    monkeypatch.setenv("FML_OPENSUBTITLES_KEY", "")
+    monkeypatch.setenv("MAU_OPENSUBTITLES_KEY", "")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "nodata"))
     monkeypatch.setenv("HOME", str(tmp_path / "nohome"))
     ran = online("--search", "subtitle", "-i", episode)
@@ -163,7 +163,7 @@ def test_add_online_takes_the_best_subtitle_in_the_language(online: Callable[...
     assert mkv_names(episode)[-1] == ""
     assert service.count("POST /api/v1/login") == 1 and service.count("POST /api/v1/download") == 1
     assert '"file_id":23' in service.bodies[-1].replace(" ", "")
-    assert not list((tmp_path / "tmp").glob("fml-*")), "the downloaded file is removed"
+    assert not list((tmp_path / "tmp").glob("mau-*")), "the downloaded file is removed"
     assert not leftovers(episode)
 
 
@@ -221,7 +221,7 @@ def test_add_online_a_download_failure_changes_nothing(online: Callable[..., Ran
                                                        episode: Path,
                                                        monkeypatch: pytest.MonkeyPatch) -> None:
     service.hits = [hit(71, "it", 5)]
-    monkeypatch.setenv("FML_OPENSUBTITLES_PASSWORD", "")
+    monkeypatch.setenv("MAU_OPENSUBTITLES_PASSWORD", "")
     monkeypatch.setenv("XDG_DATA_HOME", "/nonexistent")
     monkeypatch.setenv("HOME", "/nonexistent")
     before = mkv_layout(episode)

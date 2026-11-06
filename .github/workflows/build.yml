@@ -2,9 +2,9 @@
 # command) for the branch it names: the commit at its tip is built and the files in dist/ are kept as an artifact
 # of the run, which the command downloads. Nothing is signed, tagged, pushed or published here.
 #
-#   linux    ubuntu: the installer for the distribution (deb, plus rpm and AppImage with `package`), and fml-cli
-#   mac      macOS: the .dmg and fml-cli for `arch` (arm64, x64 or universal; blank is the runner's own)
-#   windows  Windows (Git Bash): the NSIS installer and fml-cli.exe, built on Windows itself (untested until run)
+#   linux    ubuntu: the installer for the distribution (deb, plus rpm and AppImage with `package`), and mau-cli
+#   mac      macOS: the .dmg and mau-cli for `arch` (arm64, x64 or universal; blank is the runner's own)
+#   windows  Windows (Git Bash): the NSIS installer and mau-cli.exe, built on Windows itself (untested until run)
 #   windows tests  on Windows: cargo test for the Rust workspace. Informational: it never fails the run, so the
 #                  results can be read before the pytest suite (which needs bash stand-in tools) is run there too
 
@@ -58,7 +58,7 @@ jobs:
         run: ./build.sh --target linux ${PACKAGE:+--package "$PACKAGE"}
       - uses: actions/upload-artifact@v4
         with:
-          name: fml-linux
+          name: mau-linux
           path: dist/*
           if-no-files-found: error
 
@@ -114,7 +114,7 @@ jobs:
         run: ./build.sh --target mac ${ARCH:+--arch "$ARCH"}
       - uses: actions/upload-artifact@v4
         with:
-          name: fml-mac
+          name: mau-mac
           path: dist/*
           if-no-files-found: error
 
@@ -140,7 +140,7 @@ jobs:
         run: ./build.sh --target windows
       - uses: actions/upload-artifact@v4
         with:
-          name: fml-windows
+          name: mau-windows
           path: dist/*
           if-no-files-found: error
 

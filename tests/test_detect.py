@@ -1,7 +1,7 @@
 """--detect: guessing the language of audio tracks with whisper.cpp (Rust only).
 
 Real files are cut with the real ffmpeg; whisper.cpp is a stand-in script that prints the report
-it would print (`auto-detected language: it (p = 0.95)`), so the tests check what fml does with
+it would print (`auto-detected language: it (p = 0.95)`), so the tests check what mau does with
 the report, not whether the guess is right. Accuracy needs a real model and is checked by hand.
 """
 
@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from conftest import FML_BIN, Ran, leftovers, mkv_layout, requires_tools
+from conftest import MAU_BIN, Ran, leftovers, mkv_layout, requires_tools
 
-pytestmark = [pytest.mark.skipif(not FML_BIN, reason="--detect is Rust only"), requires_tools]
+pytestmark = [pytest.mark.skipif(not MAU_BIN, reason="--detect is Rust only"), requires_tools]
 
 # The stand-in whisper-cli: it logs its arguments, and prints the report or fails.
 STUB_WHISPER = """#!/bin/sh
@@ -32,15 +32,15 @@ echo "whisper_full_with_state: auto-detected language: ${STUB_LANG:-it} (p = ${S
 
 @pytest.fixture
 def whisper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point fml at the stand-in whisper-cli and a model, and return the log of its calls."""
+    """Point mau at the stand-in whisper-cli and a model, and return the log of its calls."""
     program = tmp_path / "whisper-cli"
     program.write_text(STUB_WHISPER)
     program.chmod(program.stat().st_mode | stat.S_IXUSR)
     log = tmp_path / "whisper.log"
     model = tmp_path / "ggml-base.bin"
     model.write_bytes(b"model")  # --detect needs the model file to be there
-    monkeypatch.setenv("FML_WHISPER", str(program))
-    monkeypatch.setenv("FML_WHISPER_MODEL", str(model))
+    monkeypatch.setenv("MAU_WHISPER", str(program))
+    monkeypatch.setenv("MAU_WHISPER_MODEL", str(model))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))  # not the real data folder
     monkeypatch.setenv("STUB_LOG", str(log))
     monkeypatch.delenv("STUB_FAIL", raising=False)
@@ -107,13 +107,13 @@ def test_detect_needs_a_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(
-        "FML_WHISPER_MODEL"
+        "MAU_WHISPER_MODEL"
     )  # and the default model is not in the (empty) data folder
     two = make("two.mkv", [("und", None, False)])
     before = two.read_bytes()
     ran = run("--detect", "-i", two)
     assert ran.code == 1
-    assert "FML_WHISPER_MODEL" in ran.err
+    assert "MAU_WHISPER_MODEL" in ran.err
     assert two.read_bytes() == before and calls(whisper) == []
 
 
@@ -125,8 +125,8 @@ def test_detect_needs_the_program_to_run(
 ) -> None:
     model = tmp_path / "ggml-base.bin"
     model.write_bytes(b"model")
-    monkeypatch.setenv("FML_WHISPER", str(tmp_path / "no-such-whisper"))
-    monkeypatch.setenv("FML_WHISPER_MODEL", str(model))
+    monkeypatch.setenv("MAU_WHISPER", str(tmp_path / "no-such-whisper"))
+    monkeypatch.setenv("MAU_WHISPER_MODEL", str(model))
     two = make("two.mkv", [("und", None, False)])
     ran = run("--detect", "-i", two)
     assert ran.code == 1
@@ -160,7 +160,7 @@ def test_detect_is_refused_for_subtitles(
 
 def check_lines(run: Callable[..., Ran]) -> list[str]:
     lines = run("--check").out.splitlines()
-    return [line for line in lines if "whisper" in line or "FML_WHISPER" in line]
+    return [line for line in lines if "whisper" in line or "MAU_WHISPER" in line]
 
 
 def test_check_reports_whisper_as_found_when_it_is_there(
@@ -168,13 +168,13 @@ def test_check_reports_whisper_as_found_when_it_is_there(
 ) -> None:
     lines = check_lines(run)
     assert any(line.startswith("Found:\t\twhisper-cli (") for line in lines), lines
-    assert any(line.startswith("Found:\t\tFML_WHISPER_MODEL (") for line in lines), lines
+    assert any(line.startswith("Found:\t\tMAU_WHISPER_MODEL (") for line in lines), lines
 
 
 def test_check_reports_whisper_as_optional_when_it_is_missing(
     run: Callable[..., Ran], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv("FML_WHISPER", str(tmp_path / "no-such-whisper"))
+    monkeypatch.setenv("MAU_WHISPER", str(tmp_path / "no-such-whisper"))
     ran = run("--check")
     assert ran.code == 0, ran.err  # optional: not an error
     assert "Missing:\twhisper-cli (optional: needed by --detect)" in ran.out
@@ -191,15 +191,15 @@ def test_check_finds_the_model_file(
 ) -> None:
     model = tmp_path / "ggml-base.bin"
     model.write_bytes(b"model")
-    monkeypatch.setenv("FML_WHISPER_MODEL", str(model))
-    assert f"Found:\t\tFML_WHISPER_MODEL ({model})" in run("--check").out
+    monkeypatch.setenv("MAU_WHISPER_MODEL", str(model))
+    assert f"Found:\t\tMAU_WHISPER_MODEL ({model})" in run("--check").out
 
 
 def test_check_install_would_install_whisper(
     run: Callable[..., Ran], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # a dry run only: nothing is installed. Where there is no package, it says so instead.
-    monkeypatch.setenv("FML_WHISPER", str(tmp_path / "no-such-whisper"))
+    monkeypatch.setenv("MAU_WHISPER", str(tmp_path / "no-such-whisper"))
     ran = run("--check", "--install", "--dryrun", "--verbose")
     assert ran.code == 0, ran.err
     assert "whisper" in ran.out + ran.err
@@ -209,8 +209,8 @@ def test_check_install_dry_run_says_it_would_download_the_model_and_does_not(
     run: Callable[..., Ran], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     model = tmp_path / "new-folder" / "ggml-base.bin"
-    monkeypatch.setenv("FML_WHISPER", str(tmp_path / "no-such-whisper"))
-    monkeypatch.setenv("FML_WHISPER_MODEL", str(model))
+    monkeypatch.setenv("MAU_WHISPER", str(tmp_path / "no-such-whisper"))
+    monkeypatch.setenv("MAU_WHISPER_MODEL", str(model))
     ran = run("--check", "--install", "--dryrun", "--verbose")
     assert ran.code == 0, ran.err
     assert "would download the whisper.cpp model (147 MB)" in ran.out + ran.err
@@ -230,9 +230,9 @@ def test_a_download_that_is_not_the_published_model_is_thrown_away(
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         model = tmp_path / "model" / "ggml-base.bin"
-        monkeypatch.setenv("FML_WHISPER_MODEL", str(model))
+        monkeypatch.setenv("MAU_WHISPER_MODEL", str(model))
         monkeypatch.setenv(
-            "FML_WHISPER_MODEL_URL", f"http://127.0.0.1:{server.server_port}/ggml-base.bin"
+            "MAU_WHISPER_MODEL_URL", f"http://127.0.0.1:{server.server_port}/ggml-base.bin"
         )
         # the stand-in program is found, so nothing is installed: only the model is fetched
         ran = run("--check", "--install")

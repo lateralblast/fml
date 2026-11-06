@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["fml-core", "fml-cli", "fml-gui"]
+members = ["mau-core", "mau-cli", "mau-gui"]
 # a plain `cargo build` leaves the GUI out: it needs the system webview libraries
-default-members = ["fml-core", "fml-cli"]
+default-members = ["mau-core", "mau-cli"]
 
 [workspace.package]
-version = "1.5.6"
+version = "1.6.1"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Richard Spindler <richard@lateralblast.com.au>"]

@@ -2,7 +2,7 @@
 # Build ffmpeg and ffprobe from source as LGPL-only tools, for build.sh --lgpl.
 #   packaging/ffmpeg/build-lgpl.sh PREFIX
 # The source is ffmpeg $VERSION from ffmpeg.org, checked against SHA256 before it is unpacked. The configuration has no
-# --enable-gpl and no --enable-nonfree, and no external codec libraries (x264, x265, ...): fml copies streams, and makes
+# --enable-gpl and no --enable-nonfree, and no external codec libraries (x264, x265, ...): mau copies streams, and makes
 # its subtitle conversions and audio clips with the encoders built into ffmpeg (srt, mov_text, pcm_s16le). The libraries
 # are shared (libavcodec and the rest, as .dylib or .so), so a user can replace them, as the LGPL requires.
 # PREFIX gets bin/ (ffmpeg, ffprobe), lib/ and licences/ (the LGPL text, and SOURCE.txt: where the source is, its checksum
@@ -66,7 +66,7 @@ echo "== writing the licence notice =="
 mkdir -p "$prefix/licences"
 cp "$src/COPYING.LGPLv2.1" "$prefix/licences/"
 {
-  echo "ffmpeg $VERSION, built by fml from the source below under the GNU Lesser General Public License, version 2.1 or later"
+  echo "ffmpeg $VERSION, built by mau from the source below under the GNU Lesser General Public License, version 2.1 or later"
   echo "(the text is in COPYING.LGPLv2.1 beside this file)."
   echo
   echo "Source:   $URL"
