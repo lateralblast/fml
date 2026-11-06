@@ -1024,20 +1024,20 @@ a Mac, and the Linux steps in an Ubuntu container, but it has not yet run on Git
 
 ## License and support
 
-The app's **About** button (top right), or **About mau** in the app menu on a Mac, opens the About window. It shows the app
-icon, the version and `ABOUT.md`, which is compiled into the app, so the window and the file in the repository are the same.
-Its web links open in your browser.
+The app's **About** button (top right), or **About mau** in the app menu on a Mac, opens the About window.
+It shows the app icon, the version and `ABOUT.md`, which is compiled into the app, so the window and the file
+in the repository are the same. It's web links open in your browser.
 
-mau is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE), or https://www.apache.org/licenses/LICENSE-2.0.
-It comes with no warranty. Versions up to 1.3.x were licensed under CC BY-NC-SA 4.0, and 1.5.1 and earlier under
-GPL-3.0-or-later; those versions keep the licence they were released under. The command-line tools that the sandboxed Mac
-app bundles keep their own licences. In the default sandboxed build these are mkvtoolnix (GPL-2.0-or-later) and ffmpeg from
-Homebrew (GPL-3.0-or-later). The `--lgpl` build leaves mkvtoolnix out and builds ffmpeg under LGPL-2.1-or-later (see
-"An LGPL build"). Every other bundled package keeps its licence too, and the app carries it: `Contents/Resources/licences/`
-has a folder per package with its licence files (from the package, or the standard text of its licence), and `NOTICE.txt`
-lists each package with its version and the address of its source. Qt's own exception, GFDL and BSD-3-Clause texts are in the
-app too, from Qt's source (`LICENSES/`, the same checksum Homebrew records). The BSD text is Qt's template, so its copyright
-line is generic: the copyright holders are named in the headers of the Qt source files.
+mau is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE),
+or https://www.apache.org/licenses/LICENSE-2.0. It comes with no warranty. 
+
+The command-line tools that the sandboxed Mac app bundles keep their own licences. In the default sandboxed build these are mkvtoolnix (GPL-2.0-or-later) and ffmpeg from Homebrew (GPL-3.0-or-later). 
+
+The `--lgpl` build leaves mkvtoolnix out and builds ffmpeg under LGPL-2.1-or-later (see "An LGPL build"). 
+Every other bundled package keeps its licence too, and the app carries it: `Contents/Resources/licences/`
+has a folder per package with its licence files (from the package, or the standard text of its licence),
+and `NOTICE.txt` lists each package with its version and the address of its source. 
+Qt's own exception, GFDL and BSD-3-Clause texts are in the app too, from Qt's source (`LICENSES/`, the same checksum Homebrew records). The BSD text is Qt's template, so its copyright line is generic: the copyright holders are named in the headers of the Qt source files.
 
 Fund me here: https://ko-fi.com/richardatlateralblast
 
