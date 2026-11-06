@@ -1,0 +1,73 @@
+#!/bin/sh
+# Run mau from a checkout: the command line tool (mau-cli), or the desktop app with --gui.
+# Uses the release build of the Rust version if there is one, else the debug build.
+# Before running, the build is brought up to date with cargo (a no-op when it already is).
+# With --gui the app (the program rust/target/<profile>/mau) is brought up to date too.
+# MAU_NO_BUILD=1 (or FML_NO_BUILD=1, its name before the rename) skips the check and runs whatever is built.
+# Build by hand with: (cd rust && cargo build --release && cargo build -p mau-gui --release)
+here=$(cd "$(dirname "$0")" && pwd)
+rust="$here/rust"
+
+profile=release
+if [ ! -x "$rust/target/release/mau-cli" ] && [ -x "$rust/target/debug/mau-cli" ]; then
+  profile=debug
+fi
+flag=""
+if [ "$profile" = release ]; then
+  flag="--release"
+fi
+
+# ensure BINARY CARGO-ARGS...: build the package if its binary is missing or out of date.
+# Quiet when the binary exists (cargo prints nothing for an up-to-date build); the first build
+# shows cargo's progress, since it can take minutes.
+ensure() {
+  bin=$1
+  shift
+  if ! command -v cargo >/dev/null 2>&1; then
+    if [ -x "$bin" ]; then
+      return 0
+    fi
+    echo "mau: $(basename "$bin") is not built and cargo is not installed (see https://rustup.rs)" >&2
+    exit 1
+  fi
+  if [ -x "$bin" ]; then
+    before=$(cksum < "$bin")
+    if ! (cd "$rust" && cargo build -q "$@"); then
+      echo "mau: the build of $(basename "$bin") failed (see above); fix it, or run with MAU_NO_BUILD=1" >&2
+      exit 1
+    fi
+    after=$(cksum < "$bin")
+    if [ "$before" != "$after" ]; then
+      echo "mau: rebuilt $(basename "$bin"), its sources had changed" >&2
+    fi
+  else
+    echo "mau: building $(basename "$bin") for the first time, this can take a while" >&2
+    if ! (cd "$rust" && cargo build "$@"); then
+      echo "mau: the build of $(basename "$bin") failed (see above)" >&2
+      exit 1
+    fi
+  fi
+}
+
+want_app=0
+for arg in "$@"; do
+  if [ "$arg" = "--gui" ]; then
+    want_app=1
+  fi
+done
+
+if [ -z "${MAU_NO_BUILD:-$FML_NO_BUILD}" ]; then
+  # shellcheck disable=SC2086 # $flag is empty or one word
+  ensure "$rust/target/$profile/mau-cli" $flag -p mau-cli
+  if [ "$want_app" = 1 ]; then
+    # shellcheck disable=SC2086
+    ensure "$rust/target/$profile/mau" $flag -p mau-gui
+  fi
+fi
+
+bin="$rust/target/$profile/mau-cli"
+if [ -x "$bin" ]; then
+  exec "$bin" "$@"
+fi
+echo "mau: not built yet (run: cd rust && cargo build --release)" >&2
+exit 1

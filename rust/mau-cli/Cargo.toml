@@ -1,0 +1,24 @@
+[package]
+name = "mau-cli"
+description = "Command line front end for mau"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.85"
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "mau-cli"
+path = "src/main.rs"
+
+[dependencies]
+mau-core = { path = "../mau-core" }
+clap.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[features]
+# the build without mkvtoolnix (see mau-core)
+no-mkvtoolnix = ["mau-core/no-mkvtoolnix"]

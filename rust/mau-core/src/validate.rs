@@ -1,0 +1,473 @@
+//! The combinations of settings that make no sense, shared by every front end.
+
+use std::path::Path;
+
+use crate::model::{Config, Task, SUBTITLE_FILES};
+use crate::track::Kind;
+
+/// The track numbers of an `--order` such as `2,1,3`: each from 1, none twice.
+pub fn parse_order(text: &str) -> Result<Vec<usize>, String> {
+    let bad = || format!("\"{text}\" is not an order of tracks (numbers from 1 separated by commas, such as 2,1,3)");
+    let numbers = text
+        .split(',')
+        .map(|part| part.trim().parse::<usize>().ok().filter(|n| *n >= 1).ok_or_else(bad))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut seen = numbers.clone();
+    seen.sort_unstable();
+    seen.dedup();
+    if seen.len() != numbers.len() {
+        return Err(format!("\"{text}\" names a track twice"));
+    }
+    Ok(numbers)
+}
+
+/// Check a subtitle file exists and has an extension that can be added.
+fn check_subtitle_file(file: &str) -> Result<(), String> {
+    if !Path::new(file).is_file() {
+        return Err(format!("--sub-file: \"{file}\" is not a file"));
+    }
+    if !crate::subtitles::is_subtitle_file(file) {
+        return Err(format!(
+            "--sub-file: \"{file}\" is not a subtitle file I can add ({})",
+            SUBTITLE_FILES.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Check settings, and say what is wrong with the first problem found.
+pub fn validate(args: &Config) -> Result<(), String> {
+    let tasks: &[Task] = &args.tasks;
+    if tasks.is_empty() {
+        return Err("no action given (use --check, --info, --detect, --update, --search, --get, --set, \
+                    --add, --extract, --swap, --delete or --preserve)"
+            .into());
+    }
+    let has_target = !args.file.is_empty() || !args.dir.is_empty() || !args.paths.is_empty();
+    if tasks.iter().any(|t| t.name != "check" && t.name != "undo") && !has_target {
+        return Err("no file given (use --file or --dir)".into());
+    }
+    for task in tasks {
+        if task.name == "undo" && !Path::new(&task.what).is_file() {
+            return Err(format!("--undo: \"{}\" is not a file", task.what));
+        }
+    }
+    if (!args.include.is_empty() || !args.exclude.is_empty()) && args.dir.is_empty() {
+        return Err("--include and --exclude only work with --dir".into());
+    }
+    if !args.log.is_empty() && tasks.iter().any(|t| t.name == "undo") {
+        return Err("--undo reads a log and can't be used with --log".into());
+    }
+    // each action is checked with its own settings on top of the shared ones
+    for task in tasks {
+        validate_task(&args.for_task(task))?;
+    }
+    Ok(())
+}
+
+/// The rules for one action's settings (`args` has just that one task).
+fn validate_task(args: &Config) -> Result<(), String> {
+    let tasks: &[Task] = &args.tasks;
+
+    if tasks.iter().any(|t| t.name == "detect" || t.name == "update") && args.kind != Kind::Audio {
+        return Err("--detect and --update work on audio tracks (leave out --kind sub)".into());
+    }
+
+    if args.forced && args.kind != Kind::Subtitles {
+        return Err("--forced only applies to subtitles (use --kind sub)".into());
+    }
+    if args.name.is_some()
+        && !tasks.iter().any(|t| {
+            (t.name == "set" && matches!(t.what.as_str(), "name" | "track")) || t.name == "add"
+        })
+    {
+        return Err("--name only works with --set name, --set track and --add subtitle".into());
+    }
+    if args.forced_flag.is_some() && !tasks.iter().any(|t| t.name == "set" && t.what == "track") {
+        return Err("--forced-flag only works with --set track".into());
+    }
+    if !args.order_lang.is_empty() && !tasks.iter().any(|t| t.name == "set" && t.what == "order") {
+        return Err("--order-lang only works with --set order".into());
+    }
+    if !args.order.is_empty() && !tasks.iter().any(|t| t.name == "set" && t.what == "order") {
+        return Err("--order only works with --set order".into());
+    }
+    let has_keep = !args.keep.is_empty();
+    if has_keep && !tasks.iter().any(|t| t.name == "preserve") {
+        return Err("--keep only works with --preserve".into());
+    }
+    if (!args.codec.is_empty() || args.channels > 0)
+        && !tasks.iter().any(|t| t.name == "delete" && t.what == "match")
+    {
+        return Err("--codec and --channels only work with --delete match".into());
+    }
+    let online_add = args.online && tasks.iter().any(|t| t.name == "add");
+    if args.online && !online_add {
+        return Err("--online only works with --add subtitle".into());
+    }
+    if args.sub_id != 0 && !online_add {
+        return Err("--sub-id only works with --add subtitle --online".into());
+    }
+    if !args.query.is_empty() && !online_add && !tasks.iter().any(|t| t.name == "search") {
+        return Err("--query only works with --search subtitle and --add subtitle --online".into());
+    }
+    let searching = online_add || tasks.iter().any(|t| t.name == "search");
+    if searching && !args.enabled("search") {
+        return Err("the online subtitle search is off: add --enable search to use --search subtitle or \
+                    --add subtitle --online (it has not been tested fully yet)"
+            .into());
+    }
+    if !args.output.is_empty() && !tasks.iter().any(|t| t.name == "extract") {
+        return Err("--output only works with --extract subtitle".into());
+    }
+    if (!args.sub_file.is_empty() || !args.sub_dir.is_empty() || !args.subtitles.is_empty())
+        && !tasks.iter().any(|t| t.name == "add" && t.what == "subtitle") {
+        return Err("--sub-file and --sub-dir only work with --add subtitle".into());
+    }
+    if args.default_first && !tasks.iter().any(|t| t.name == "set" && t.what == "order") {
+        return Err("--default-first only works with --set order".into());
+    }
+    let has_default = !args.default.is_empty();
+    let has_prefer = !args.prefer.is_empty();
+    if args.move_first
+        && !tasks
+            .iter()
+            .any(|t| t.name == "set" && (t.what == "default" || has_default || has_prefer))
+    {
+        return Err("--move only works with --set lang --default (or --prefer), or with --set \
+                    default --track"
+            .into());
+    }
+    if args.move_first && args.default == "none" {
+        return Err("--move can't be used with --default none".into());
+    }
+    for task in tasks {
+        let (name, what) = (task.name.as_str(), task.what.as_str());
+        if name == "set" && what == "lang" {
+            let given: Vec<&str> = [
+                ("--default", has_default),
+                ("--prefer", has_prefer),
+                ("--lang", !args.lang.is_empty()),
+            ]
+            .iter()
+            .filter(|(_, present)| *present)
+            .map(|(flag, _)| *flag)
+            .collect();
+            if given.len() != 1 {
+                let extra = if given.is_empty() {
+                    String::new()
+                } else {
+                    format!(", not {}", given.join(" and "))
+                };
+                return Err(format!(
+                    "--set lang needs one of --default (a language), --prefer (languages in \
+                     order) or --lang (to set the language of a track){extra}"
+                ));
+            }
+        }
+        if name == "set" && matches!(what, "name" | "forced" | "unforced") {
+            if args.track.is_empty() {
+                return Err(format!("--set {what} needs --track"));
+            }
+            if has_default || has_prefer || args.move_first || args.forced {
+                return Err(format!(
+                    "--set {what} takes --track (and --name for a name), not --default, \
+                     --prefer, --move or --forced"
+                ));
+            }
+        }
+        if name == "extract" {
+            if args.track.is_empty() {
+                return Err("--extract subtitle needs --track (the subtitle track to write)".into());
+            }
+            if has_default || has_prefer || args.move_first || args.forced || !args.order.is_empty()
+                || !args.lang.is_empty()
+            {
+                return Err("--extract subtitle takes --track and --output, not --lang, --default, \
+                            --prefer, --move, --forced or --order"
+                    .into());
+            }
+        }
+        if name == "add" && args.online {
+            if !args.sub_dir.is_empty() || !args.sub_file.is_empty() || !args.subtitles.is_empty() {
+                return Err("--online finds the subtitle itself: it takes no --sub-file or --sub-dir".into());
+            }
+            if args.lang.is_empty() && args.sub_id == 0 {
+                return Err("--add subtitle --online needs --lang (the language to find), or --sub-id (a subtitle \
+                            that --search subtitle listed)"
+                    .into());
+            }
+            if has_default || has_prefer || args.move_first || args.forced || !args.track.is_empty()
+                || !args.order.is_empty()
+            {
+                return Err("--add subtitle --online takes --lang, --name, --query and --sub-id, not --track, \
+                            --default, --prefer, --move, --forced or --order"
+                    .into());
+            }
+        } else if name == "add" {
+            if !args.sub_dir.is_empty() {
+                if !args.sub_file.is_empty() || args.name.is_some() {
+                    return Err("--sub-dir takes the files in a folder, not --sub-file or --name (the \
+                                names come from the file names; --lang is used where they have none)"
+                        .into());
+                }
+                if !Path::new(&args.sub_dir).is_dir() {
+                    return Err(format!("--sub-dir: \"{}\" is not a folder", args.sub_dir));
+                }
+            } else if args.subtitles.is_empty() {
+                if args.sub_file.is_empty() {
+                    return Err("--add subtitle needs --sub-file (or --sub-dir)".into());
+                }
+                check_subtitle_file(&args.sub_file)?;
+                if args.lang.is_empty() {
+                    return Err("--add subtitle needs --lang (the language of the new track)".into());
+                }
+            }
+            for spec in &args.subtitles {
+                check_subtitle_file(&spec.file)?;
+                if spec.lang.is_empty() {
+                    return Err(format!("the subtitle \"{}\" has no language", spec.file));
+                }
+            }
+            if has_default || has_prefer || args.move_first || args.forced || !args.track.is_empty()
+                || !args.order.is_empty()
+            {
+                return Err("--add subtitle takes --sub-file, --lang and --name, not --track, \
+                            --default, --prefer, --move, --forced or --order"
+                    .into());
+            }
+        }
+        if name == "set" && what == "order" {
+            if args.order.is_empty() == args.order_lang.is_empty() {
+                return Err("--set order needs one of --order (track numbers) or --order-lang \
+                            (languages)"
+                    .into());
+            }
+            if has_default || has_prefer || args.move_first || args.forced || !args.track.is_empty()
+                || !args.lang.is_empty()
+            {
+                return Err("--set order takes --order (and --kind), not --track, --lang, \
+                            --default, --prefer, --move or --forced"
+                    .into());
+            }
+        }
+        if name == "set" && what == "track" {
+            if args.track.is_empty() {
+                return Err("--set track needs --track".into());
+            }
+            if args.lang.is_empty() && args.name.is_none() && args.forced_flag.is_none() {
+                return Err("--set track needs at least one of --lang, --name and --forced-flag".into());
+            }
+            if has_default || has_prefer || args.move_first || args.forced {
+                return Err("--set track takes --track with --lang, --name and --forced-flag, not \
+                            --default, --prefer, --move or --forced"
+                    .into());
+            }
+        }
+        if name == "set" && what == "name" && args.name.is_none() {
+            return Err("--set name needs --name".into());
+        }
+        if name == "set" && what == "default" {
+            if args.track.is_empty() {
+                return Err("--set default needs --track".into());
+            }
+            if has_default || has_prefer {
+                return Err("--set default takes --track (and --lang to set its language), not \
+                            --default or --prefer"
+                    .into());
+            }
+        }
+        if args.default == "none"
+            && !(name == "set" && what == "lang" && args.kind == Kind::Subtitles)
+        {
+            return Err("--default none only works with --set lang --kind sub".into());
+        }
+        if has_prefer && !(name == "preserve" || (name == "set" && what == "lang")) {
+            return Err("--prefer only works with --set lang and --preserve".into());
+        }
+        if name == "swap" && args.kind != Kind::Audio {
+            return Err("--swap only works on audio".into());
+        }
+        if name == "preserve" && has_keep && (!args.lang.is_empty() || has_prefer) {
+            return Err("--preserve takes --keep (every language to keep), or --lang, or --prefer: \
+                        not more than one of them"
+                .into());
+        }
+        let needs_lang = name == "preserve" || (name == "delete" && what == "lang");
+        if needs_lang && !(!args.lang.is_empty() || (name == "preserve" && (has_prefer || has_keep))) {
+            return Err(format!(
+                "--{name} {what} needs --lang{}",
+                if name == "preserve" { " or --prefer (or --keep)" } else { "" }
+            ));
+        }
+        if name == "delete" && what == "dupes" && !args.lang.is_empty() {
+            return Err("--delete dupes works on every language: it takes no --lang".into());
+        }
+        if name == "delete" && what == "match" {
+            if args.lang.is_empty() && args.codec.is_empty() && args.channels == 0 {
+                return Err("--delete match needs at least one of --lang, --codec and --channels".into());
+            }
+            if args.channels > 0 && args.kind != Kind::Audio {
+                return Err("--channels only applies to audio (leave out --kind sub)".into());
+            }
+        }
+        if !args.track.is_empty() {
+            crate::track::TrackSpec::parse(&args.track)?;
+        }
+        if name == "delete" && what == "track" && args.track.is_empty() {
+            return Err("--delete track needs --track".into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(tasks: &[(&str, &str)]) -> Config {
+        Config {
+            file: "a.mkv".into(),
+            tasks: tasks.iter().map(|(n, w)| Task::new(n, w)).collect(),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn a_plain_default_change_is_fine() {
+        let mut c = config(&[("set", "lang")]);
+        c.default = "eng".into();
+        assert!(validate(&c).is_ok());
+        c.move_first = true;
+        assert!(validate(&c).is_ok());
+    }
+
+    #[test]
+    fn the_online_search_needs_enable_search() {
+        let mut search = config(&[("search", "subtitle")]);
+        assert!(validate(&search).unwrap_err().contains("--enable search"));
+        search.enable = vec!["search".into()];
+        assert!(validate(&search).is_ok());
+        let mut online = config(&[("add", "subtitle")]);
+        online.online = true;
+        online.lang = "ita".into();
+        assert!(validate(&online).unwrap_err().contains("--enable search"));
+        online.enable = vec!["search".into()];
+        assert!(validate(&online).is_ok());
+        // a file added from disk needs no search, so it is not held back
+        let mut from_disk = config(&[("add", "subtitle")]);
+        from_disk.enable.clear();
+        assert!(validate(&from_disk).unwrap_err().contains("needs --sub-file"));
+    }
+
+    #[test]
+    fn adding_a_subtitle_needs_a_subtitle_file_and_a_language() {
+        let dir = std::env::temp_dir().join(format!("mau-validate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let srt = dir.join("a.SRT");
+        let txt = dir.join("a.txt");
+        std::fs::write(&srt, b"").unwrap();
+        std::fs::write(&txt, b"").unwrap();
+        let mut c = config(&[("add", "subtitle")]);
+        assert!(validate(&c).unwrap_err().contains("needs --sub-file"));
+        c.sub_file = dir.join("missing.srt").to_string_lossy().into_owned();
+        assert!(validate(&c).unwrap_err().contains("is not a file"));
+        c.sub_file = txt.to_string_lossy().into_owned();
+        assert!(validate(&c).unwrap_err().contains("not a subtitle file"));
+        c.sub_file = srt.to_string_lossy().into_owned();
+        assert!(validate(&c).unwrap_err().contains("needs --lang"));
+        c.lang = "ita".into();
+        assert!(validate(&c).is_ok()); // the extension is not case sensitive
+        c.name = Some("Italiano".into());
+        assert!(validate(&c).is_ok());
+        c.track = "1".into();
+        assert!(validate(&c).unwrap_err().contains("not --track"));
+        c.track.clear();
+        assert!(validate(&{ let mut d = config(&[("info", "")]); d.sub_file = "x.srt".into(); d })
+            .unwrap_err()
+            .contains("only work with --add subtitle"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn several_subtitle_files_each_need_a_language() {
+        let dir = std::env::temp_dir().join(format!("mau-validate-many-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.srt"), dir.join("b.ass"));
+        std::fs::write(&a, b"").unwrap();
+        std::fs::write(&b, b"").unwrap();
+        let spec = |path: &std::path::Path, lang: &str| crate::model::SubSpec {
+            file: path.to_string_lossy().into_owned(),
+            lang: lang.into(),
+            ..Default::default()
+        };
+        let mut c = config(&[("add", "subtitle")]);
+        c.subtitles = vec![spec(&a, "ita"), spec(&b, "eng")];
+        assert!(validate(&c).is_ok()); // no --sub-file or --lang needed
+        c.subtitles[1].lang.clear();
+        assert!(validate(&c).unwrap_err().contains("has no language"));
+        c.subtitles[1] = spec(&dir.join("gone.srt"), "eng");
+        assert!(validate(&c).unwrap_err().contains("is not a file"));
+        let mut other = config(&[("info", "")]);
+        other.subtitles = vec![spec(&a, "ita")];
+        assert!(validate(&other).unwrap_err().contains("only work with --add subtitle"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn each_action_is_checked_with_its_own_settings() {
+        let mut c = config(&[("set", "lang"), ("delete", "lang")]);
+        c.tasks[0].settings.default = Some("eng".into());
+        c.tasks[1].settings.lang = Some("ita".into());
+        assert!(validate(&c).is_ok()); // shared, this would be --default and --lang together
+        // shared settings still apply to every action, and an action's own are added on top
+        let mut shared = config(&[("set", "lang"), ("delete", "lang")]);
+        shared.lang = "ita".into();
+        shared.tasks[0].settings.default = Some("eng".into());
+        assert!(validate(&shared).unwrap_err().contains("not --default and --lang"));
+        // an action's own settings are checked for that action
+        let mut bad = config(&[("get", "lang"), ("delete", "lang")]);
+        bad.tasks[0].settings.lang = Some("eng".into());
+        assert!(validate(&bad).unwrap_err().contains("--delete lang needs --lang"));
+    }
+
+    #[test]
+    fn an_actions_settings_go_on_top_of_the_shared_ones() {
+        let mut c = config(&[("set", "lang"), ("delete", "lang")]);
+        c.lang = "ita".into();
+        c.kind = Kind::Subtitles;
+        c.tasks[1].settings.lang = Some("fre".into());
+        c.tasks[1].settings.kind = Some(Kind::Audio);
+        c.tasks[1].settings.name = Some("x".into());
+        let first = c.for_task(&c.tasks[0].clone());
+        assert_eq!((first.lang.as_str(), first.kind, first.name.clone()), ("ita", Kind::Subtitles, None));
+        let second = c.for_task(&c.tasks[1].clone());
+        assert_eq!((second.lang.as_str(), second.kind, second.name.clone()), ("fre", Kind::Audio, Some("x".to_string())));
+        assert_eq!(second.tasks.len(), 1); // an action's config holds only that action
+    }
+
+    #[test]
+    fn missing_pieces_are_named() {
+        assert!(validate(&config(&[])).unwrap_err().contains("no action given"));
+        assert!(validate(&config(&[("set", "lang")])).unwrap_err().contains("--set lang needs one of"));
+        assert!(validate(&config(&[("set", "name")])).unwrap_err().contains("needs --track"));
+        assert!(validate(&config(&[("delete", "lang")])).unwrap_err().contains("needs --lang"));
+        let mut c = config(&[("info", "")]);
+        c.file.clear();
+        assert!(validate(&c).unwrap_err().contains("no file given"));
+        c.paths = vec!["x.mkv".into()];
+        assert!(validate(&c).is_ok());
+    }
+
+    #[test]
+    fn subtitle_only_settings_are_checked() {
+        let mut c = config(&[("set", "lang")]);
+        c.default = "none".into();
+        assert!(validate(&c).unwrap_err().contains("--default none only works"));
+        c.kind = Kind::Subtitles;
+        assert!(validate(&c).is_ok());
+        let mut swap = config(&[("swap", "lang")]);
+        swap.kind = Kind::Subtitles;
+        assert!(validate(&swap).unwrap_err().contains("--swap only works on audio"));
+    }
+}
