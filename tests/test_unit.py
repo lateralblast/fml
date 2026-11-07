@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -399,7 +400,10 @@ def test_every_switch_is_documented_in_the_readme() -> None:
     # argparse lays its help out differently on each Python version, so compare the switches,
     # not the text
     readme = (Path(fml.__file__).parent.parent / "README.md").read_text()
-    start = readme.index("```\nusage: mau")
+    # the fence may name its language (```text), so match the fence and the usage line together
+    match = re.search(r"```[a-z]*\nusage: mau", readme)
+    assert match, "the help in the README is not in a fence"
+    start = match.start()
     pasted = readme[start:readme.index("```", start + 4)]
     for action in fml.build_parser()._actions:  # noqa: SLF001
         for option in action.option_strings:

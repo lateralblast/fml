@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5] - 2026-11-07
+
+### Changed
+- The Rust `--info` keeps ffprobe's codec names (`subrip`, `aac`, `mpeg4`), which is how it has always printed them. `rust/README.md` records that `fml.py` prints mkvmerge's names (`SubRip/SRT`, `AAC`, `MPEG-4p2`) instead, and that the difference is kept, since `fml.py` is archived.
+
+## [1.6.4] - 2026-11-07
+
+### Fixed
+- The test that checks every switch is documented in the README finds the help output when its code block names a language (```` ```text ````), as the README's markdown cleanup made it. The CI `python` jobs had failed on it.
+
 ## [1.6.3] - 2026-11-06
 
 ### Changed

@@ -94,8 +94,9 @@ check them by hand before relying on them.
 - A symbolic link to a folder is followed by `--recursive`, and a folder reached twice is read once. The
   archived `fml.py` uses `pathlib`'s `rglob`, which may not follow links, depending on the Python version.
 - With no media files, `--dir` says so on stderr. `fml.py` says nothing.
-- `--info` on an MKV shows a subtitle codec as ffprobe names it (`subrip`); `fml.py` shows mkvmerge's
-  name (`SubRip/SRT`). See `TODO.md`.
+- `--info` shows codec names as ffprobe gives them (`aac`, `mpeg4`, `subrip`); `fml.py` shows mkvmerge's
+  (`AAC`, `MPEG-4p2`, `SubRip/SRT`) for an MKV. The Rust names are kept: they are the ones used elsewhere
+  (for MP4 and AVI, and for JSON). `fml.py` is archived and keeps its output.
 - The project was renamed from `fml` to `mau` in 1.5.7, so the engine type that mirrors `fml.py`'s
   `Fml` class is `Mau`, and the command is `mau-cli`, not `fml.py`. The `.fml-tmp` and `.fml-bak`
   suffixes are the same in both.

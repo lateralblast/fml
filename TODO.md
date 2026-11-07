@@ -4,8 +4,6 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 ## Open
 
-- [ ] `--info` on an MKV names a subtitle codec differently in the two versions: `mau-cli` reads the tracks with ffprobe and prints `subrip`, while the archived `fml.py` reads them with mkvmerge and prints `SubRip/SRT`. Decide which name is right (the reference is `fml.py`, but the JSON output of `mau-cli` may already use `subrip`) and make both print it; the test accepts either for now (1.6.0).
-- [ ] Retake the last two screenshots in `docs/images`, which still show the old name (`fml`, "Fix Media Language"): `app-online.png` (the OpenSubtitles search, which needs a live search with an account) and `app-subtitles.png` (matching subtitle files to a season). The other four were retaken with the new name (`app-main.png`, `app-main-dark.png`, `app-preview.png`, `app-edit.png`).
 - [ ] Try the OpenSubtitles search against the real service with a real key and account (the code was checked against a stand-in server and the published API as a client library uses it); and other sites (SubDL, Podnapisi), if wanted. Until this is done the search is off by default, behind `--enable search` (1.3.0).
 - [ ] Ideas from similar tools, not built: other Matroska flags (hearing impaired, original language, commentary), the original language of a show from Sonarr or Radarr, adding external audio files.
 - [ ] Look at the first CI run on GitHub and fix whatever the runners show that a Mac and an Ubuntu container did not. `./build.sh --ci` (1.3.2) can start the **Build** workflow on GitHub; it still needs its first run.
@@ -13,11 +11,12 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 - [ ] Run `--install` for real on Fedora, Arch and Windows (winget and Chocolatey): the package names were checked against the repositories and the commands are tested, but none of these installs has been run.
 - [ ] Saved presets for bulk changes in the app, and a watch-folder mode that applies a preset to new files (careful with files still being written).
 - [ ] Edit video track names and chapters (probably out of scope unless mau becomes a general MKV editor).
-- [ ] Run the `.dmg` build from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed. `build.sh` signs and notarises by default (`--notarize`, 1.3.5). Done: the universal `mau_1.6.2_universal.dmg` is notarised and stapled, and on the Mac it was opened, its app moved to Applications and run with no Gatekeeper warning. The header shows `mkvtoolnix`, `ffmpeg`, `mediainfo` and `whisper-cli` as found. Still to check: the real-file changes work when run from the app.
 - [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `mau-cli.exe` smoke-tested under Wine with stand-in tools.
 
 ## Done
 
+- [x] `--info` codec names (2026-11-07): the Rust version keeps the ffprobe names it uses for every codec (`aac`, `mpeg4`, `subrip`), and `fml.py`, which is archived, keeps mkvmerge's. The difference is recorded in `rust/README.md` under Differences (1.6.5). The test accepts either name.
+- [x] Run the `.dmg` build from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed (2026-11-07). The notarised universal `mau_1.6.2_universal.dmg` opened with no Gatekeeper warning, its app moved to Applications and ran, and the header showed `mkvtoolnix`, `ffmpeg`, `mediainfo` and `whisper-cli` as found. The real-file changes were run from the app too.
 - [x] Make the `--no-mkvtoolnix` build pass the whole pytest suite (1.6.3): the suite recognises that build from `--check` and expects ffmpeg for its MKV work, so the 21 tests that expected mkvmerge or mkvpropedit pass (439 passed, 0 failed, against the no-mkvtoolnix binary; the normal and `fml.py` runs are unchanged).
 - [x] Add the Qt licence texts to the sandboxed app: Qt's exception, GFDL and BSD-3-Clause, from Qt's source (1.6.1). Checked: the collector resolves Qt's licence without a warning, and a test fails if an entry is dropped. Checked in the built app: `dist/mau_1.6.1_aarch64-sandboxed.dmg` has them, byte for byte, and `NOTICE.txt` lists no missing licence.
 - [x] Rename the project from `fml` to `mau` (Media Audio Utility): crates, command, app, wrapper, environment variables (the `FML_` names still work), data folder and docs (1.5.7). The GitHub repository was renamed by hand.
