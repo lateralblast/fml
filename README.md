@@ -106,6 +106,10 @@ which compiles the `no-mkvtoolnix` Cargo feature, and is the one for the App
 Store) does every MKV change with `ffmpeg` instead: flags, languages, names,
 reordering, removing and adding tracks, and extracting subtitles.
 
+Through `ffmpeg` a file's global `TITLE` tag is kept as the file's own title
+(the Title element), not as a tag: the value is the same, but a tool that reads
+only tags will not see it. Attachments and chapters are kept.
+
 It never runs the mkvtoolnix commands, even when they are installed, and
 `--check` does not ask for them. Its installers and archive are named with
 `-no-mkvtoolnix`, and it is built in `rust/target-nomkv`, so the normal build's
@@ -510,13 +514,13 @@ files:
 The desktop app has a "Speech model" card that says whether the model is there
 and downloads it on request, after a confirmation. It installs no packages, so
 it works in the sandboxed app too. `mau --check --install` downloads the model
-(`ggml-base.bin`, 148 MB, from Hugging Face) when there is none. Before it does, it checks that the disk has
-that much room with a tenth to spare: if it doesn't, it says so and downloads
-nothing, and `--check` then reports the model missing. The download is checked
-against its published SHA-256 before it is kept, so a damaged or different file
-is thrown away. `--check --install --dryrun` only says what it would download.
-`MAU_WHISPER_MODEL_URL` gives another address for the download (a mirror, or a
-test server).
+(`ggml-base.bin`, 148 MB, from Hugging Face) when there is none. Before it does,
+it checks that the disk has that much room with a tenth to spare: if it doesn't,
+it says so and downloads nothing, and `--check` then reports the model missing.
+The download is checked against its published SHA-256 before it is kept, so a
+damaged or different file is thrown away. `--check --install --dryrun` only says
+what it would download. `MAU_WHISPER_MODEL_URL` gives another address for the
+download (a mirror, or a test server).
 
 ```sh
 ./mau --detect --file video.mkv

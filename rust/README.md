@@ -97,6 +97,10 @@ check them by hand before relying on them.
 - `--info` shows codec names as ffprobe gives them (`aac`, `mpeg4`, `subrip`); `fml.py` shows mkvmerge's
   (`AAC`, `MPEG-4p2`, `SubRip/SRT`) for an MKV. The Rust names are kept: they are the ones used elsewhere
   (for MP4 and AVI, and for JSON). `fml.py` is archived and keeps its output.
+- In the build without mkvtoolnix (`--features no-mkvtoolnix`), a global `TITLE` tag is written
+  by ffmpeg as the file's Title element instead, so its value survives but is not a tag. ffmpeg's
+  Matroska muxer cannot write a global tag. Attachments and chapters are kept. Accepted for now
+  (see `TODO.md`).
 - The project was renamed from `fml` to `mau` in 1.5.7, so the engine type that mirrors `fml.py`'s
   `Fml` class is `Mau`, and the command is `mau-cli`, not `fml.py`. The `.fml-tmp` and `.fml-bak`
   suffixes are the same in both.

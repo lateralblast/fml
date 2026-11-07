@@ -11,6 +11,8 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 - [ ] Saved presets for bulk changes in the app, and a watch-folder mode that applies a preset to new files (careful with files still being written).
 - [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `mau-cli.exe` smoke-tested under Wine with stand-in tools.
 
+- [ ] The no-mkvtoolnix build keeps a global `TITLE` tag only as the file's Title element (ffmpeg's Matroska muxer cannot write global tags). Accepted and documented for now (README and `rust/README.md`). To fix it, copy the original's global Tags element into the rewritten file, and skip or remap track-level tags. Test on real files first.
+
 ## Done
 
 - [x] Look at the first CI run on GitHub: the Build workflow ran the Linux installer (2026-11-07). It was slow in its apt step, but finished without issue.
