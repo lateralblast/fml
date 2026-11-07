@@ -202,3 +202,6 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 .about-card h2 { margin: 0 0 12px; font-size: 20px; text-align: center; }
 .about-card p { margin: 10px 0; }
 .about-card #about-version { margin-top: 18px; text-align: center; }
+
+/* long paths (the speech model's folder) wrap inside a dialog instead of running past its edge */
+#model-confirm-text { overflow-wrap: anywhere; }

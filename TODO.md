@@ -6,15 +6,14 @@ Status: `[ ]` open, `[~]` in progress, `[x]` done.
 
 - [ ] Try the OpenSubtitles search against the real service with a real key and account (the code was checked against a stand-in server and the published API as a client library uses it); and other sites (SubDL, Podnapisi), if wanted. Until this is done the search is off by default, behind `--enable search` (1.3.0).
 - [ ] Ideas from similar tools, not built: other Matroska flags (hearing impaired, original language, commentary), the original language of a show from Sonarr or Radarr, adding external audio files.
-- [ ] Look at the first CI run on GitHub and fix whatever the runners show that a Mac and an Ubuntu container did not. `./build.sh --ci` (1.3.2) can start the **Build** workflow on GitHub; it still needs its first run.
 - [ ] Run `cargo test` and the pytest suite on a Windows runner in CI too, once they are known to pass there (the `windows` job only compiles the code). The **Build** workflow has a `windows tests` job that runs `cargo test` there (informational, 1.3.2); pytest is not run there yet.
 - [ ] Run `--install` for real on Fedora, Arch and Windows (winget and Chocolatey): the package names were checked against the repositories and the commands are tested, but none of these installs has been run.
 - [ ] Saved presets for bulk changes in the app, and a watch-folder mode that applies a preset to new files (careful with files still being written).
-- [ ] Edit video track names and chapters (probably out of scope unless mau becomes a general MKV editor).
 - [ ] Run the Windows build on a real Windows machine or VM (`~/code/pampas/windows/` has a working `dockurr/windows` VM setup to adapt): the real `mkvtoolnix`, `mediainfo` and `ffmpeg`, the app (WebView2), Ctrl-C, and the NSIS installer have never been run. It has only been cross-compiled, and `mau-cli.exe` smoke-tested under Wine with stand-in tools.
 
 ## Done
 
+- [x] Look at the first CI run on GitHub: the Build workflow ran the Linux installer (2026-11-07). It was slow in its apt step, but finished without issue.
 - [x] `--info` codec names (2026-11-07): the Rust version keeps the ffprobe names it uses for every codec (`aac`, `mpeg4`, `subrip`), and `fml.py`, which is archived, keeps mkvmerge's. The difference is recorded in `rust/README.md` under Differences (1.6.5). The test accepts either name.
 - [x] Run the `.dmg` build from Finder on a Mac with `mkvtoolnix` and `mediainfo` installed (2026-11-07). The notarised universal `mau_1.6.2_universal.dmg` opened with no Gatekeeper warning, its app moved to Applications and ran, and the header showed `mkvtoolnix`, `ffmpeg`, `mediainfo` and `whisper-cli` as found. The real-file changes were run from the app too.
 - [x] Make the `--no-mkvtoolnix` build pass the whole pytest suite (1.6.3): the suite recognises that build from `--check` and expects ffmpeg for its MKV work, so the 21 tests that expected mkvmerge or mkvpropedit pass (439 passed, 0 failed, against the no-mkvtoolnix binary; the normal and `fml.py` runs are unchanged).

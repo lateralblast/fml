@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.7] - 2026-11-07
+
+### Added
+- A "Speech model" card in the desktop app says whether the whisper.cpp model that Detect languages reads is there, and downloads it on request after a confirmation (about 148 MB from Hugging Face, checked against its published SHA-256 before it is kept). The download installs no packages, so the sandboxed app can do it. `--check --install` still downloads it as before.
+
+## [1.6.6] - 2026-11-07
+
+### Changed
+- `./build.sh --target mac --sandboxed` builds the LGPL app: it carries no mkvtoolnix (which is GPL), and its ffmpeg and ffprobe are built from source as LGPL-only tools, so no GPL code is bundled. The MKV work is done with ffmpeg in that app. Its disk image is named `-sandboxed-lgpl`. `--lgpl` means the same. The first build needs Xcode's command line tools to compile ffmpeg, once.
+- The README's licence section describes that build.
+
+### Added
+- `--with-mkvtoolnix` with `--sandboxed` builds the GPL app that carries mkvmerge, mkvpropedit and mkvextract (mkvtoolnix, GPL) and Homebrew's ffmpeg (GPL). Its disk image is named `-sandboxed`. It can't be combined with `--lgpl`.
+
 ## [1.6.5] - 2026-11-07
 
 ### Changed

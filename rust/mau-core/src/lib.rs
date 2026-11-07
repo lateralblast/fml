@@ -11,7 +11,7 @@
 //! GUI) gives it a [`Config`] and an event sink, and shows what it is told.
 
 mod detect;
-pub use detect::whisper_path;
+pub use detect::{model_path, whisper_path, MODEL_BYTES};
 mod engine;
 pub mod languages;
 mod install;
@@ -33,4 +33,4 @@ pub use install::{detect_installer, linux_installer, Installer};
 pub use validate::{parse_order, validate};
 pub use track::{format_tracks, human_size, Kind, Track, TrackSpec};
 
-pub const VERSION: &str = "1.6.5";
+pub const VERSION: &str = "1.6.7";

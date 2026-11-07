@@ -719,3 +719,42 @@ fn an_action_names_the_commands_it_needs_and_stops_before_touching_anything() {
     dry.installer = Some(Installer::Brew);
     assert!(dry.require(&["mkvmerge"]).is_ok(), "a dry run with --install goes on, the install is only shown");
 }
+
+#[test]
+fn the_model_task_puts_nothing_in_place_from_a_file_that_is_not_the_model() {
+    let dir = std::env::temp_dir().join(format!("mau-model-task-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("not-the-model.bin");
+    std::fs::write(&source, b"not a model").unwrap();
+    let target = dir.join("ggml-base.bin");
+    std::env::set_var("MAU_WHISPER_MODEL_URL", format!("file://{}", source.display()));
+    let config = Config { tasks: vec![Task::new("model", "")], ..Config::default() };
+    let (mut mau, _) = listening(config);
+    mau.model = Some(target.clone());
+    let ended = mau.run();
+    std::env::remove_var("MAU_WHISPER_MODEL_URL");
+    let result = &ended.results[0];
+    assert_eq!(result.action, "model");
+    assert_eq!(result.status, Status::Error);
+    assert!(result.message.contains("SHA-256 differs"), "{}", result.message);
+    assert!(!target.exists(), "nothing is put in place from a file with the wrong checksum");
+    assert!(!dir.join(format!("ggml-base.bin{TEMP_MARK}")).exists(), "the download is removed");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_model_task_in_a_dry_run_downloads_nothing() {
+    let dir = std::env::temp_dir().join(format!("mau-model-dry-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("ggml-base.bin");
+    let config = Config { tasks: vec![Task::new("model", "")], dryrun: true, verbose: true, ..Config::default() };
+    let (mut mau, heard) = listening(config);
+    mau.model = Some(target.clone());
+    let ended = mau.run();
+    assert_ne!(ended.results[0].status, Status::Error, "{}", ended.results[0].message);
+    assert!(!target.exists());
+    assert!(heard.lock().unwrap().iter().any(|line| line.starts_with("would download the whisper.cpp model")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

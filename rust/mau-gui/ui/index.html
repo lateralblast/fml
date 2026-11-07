@@ -17,6 +17,16 @@
   </header>
 
   <main>
+    <section class="card" aria-labelledby="model-title">
+      <div class="card-head">
+        <h2 id="model-title">Speech model</h2>
+        <div class="row">
+          <button id="model-download" type="button" title="The whisper.cpp model that Detect languages reads">Download the speech model…</button>
+        </div>
+      </div>
+      <p id="model-status" class="muted">Checking…</p>
+    </section>
+
     <section class="card" aria-labelledby="files-title">
       <div class="card-head">
         <h2 id="files-title">1. Choose files</h2>
@@ -223,6 +233,17 @@
       <button id="subs-preview" type="button">Preview</button>
       <button id="subs-apply" type="button" class="primary">Add subtitles…</button>
     </div>
+  </dialog>
+
+  <dialog id="model-confirm" aria-labelledby="model-confirm-title">
+    <form method="dialog">
+      <h3 id="model-confirm-title">Download the speech model?</h3>
+      <p id="model-confirm-text"></p>
+      <div class="row end">
+        <button value="cancel" type="submit">Cancel</button>
+        <button value="download" type="submit" class="primary">Download</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="confirm">

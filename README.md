@@ -6,7 +6,7 @@
 **Media Audio Utility**: change the default audio and subtitle tracks of your
 media files, and tidy their tracks, from the command line or a desktop app.
 
-Version 1.6.5
+Version 1.6.7
 
 ![The mau desktop app](docs/images/app-main.png)
 
@@ -102,13 +102,14 @@ An MKV is read with `ffprobe`, so its track names (codecs such as `subrip`,
 `aac` and `ac3`, as `--info` shows them) are the same in every build.
 
 The build made without mkvtoolnix (`./build.sh --target <t> --no-mkvtoolnix`,
-which compiles the `no-mkvtoolnix` Cargo feature, and is the one for the App Store)
-does every MKV change with `ffmpeg` instead: flags, languages, names,
+which compiles the `no-mkvtoolnix` Cargo feature, and is the one for the App
+Store) does every MKV change with `ffmpeg` instead: flags, languages, names,
 reordering, removing and adding tracks, and extracting subtitles.
 
-It never runs the mkvtoolnix commands, even when they are installed, and `--check` does not
-ask for them. Its installers and archive are named with `-no-mkvtoolnix`, and it
-is built in `rust/target-nomkv`, so the normal build's files are not replaced.
+It never runs the mkvtoolnix commands, even when they are installed, and
+`--check` does not ask for them. Its installers and archive are named with
+`-no-mkvtoolnix`, and it is built in `rust/target-nomkv`, so the normal build's
+files are not replaced.
 
 The test suite runs it with `MAU_BIN` set to that binary; it recognises the
 build from `--check`, which does not list `mkvmerge` in that build
@@ -142,9 +143,9 @@ with `./mau --check --install`, which uses the package manager of the system:
 A Linux distribution is recognised by the `ID` and `ID_LIKE` in
 `/etc/os-release`, so a distribution built on one of these is covered too.
 
-Any other system is told it is not known. The package names were checked against the
-package repositories, but the installs on Fedora, Arch and Windows have not been
-run on those systems (only the commands that would be run are tested;
+Any other system is told it is not known. The package names were checked against
+the package repositories, but the installs on Fedora, Arch and Windows have not
+been run on those systems (only the commands that would be run are tested;
 `--dryrun --verbose` shows them). Fedora's `ffmpeg-free` is enough for mau,
 which copies streams; the full `ffmpeg` needs RPM Fusion. Each action only needs
 the commands it uses, so an MKV-only setup works without `ffmpeg`.
@@ -179,15 +180,15 @@ targets, and for building on GitHub with `--ci`).
 The app does everything the command line does on whole folders, and the Edit
 dialog works on one file. Open it with `./mau --gui` (or `mau-cli --gui`, or
 `mau.app` on a Mac), after building it with `cargo build -p mau-gui --release`
-in `rust/`. 
+in `rust/`.
 
 It follows the system's light or dark appearance.
 
-It uses the same engine as the command line, so changes are made the same careful way,
-and the logs it writes can be used with `--undo` and the other way round.
-The chip at the top right lists the commands found (`mkvtoolnix, ffmpeg, mediainfo`,
-and `whisper-cli` when the optional language detection is installed); its tooltip
-has their paths.
+It uses the same engine as the command line, so changes are made the same
+careful way, and the logs it writes can be used with `--undo` and the other way
+round. The chip at the top right lists the commands found
+(`mkvtoolnix, ffmpeg, mediainfo`, and `whisper-cli` when the optional language
+detection is installed); its tooltip has their paths.
 
 ### 1. Choose files
 
@@ -196,10 +197,10 @@ A folder on its own is worked on as a folder (with **Include subfolders**, the
 **Only** and **Skip** patterns, and **Rescan**); anything else becomes a list of
 the media files among the files and inside the folders dropped.
 
-Each file shows its container, its audio tracks (the default marked `*`) and its subtitles.
-Untick files to leave them out of a change, or **Clear selected** takes the
-ticked files off the list (the files on disk are not touched; a rescan of the
-same folder keeps them off). Click a file's row for its track list. **Add
+Each file shows its container, its audio tracks (the default marked `*`) and its
+subtitles. Untick files to leave them out of a change, or **Clear selected**
+takes the ticked files off the list (the files on disk are not touched; a rescan
+of the same folder keeps them off). Click a file's row for its track list. **Add
 subtitles…** adds subtitle files to many files at once (below).
 
 ### 2. Choose a bulk change
@@ -506,8 +507,10 @@ files:
   folder (`~/.local/share/mau` on Linux, `~/Library/Application Support/mau` on
   macOS, `%APPDATA%\mau` on Windows).
 
-`mau --check --install` downloads the model (`ggml-base.bin`, 148 MB, from
-Hugging Face) when there is none. Before it does, it checks that the disk has
+The desktop app has a "Speech model" card that says whether the model is there
+and downloads it on request, after a confirmation. It installs no packages, so
+it works in the sandboxed app too. `mau --check --install` downloads the model
+(`ggml-base.bin`, 148 MB, from Hugging Face) when there is none. Before it does, it checks that the disk has
 that much room with a tenth to spare: if it doesn't, it says so and downloads
 nothing, and `--check` then reports the model missing. The download is checked
 against its published SHA-256 before it is kept, so a damaged or different file
@@ -1199,18 +1202,20 @@ mau is licensed under the Apache License, version 2.0: see [LICENSE](LICENSE),
 or <https://www.apache.org/licenses/LICENSE-2.0>. It comes with no warranty.
 
 The command-line tools that the sandboxed Mac app bundles keep their own
-licences. In the default sandboxed build these are mkvtoolnix (GPL-2.0-or-later)
-and ffmpeg from Homebrew (GPL-3.0-or-later).
-
-The `--lgpl` build leaves mkvtoolnix out and builds ffmpeg under
-LGPL-2.1-or-later (see "An LGPL build"). Every other bundled package keeps its
+licences. The sandboxed app is the LGPL build: its ffmpeg and ffprobe are built
+from source as LGPL-2.1-or-later with no GPL codecs, its mediainfo is BSD, and
+whisper-cli is MIT. It carries no mkvtoolnix, so the MKV work is done with
+ffmpeg. The GPL build, which also carries mkvtoolnix (GPL-2.0-or-later) and
+Homebrew's ffmpeg (GPL-3.0-or-later), is made with `--with-mkvtoolnix`, and its
+tools' GPL licences apply to that app. Every other bundled package keeps its
 licence too, and the app carries it: `Contents/Resources/licences/` has a folder
 per package with its licence files (from the package, or the standard text of
 its licence), and `NOTICE.txt` lists each package with its version and the
-address of its source. Qt's own exception, GFDL and BSD-3-Clause texts are in
-the app too, from Qt's source (`LICENSES/`, the same checksum Homebrew records).
-The BSD text is Qt's template, so its copyright line is generic: the copyright
-holders are named in the headers of the Qt source files.
+address of its source. In the GPL build, Qt's own exception, GFDL and
+BSD-3-Clause texts are there too, from Qt's source (`LICENSES/`, the same
+checksum Homebrew records). The BSD text is Qt's template, so its copyright line
+is generic: the copyright holders are named in the headers of the Qt source
+files.
 
 Fund me here: <https://ko-fi.com/richardatlateralblast>
 

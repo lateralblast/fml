@@ -6,17 +6,19 @@
 #                                                                 notarises the app and the .dmg; --nonotarize signs but does not
 #                                                                 notarise. The notary credentials come from the environment, or from
 #                                                                 the file MAU_NOTARY_ENV names (default ~/.config/mau/notary.env).
-#                                                                 --sandboxed builds a sandboxed app that carries its tools (mkvmerge,
-#                                                                 mkvpropedit, mkvextract, mediainfo, ffmpeg, ffprobe, and whisper-cli if
-#                                                                 installed) with their libraries inside it, and names its .dmg with
-#                                                                 -sandboxed, so the two builds can sit in dist/ together.
+#                                                                 --sandboxed builds a sandboxed app that carries its tools with their
+#                                                                 libraries inside it (mediainfo, ffmpeg, ffprobe, and whisper-cli if
+#                                                                 installed), and names its .dmg with -sandboxed-lgpl. It is the LGPL
+#                                                                 build: no mkvtoolnix (which is GPL), and ffmpeg and ffprobe built from
+#                                                                 source as LGPL-only tools (packaging/ffmpeg/build-lgpl.sh, into
+#                                                                 rust/target/lgpl-ffmpeg). The MKV work is done with ffmpeg.
+#                                                                 --sandboxed --with-mkvtoolnix is the GPL build: it also carries
+#                                                                 mkvmerge, mkvpropedit and mkvextract (mkvtoolnix, GPL) and Homebrew's
+#                                                                 ffmpeg (GPL), and names its .dmg with -sandboxed.
 #                                                                 The app's Resources/licences has the licence of each package the
 #                                                                 tools come from, and NOTICE.txt (packaging/mac/collect_notices.py).
-#                                                                 --lgpl is the sandboxed build without mkvtoolnix (which is GPL),
-#                                                                 with ffmpeg and ffprobe built from source as LGPL-only tools
-#                                                                 (packaging/ffmpeg/build-lgpl.sh, into rust/target/lgpl-ffmpeg)
-#                                                                 in place of Homebrew's GPL build. Its .dmg is named -lgpl. Local
-#                                                                 builds only, for --target mac.
+#                                                                 --lgpl is the same as --sandboxed (kept for existing scripts).
+#                                                                 The sandboxed builds are local, for --target mac.
 #   ./build.sh --target linux [--package deb|rpm|appimage|all]               (comma list allowed, e.g. deb,rpm; default: the
 #                                                                 distribution's own package: deb on Debian/Ubuntu, rpm on
 #                                                                 RHEL/Fedora/Alma/Rocky/SUSE, else appimage;
@@ -55,14 +57,14 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--notarize|--nonotarize] [--package deb|rpm|appimage|all] [--no-cli] [--lgpl] [--local|--ci] [--dry-run]"
+  echo "usage: $0 --target mac|linux|deb|rpm|windows [--arch arm64|x64|universal] [--notarize|--nonotarize] [--package deb|rpm|appimage|all] [--no-cli] [--sandboxed [--with-mkvtoolnix]] [--lgpl] [--local|--ci] [--dry-run]"
   echo "       $0 [--target <t>] --release [<version>] [--commit <ref>] [--draft] [--yes] [--dry-run]"
   echo "       $0 --delete-release [<version>] [--keep-tag] [--yes] [--dry-run]"
   exit "${1:-1}"
 }
 
 target="" arch="" package="" cli=1 delete=0 del_version="" rel_version="" rel_commit="" keep_tag=0 release=0 draft=0 yes=0 dry=0 where=""
-notarize=1 notarize_set=0 notarizing=0 sandboxed=0 nomkv=0 lgpl=0
+notarize=1 notarize_set=0 notarizing=0 sandboxed=0 nomkv=0 lgpl=0 gpl=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) target="${2:-}"; shift 2 ;;
@@ -74,6 +76,7 @@ while [ $# -gt 0 ]; do
     --sandboxed) sandboxed=1; shift ;;
     --no-mkvtoolnix) nomkv=1; shift ;;
     --lgpl) lgpl=1; shift ;;
+    --with-mkvtoolnix) gpl=1; shift ;;
     --local) where=local; shift ;;
     --ci) where=ci; shift ;;
     --release)
@@ -107,16 +110,23 @@ fi
 if [ "$lgpl" = 1 ] && { [ "$where" = ci ] || [ "$release" = 1 ] || [ "$delete" = 1 ]; }; then
   echo "--lgpl is for a local build of --target mac: it cannot be combined with --ci, --release or --delete-release" >&2; exit 1
 fi
-# --lgpl is the sandboxed build without mkvtoolnix, carrying the LGPL ffmpeg
+if [ "$sandboxed" = 1 ] && [ "$where" = ci ]; then
+  echo "--sandboxed is for a local build: the GitHub runners do not have the tools bundled" >&2; exit 1
+fi
+if [ "$gpl" = 1 ] && [ "$sandboxed" != 1 ]; then
+  echo "--with-mkvtoolnix goes with --sandboxed" >&2; exit 1
+fi
+if [ "$gpl" = 1 ] && [ "$lgpl" = 1 ]; then
+  echo "--with-mkvtoolnix and --lgpl are different sandboxed builds: give one" >&2; exit 1
+fi
+# the sandboxed app is the LGPL build (no mkvtoolnix, the LGPL ffmpeg) unless --with-mkvtoolnix asks for the GPL one
+if [ "$sandboxed" = 1 ] && [ "$gpl" != 1 ]; then lgpl=1; fi
 if [ "$lgpl" = 1 ]; then sandboxed=1; nomkv=1; fi
 if [ "$nomkv" = 1 ] && [ "$where" = ci ]; then
   echo "--no-mkvtoolnix is not yet available on the GitHub runners: build it locally" >&2; exit 1
 fi
 if [ "$nomkv" = 1 ] && { [ "$release" = 1 ] || [ "$delete" = 1 ]; }; then
   echo "--no-mkvtoolnix builds an installer for --target: it cannot be combined with --release or --delete-release" >&2; exit 1
-fi
-if [ "$sandboxed" = 1 ] && [ "$where" = ci ]; then
-  echo "--sandboxed is for a local build: the GitHub runners do not have the tools bundled" >&2; exit 1
 fi
 if [ "$notarize_set" = 1 ] && [ "$where" = ci ]; then
   echo "--notarize and --nonotarize are for a local build: a --ci build notarises when the GitHub secrets are set" >&2; exit 1
@@ -337,7 +347,7 @@ sandbox_stage() {
     cp "$root/rust/target/lgpl-ffmpeg/licences/"* "$tools/licences/"
     cat >> "$tools/licences/NOTICE.txt" <<NOTE
 ffmpeg and ffprobe (and the libav* and libsw* libraries) are not from Homebrew: they are built from source as LGPL-only
-tools for this app (build.sh --lgpl). Their licence is COPYING.LGPLv2.1 and their source is described in SOURCE.txt,
+tools for this app (build.sh --sandboxed). Their licence is COPYING.LGPLv2.1 and their source is described in SOURCE.txt,
 both beside this file.
 NOTE
   fi

@@ -44,7 +44,7 @@ pub fn validate(args: &Config) -> Result<(), String> {
             .into());
     }
     let has_target = !args.file.is_empty() || !args.dir.is_empty() || !args.paths.is_empty();
-    if tasks.iter().any(|t| t.name != "check" && t.name != "undo") && !has_target {
+    if tasks.iter().any(|t| t.name != "check" && t.name != "undo" && t.name != "model") && !has_target {
         return Err("no file given (use --file or --dir)".into());
     }
     for task in tasks {

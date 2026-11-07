@@ -756,9 +756,12 @@ impl Mau {
         }
         match detect::file_sha256(&temp) {
             Ok(hash) if hash == detect::MODEL_SHA256 => {
-                if let Err(error) = fs::rename(&temp, &path) {
-                    result.error(format!("could not put the model in place at {}: {error}", path.display()));
-                    let _ = fs::remove_file(&temp);
+                match fs::rename(&temp, &path) {
+                    Ok(()) => result.changes.push(format!("the whisper.cpp model is in place at {}", path.display())),
+                    Err(error) => {
+                        result.error(format!("could not put the model in place at {}: {error}", path.display()));
+                        let _ = fs::remove_file(&temp);
+                    }
                 }
             }
             _ => {
@@ -2847,6 +2850,13 @@ impl Mau {
         for task in &self.config.tasks {
             if task.name == "check" {
                 let outcome = self.check_tools()?;
+                self.report(results, outcome);
+                continue;
+            }
+            // only the speech model: unlike `check --install` it installs no packages, so the app can use it
+            if task.name == "model" {
+                let mut outcome = Outcome::new("", "model", self.config.dryrun);
+                self.install_model(&mut outcome)?;
                 self.report(results, outcome);
                 continue;
             }

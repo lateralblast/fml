@@ -1007,6 +1007,45 @@ function confirmApply(text) {
   });
 }
 
+// The speech model (for Detect languages): whether it is there, and downloading it on request.
+function renderModel(info) {
+  const model = info.model || {};
+  $('model-download').disabled = !!model.present || state.running;
+  $('model-status').textContent = model.present
+    ? `Present at ${model.path}. Detect languages uses it. Nothing is sent from it.`
+    : `Not downloaded yet. Detect languages needs it, and it will be kept at ${model.path || 'a folder the app cannot find'}. `
+      + `The download is about ${model.megabytes} MB from Hugging Face, and is checked against its published SHA-256 before it is used.`;
+}
+
+function confirmModel(model) {
+  $('model-confirm-text').textContent = `About ${model.megabytes} MB, from huggingface.co, kept at ${model.path}.`;
+  const dialog = $('model-confirm');
+  dialog.returnValue = '';
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'download'), { once: true });
+    dialog.showModal();
+  });
+}
+
+async function downloadModel() {
+  const info = await invoke('app_info');
+  const model = info.model || {};
+  if (model.present || !(await confirmModel(model))) return;
+  setBusy(true, 'Downloading the speech model. This can take a few minutes; Stop ends it.');
+  try {
+    const summary = await invoke('run', { request: { ...commonRequest(false), tasks: [{ name: 'model', what: '' }] } });
+    const r = summary.results[0];
+    $('source').textContent = !r ? 'Nothing was done.'
+      : r.status === 'error' ? r.message
+      : (r.changes && r.changes.length ? r.changes.join(' ') : r.message);
+  } catch (error) {
+    $('source').textContent = String(error);
+  } finally {
+    setBusy(false);
+    renderModel(await invoke('app_info'));
+  }
+}
+
 function statusLabel(r) {
   if (r.status === 'changed' && r.dry_run) return 'would change';
   return r.status;
@@ -1300,6 +1339,7 @@ async function start() {
   chip.classList.add(missing.length ? 'bad' : 'good');
   chip.title = info.tools.map((t) => `${t.tool}: ${t.path || 'not found'}`).join('\n');
   state.home = info.home;
+  renderModel(info);
   $('log').value = `${info.home || '.'}/mau-log.jsonl`;
   state.languages = await invoke('languages');
   $('add-sub-lang').append(el('option', { value: '' }, '(choose)'),
@@ -1322,6 +1362,7 @@ $('action').addEventListener('change', updateForm);
 $('kind').addEventListener('change', updateForm);
 $('lang').addEventListener('change', () => { $('move').disabled = $('lang').value === 'none'; });
 $('add-folder').addEventListener('click', addFolder);
+$('model-download').addEventListener('click', downloadModel);
 $('add-files').addEventListener('click', addFiles);
 $('rescan').addEventListener('click', scan);
 $('clear').addEventListener('click', clearSelected);

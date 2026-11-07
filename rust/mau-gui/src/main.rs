@@ -258,7 +258,15 @@ fn app_info_now() -> Value {
         let path = whisper_path().map(|p| p.to_string_lossy().into_owned());
         tools.push(json!({"tool": tool, "package": package, "optional": true, "path": path}));
     }
+    // the speech model that Detect languages reads: where it is, and whether it is there yet
+    let model = mau_core::model_path();
+    let model_info = json!({
+        "path": model.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        "present": model.as_ref().is_some_and(|p| p.is_file()),
+        "megabytes": mau_core::MODEL_BYTES / 1_000_000,
+    });
     json!({"version": VERSION, "tools": tools, "search_enabled": SEARCH_ENABLED.load(Ordering::SeqCst),
+           "model": model_info,
            "home": std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default()})
 }
 

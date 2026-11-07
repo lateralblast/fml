@@ -31,3 +31,7 @@ The main changes are:
 | `--set lang --lang L` (first track only)       | any audio track, with `--track`                         |
 | needs `jq`, `file`, `ffprobe`, `mkvinfo`       | not needed                                              |
 | any failure aborts the run                     | per file errors are reported and the run continues      |
+
+# Ideas not pursued
+
+- Editing video track names and chapters (chapter titles in another language, removing chapters such as ads or credits, clearing an encoder name from the video track). Probably out of scope unless mau becomes a general MKV editor. Chapter editing needs `mkvpropedit` and would need ffmpeg in the no-mkvtoolnix build.
