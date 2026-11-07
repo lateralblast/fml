@@ -99,14 +99,17 @@ has no other dependencies of its own. It needs these commands:
 | `ffmpeg`                  | ffmpeg     | rewriting MP4 and AVI files |
 
 An MKV is read with `ffprobe`, so its track names (codecs such as `subrip`,
-`aac` and `ac3`, as `--info` shows them) are the same in every build. The build
-made without mkvtoolnix (`./build.sh --target <t> --no-mkvtoolnix`, which
-compiles the `no-mkvtoolnix` Cargo feature, and is the one for the App Store)
+`aac` and `ac3`, as `--info` shows them) are the same in every build.
+
+The build made without mkvtoolnix (`./build.sh --target <t> --no-mkvtoolnix`,
+which compiles the `no-mkvtoolnix` Cargo feature, and is the one for the App Store)
 does every MKV change with `ffmpeg` instead: flags, languages, names,
-reordering, removing and adding tracks, and extracting subtitles. It never runs
-the mkvtoolnix commands, even when they are installed, and `--check` does not
+reordering, removing and adding tracks, and extracting subtitles.
+
+It never runs the mkvtoolnix commands, even when they are installed, and `--check` does not
 ask for them. Its installers and archive are named with `-no-mkvtoolnix`, and it
 is built in `rust/target-nomkv`, so the normal build's files are not replaced.
+
 The test suite runs it with `MAU_BIN` set to that binary; it recognises the
 build from `--check`, which does not list `mkvmerge` in that build
 (`MAU_SPIKE_NO_MKVTOOLNIX=1` also works, for a binary that hides the tools at
@@ -137,8 +140,9 @@ with `./mau --check --install`, which uses the package manager of the system:
 | Windows                                  | `winget install --id ... --exact` (`MoritzBunkus.MKVToolNix`, `MediaArea.MediaInfo`, `Gyan.FFmpeg`), else `choco install -y` (`mediainfo-cli`) |
 
 A Linux distribution is recognised by the `ID` and `ID_LIKE` in
-`/etc/os-release`, so a distribution built on one of these is covered too. Any
-other system is told it is not known. The package names were checked against the
+`/etc/os-release`, so a distribution built on one of these is covered too.
+
+Any other system is told it is not known. The package names were checked against the
 package repositories, but the installs on Fedora, Arch and Windows have not been
 run on those systems (only the commands that would be run are tested;
 `--dryrun --verbose` shows them). Fedora's `ffmpeg-free` is enough for mau,
@@ -175,11 +179,14 @@ targets, and for building on GitHub with `--ci`).
 The app does everything the command line does on whole folders, and the Edit
 dialog works on one file. Open it with `./mau --gui` (or `mau-cli --gui`, or
 `mau.app` on a Mac), after building it with `cargo build -p mau-gui --release`
-in `rust/`. It follows the system's light or dark appearance. It uses the same
-engine as the command line, so changes are made the same careful way, and the
-logs it writes can be used with `--undo` and the other way round. The chip at
-the top right lists the commands found (`mkvtoolnix, ffmpeg, mediainfo`, and
-`whisper-cli` when the optional language detection is installed); its tooltip
+in `rust/`. 
+
+It follows the system's light or dark appearance.
+
+It uses the same engine as the command line, so changes are made the same careful way,
+and the logs it writes can be used with `--undo` and the other way round.
+The chip at the top right lists the commands found (`mkvtoolnix, ffmpeg, mediainfo`,
+and `whisper-cli` when the optional language detection is installed); its tooltip
 has their paths.
 
 ### 1. Choose files
@@ -187,8 +194,9 @@ has their paths.
 **Add a folder…** or **Add files…**, or drop a folder, or files, on the window.
 A folder on its own is worked on as a folder (with **Include subfolders**, the
 **Only** and **Skip** patterns, and **Rescan**); anything else becomes a list of
-the media files among the files and inside the folders dropped. Each file shows
-its container, its audio tracks (the default marked `*`) and its subtitles.
+the media files among the files and inside the folders dropped.
+
+Each file shows its container, its audio tracks (the default marked `*`) and its subtitles.
 Untick files to leave them out of a change, or **Clear selected** takes the
 ticked files off the list (the files on disk are not touched; a rescan of the
 same folder keeps them off). Click a file's row for its track list. **Add
