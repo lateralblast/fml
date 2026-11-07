@@ -341,6 +341,52 @@ fn layout_data(before: &[Track], after: &[Track]) -> Value {
     json!({"layout": {"before": before, "after": after}})
 }
 
+/// The commands an action needs for a file of this kind (the ones `require` checks before it starts).
+fn tools_for(task: &str, container: Container) -> &'static [&'static str] {
+    if task == "search" {
+        // only curl is needed, and that is checked when the request is made
+        &[]
+    } else if container == Container::Mkv && cfg!(feature = "native-mkv") && matches!(task, "set" | "delete" | "preserve") {
+        // the flags, names, order and removals of an MKV are written in this program (see ebml_edit)
+        &[]
+    } else if matches!(task, "set" | "swap") && container == Container::Avi && cfg!(feature = "native-avi") {
+        // an AVI's audio streams are put in order in this program (see avi); nothing else is changed for an AVI
+        container.read_tools()
+    } else if task == "set" && container == Container::Mp4 && cfg!(feature = "native-mp4") {
+        // an MP4's languages, default flags and order are changed in place; a name or forced flag needs ffmpeg,
+        // which edit_tracks checks for when it is used
+        container.read_tools()
+    } else if task == "add" && container == Container::Mkv && cfg!(feature = "native-mkv") {
+        // SubRip files are added in this program; other subtitle files are checked for the tools they need (see add_subtitles)
+        &[]
+    } else if task == "detect" && container == Container::Mkv && native_detect() {
+        // the clips of an MKV are made in this program on macOS (see clip); whisper.cpp is checked by the action
+        &[]
+    } else if task == "extract" && container == Container::Mkv && cfg!(feature = "native-mkv") {
+        // SubRip and SubStationAlpha tracks are written in this program; any other track still needs mkvextract or ffmpeg,
+        // which the action reports when it runs without them
+        &[]
+    } else if matches!(task, "extract" | "detect") && container == Container::Mkv {
+        // subtitles are extracted and clips cut with ffmpeg, even when the tracks are read natively
+        &["ffmpeg"]
+    } else if matches!(task, "info" | "get" | "extract" | "detect") {
+        container.read_tools()
+    } else {
+        container.write_tools()
+    }
+}
+
+/// Whether the clips of an MKV are decoded in this program: the native-detect feature, on macOS (the only place
+/// with the decoder, see audio_decode).
+fn native_detect() -> bool {
+    cfg!(all(feature = "native-detect", target_os = "macos"))
+}
+
+/// Whether a subtitle file is SubRip, by its name.
+fn is_srt(file: &str) -> bool {
+    Path::new(file).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("srt"))
+}
+
 /// The extension a subtitle track of this codec is extracted with, or `None` if it can't be
 /// extracted to a single file (VobSub is two files). A text subtitle in an MP4 is written as `.srt`.
 pub fn subtitle_extension(container: Container, codec: &str) -> Option<&'static str> {
@@ -854,7 +900,17 @@ impl Mau {
 
     /// Read the tracks of a file.
     pub fn read_tracks(&self, media: &Media) -> Res<Vec<Track>> {
-        // an MKV is read with ffprobe (part of ffmpeg), in every build, so its track names are the same everywhere
+        // with the native-mkv feature an MKV's tracks are read from its header in this program (see `ebml`),
+        // with no tool run; otherwise ffprobe reads them, as before
+        if cfg!(feature = "native-mkv") && media.container == Container::Mkv {
+            return match crate::ebml::read_file_tracks(Path::new(&media.path)) {
+                Ok(tracks) => Ok(tracks),
+                Err(_) => {
+                    self.warn(&format!("could not read the tracks of {}", media.path));
+                    Ok(Vec::new())
+                }
+            };
+        }
         let mkv_by_ffprobe = media.container == Container::Mkv;
         let cmd = if mkv_by_ffprobe {
             args(&["ffprobe", "-v", "error", "-show_streams", "-of", "json", &media.path])
@@ -1296,8 +1352,22 @@ impl Mau {
                 .map(|t| t.number)
                 .collect();
         }
+        // the languages, default flags and order of an MP4 are changed in place (the native-mp4 feature, see mp4)
+        if cfg!(feature = "native-mp4")
+            && media.container == Container::Mp4
+            && edits.iter().all(|e| e.name.is_none() && e.forced.is_none())
+        {
+            return self.edit_mp4_natively(media, result, &edits, &moves);
+        }
         if media.container == Container::Mkv && moves.is_empty() {
             return self.edit_mkv(media, result, &edits);
+        }
+        if cfg!(feature = "native-mkv") && media.container == Container::Mkv {
+            return self.native_rewrite(media, result, &edits);
+        }
+        // an MP4 is rewritten with ffmpeg here (its names and forced flags, and the removal of tracks)
+        if media.container == Container::Mp4 {
+            self.require(&["ffmpeg"])?;
         }
         if !self.check_space(&mut result, &media.path, "rewrite the file") {
             return Ok(result);
@@ -1321,6 +1391,53 @@ impl Mau {
         if done && !self.config.dryrun {
             let rewritten = Media::new(&temp_file, media.container);
             self.verify_layout(&mut result, &rewritten, &expected, tool)?;
+        }
+        self.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
+    /// Change the languages, default flags and order of an MP4 in place, in a copy (the native-mp4 feature, see
+    /// `mp4::edit_in_place`). The copy is read back before it replaces the file.
+    fn edit_mp4_natively(&self, media: &mut Media, mut result: Outcome, edits: &[Edit], moves: &[(Track, usize)]) -> Res<Outcome> {
+        let all = self.tracks(media)?;
+        let expected = self.expected_layout(&all, edits);
+        result.data = layout_data(&all, &expected);
+        let temp_file = temp_path(&media.path);
+        if !self.start_copy(&mut result, &media.path, &temp_file)? {
+            return Ok(result);
+        }
+        // the tracks are in the order of their trak boxes (checked when they are changed)
+        let place = |track: &Track| all.iter().position(|t| t.key() == track.key());
+        let mut changes = Vec::new();
+        for edit in edits {
+            let Some(trak) = place(&edit.track) else {
+                result.error("a track was not found in the file".to_string());
+                return Ok(result);
+            };
+            changes.push(crate::mp4::TrakChange { trak, language: edit.language.clone(), enabled: edit.default });
+        }
+        let order: Option<Vec<usize>> = if moves.is_empty() {
+            None
+        } else {
+            let order: Option<Vec<usize>> = reordered_by(&all, moves).iter().map(|t| place(t)).collect();
+            match order {
+                Some(order) => Some(order),
+                None => {
+                    result.error("a track was not found in the file".to_string());
+                    return Ok(result);
+                }
+            }
+        };
+        result.commands.push(vec!["native-mp4".into(), "edit-in-place".into(), temp_file.clone()]);
+        self.note(&format!("Executing:\tnative-mp4 edit-in-place {temp_file}"));
+        if !self.config.dryrun {
+            match crate::mp4::edit_in_place(Path::new(&temp_file), &changes, order.as_deref()) {
+                Ok(()) => {
+                    let rewritten = Media::new(&temp_file, media.container);
+                    self.verify_layout(&mut result, &rewritten, &expected, "native")?;
+                }
+                Err(error) => result.error(format!("could not change the tracks: {}", strerror(&error))),
+            }
         }
         self.replace_file(&mut result, &temp_file, &media.path)?;
         Ok(result.finish())
@@ -1446,6 +1563,16 @@ impl Mau {
         let all = self.tracks(media)?;
         let expected = self.expected_layout(&all, edits);
         result.data = layout_data(&all, &expected);
+        // with the native-mkv feature the flags, languages and names are written in this program (see ebml_edit)
+        if cfg!(feature = "native-mkv") {
+            self.native_edit(&mut result, &temp_file, edits);
+            if result.status != Status::Error && !self.config.dryrun {
+                let rewritten = Media::new(&temp_file, media.container);
+                self.verify_layout(&mut result, &rewritten, &expected, "native")?;
+            }
+            self.replace_file(&mut result, &temp_file, &media.path)?;
+            return Ok(result.finish());
+        }
         // SPIKE: without mkvpropedit, ffmpeg remuxes the original into the copy's place
         let (edit_cmd, tool) = if self.find("mkvpropedit").is_none() {
             (self.ffmpeg_edit_command(&media.path, &temp_file, &all, edits), "ffmpeg")
@@ -1458,6 +1585,69 @@ impl Mau {
         }
         self.replace_file(&mut result, &temp_file, &media.path)?;
         Ok(result.finish())
+    }
+
+    /// A change that moves tracks, made in this program (the native-mkv feature): the copy gets the flag,
+    /// language and name changes (`native_edit`), then its tracks are renumbered in the new order (see
+    /// `ebml_edit::reorder_tracks_in_place`). Both are checked by reading the result back before it replaces
+    /// the file.
+    fn native_rewrite(&self, media: &mut Media, mut result: Outcome, edits: &[Edit]) -> Res<Outcome> {
+        let all = self.tracks(media)?;
+        let expected = self.expected_layout(&all, edits);
+        result.data = layout_data(&all, &expected);
+        let temp_file = format!("{}{TEMP_MARK}", media.path);
+        if !self.start_copy(&mut result, &media.path, &temp_file)? {
+            return Ok(result);
+        }
+        self.native_edit(&mut result, &temp_file, edits);
+        if result.status != Status::Error {
+            // the tracks in their new order, as mkvmerge would write them
+            let order: Vec<u64> = reordered_by(&all, &moves_of(edits)).iter().map(|t| t.id as u64 + 1).collect();
+            result.commands.push(vec!["native-mkv".into(), "reorder-tracks".into(), temp_file.clone()]);
+            self.note(&format!("Executing:\tnative-mkv reorder-tracks {temp_file}"));
+            if !self.config.dryrun {
+                if let Err(error) = crate::ebml_edit::reorder_tracks_in_place(Path::new(&temp_file), &order) {
+                    result.error(format!("could not reorder the tracks: {}", strerror(&error)));
+                }
+            }
+        }
+        if result.status != Status::Error && !self.config.dryrun {
+            let rewritten = Media::new(&temp_file, media.container);
+            self.verify_layout(&mut result, &rewritten, &expected, "native")?;
+        }
+        self.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
+    /// Make the flag, language and name changes in the copy at `temp_file`, by writing a new file beside it
+    /// (see `ebml_edit`) and putting that in its place. A dry run changes nothing. On an error the copy is
+    /// left as it was, and the error is in `result`.
+    fn native_edit(&self, result: &mut Outcome, temp_file: &str, edits: &[Edit]) {
+        // the step is listed like a command, so that a dry run and --verbose show it
+        result.commands.push(vec!["native-mkv".into(), "write-tracks".into(), temp_file.to_string()]);
+        self.note(&format!("Executing:\tnative-mkv write-tracks {temp_file}"));
+        if self.config.dryrun {
+            return;
+        }
+        let changes: Vec<crate::ebml_edit::TrackEdit> = edits
+            .iter()
+            .map(|edit| crate::ebml_edit::TrackEdit {
+                // the TrackNumber of a track is its mkvmerge ID plus one
+                number: edit.track.id as u64 + 1,
+                default: edit.default,
+                forced: edit.forced,
+                language: edit.language.clone(),
+                name: edit.name.clone(),
+            })
+            .collect();
+        let writing = format!("{temp_file}{TEMP_MARK}");
+        self.pend(&writing);
+        let written = crate::ebml_edit::rewrite_tracks(Path::new(temp_file), Path::new(&writing), &changes)
+            .and_then(|()| fs::rename(&writing, temp_file));
+        if let Err(error) = written {
+            let _ = fs::remove_file(&writing);
+            result.error(format!("could not change the tracks: {}", strerror(&error)));
+        }
     }
 
     /// Rewrite an MKV with the tracks in a new order and new flags and languages.
@@ -1585,6 +1775,38 @@ impl Mau {
     }
 
     /// Rewrite a file without the given tracks.
+    /// Remove tracks from an MKV in this program (the native-mkv feature, see `ebml_edit::remove_tracks`): the
+    /// new file is written beside the original as the temporary file, checked by reading it back, and replaces
+    /// the original only if that passes. The promoted track (the new default when the default track went) is
+    /// set in the same pass.
+    fn native_remove(
+        &self,
+        media: &mut Media,
+        mut result: Outcome,
+        remove: &[Track],
+        promote: Option<&Track>,
+        expected: &[Track],
+    ) -> Res<Outcome> {
+        let temp_file = format!("{}{TEMP_MARK}", media.path);
+        result.commands.push(vec!["native-mkv".into(), "remove-tracks".into(), temp_file.clone()]);
+        self.note(&format!("Executing:\tnative-mkv remove-tracks {temp_file}"));
+        if !self.config.dryrun {
+            self.pend(&temp_file);
+            // the TrackNumber of a track is its mkvmerge ID plus one
+            let gone: Vec<u64> = remove.iter().map(|t| t.id as u64 + 1).collect();
+            let promoted = promote.map(|p| p.id as u64 + 1);
+            if let Err(error) = crate::ebml_edit::remove_tracks(Path::new(&media.path), Path::new(&temp_file), &gone, promoted) {
+                result.error(format!("could not remove the tracks: {}", strerror(&error)));
+            }
+            if result.status != Status::Error {
+                let rewritten = Media::new(&temp_file, media.container);
+                self.verify_layout(&mut result, &rewritten, expected, "native")?;
+            }
+        }
+        self.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
     fn remove_tracks(
         &self,
         media: &mut Media,
@@ -1626,6 +1848,9 @@ impl Mau {
             })
             .collect();
         result.data = layout_data(&all, &expected);
+        if cfg!(feature = "native-mkv") && media.container == Container::Mkv {
+            return self.native_remove(media, result, &remove, promote.as_ref(), &expected);
+        }
         let (temp_file, cmd, tool, ok): (String, Vec<String>, &str, &[i32]) =
             // SPIKE: an MKV's tracks are removed with ffmpeg when mkvmerge is missing
             if media.container == Container::Mkv && self.find("mkvmerge").is_some() {
@@ -1737,7 +1962,12 @@ impl Mau {
             result.error("--detect needs whisper.cpp: install it so that whisper-cli is on PATH, or set MAU_WHISPER to it".into());
             return Ok(result);
         };
-        let duration = self.duration(&media.path)?;
+        let native = native_detect() && media.container == Container::Mkv;
+        let duration = if native {
+            crate::ebml_subs::read_duration(Path::new(&media.path)).unwrap_or(None)
+        } else {
+            self.duration(&media.path)?
+        };
         let starts = detect::clip_starts(duration);
         let dir = match detect::ClipDir::new() {
             Ok(dir) => dir,
@@ -1752,17 +1982,26 @@ impl Mau {
             let mut clips: Vec<(String, f64)> = Vec::new();
             for (number, start) in starts.iter().enumerate() {
                 let clip = dir.0.join(format!("track{}-{number}.wav", track.number)).to_string_lossy().into_owned();
-                let start_text = format!("{start:.3}");
-                let map = format!("0:a:{}", track.number - 1);
-                let cut = args(&[
-                    "ffmpeg", "-v", "error", "-ss", &start_text, "-t", &clip_seconds, "-i", &media.path,
-                    "-map", &map, "-vn", "-sn", "-ac", "1", "-ar", "16000", &clip,
-                ]);
-                match self.query(&cut)? {
-                    Some(done) if done.code == 0 => {}
-                    _ => {
-                        result.error(format!("could not read the sound of track {} of {}", track.number, media.path));
+                if native {
+                    // the frames are read and decoded here (see clip); the track's TrackNumber is its ID plus one
+                    self.note(&format!("Executing:\tnative-audio write-clip {clip}"));
+                    if let Err(error) = crate::clip::write_clip(Path::new(&media.path), track.id as u64 + 1, *start, detect::CLIP_SECONDS, Path::new(&clip)) {
+                        result.error(format!("could not read the sound of track {} of {}: {}", track.number, media.path, strerror(&error)));
                         return Ok(result);
+                    }
+                } else {
+                    let start_text = format!("{start:.3}");
+                    let map = format!("0:a:{}", track.number - 1);
+                    let cut = args(&[
+                        "ffmpeg", "-v", "error", "-ss", &start_text, "-t", &clip_seconds, "-i", &media.path,
+                        "-map", &map, "-vn", "-sn", "-ac", "1", "-ar", "16000", &clip,
+                    ]);
+                    match self.query(&cut)? {
+                        Some(done) if done.code == 0 => {}
+                        _ => {
+                            result.error(format!("could not read the sound of track {} of {}", track.number, media.path));
+                            return Ok(result);
+                        }
                     }
                 }
                 let heard = args(&[&program, "-m", &model, "-f", &clip, "-dl"]);
@@ -2025,7 +2264,11 @@ impl Mau {
     /// Swaps the first two audio tracks of an AVI file, which has no flags to set: the streams are
     /// reordered in a copy with `ffmpeg`, read back, and then replace the file. Used by `--swap`,
     /// and by `--set order --order 2,1` (the reorder of two tracks in the app's Edit dialog).
-    fn swap_avi_audio(&self, media: &mut Media, mut result: Outcome) -> Res<Outcome> {
+    fn swap_avi_audio(&self, media: &mut Media, result: Outcome) -> Res<Outcome> {
+        if cfg!(feature = "native-avi") {
+            return self.swap_avi_natively(media, result);
+        }
+        let mut result = result;
         if !self.check_space(&mut result, &media.path, "rewrite the file") {
             return Ok(result);
         }
@@ -2054,6 +2297,47 @@ impl Mau {
         if done && !self.config.dryrun {
             let rewritten = Media::new(&temp_file, media.container);
             self.verify_layout(&mut result, &rewritten, &expected, "ffmpeg")?;
+        }
+        self.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
+    /// Put the first two audio streams of an AVI in each other's order, in this program (the native-avi feature,
+    /// see `avi::reorder_streams_in_place`). The copy is read back before it replaces the file.
+    fn swap_avi_natively(&self, media: &mut Media, mut result: Outcome) -> Res<Outcome> {
+        let before = self.tracks(media)?;
+        let audio_at: Vec<usize> = before
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.kind == Kind::Audio)
+            .map(|(i, _)| i)
+            .take(2)
+            .collect();
+        let [first, second] = audio_at[..] else {
+            result.error("needs at least two audio tracks to swap".to_string());
+            return Ok(result);
+        };
+        let mut expected = before.clone();
+        expected.swap(first, second);
+        result.changes.push("audio tracks 1 and 2 swapped".to_string());
+        result.data = layout_data(&before, &expected);
+        let temp_file = temp_path(&media.path);
+        if !self.start_copy(&mut result, &media.path, &temp_file)? {
+            return Ok(result);
+        }
+        // the tracks of an AVI are its streams, in the order of their lists: stream i is track i
+        let mut order: Vec<usize> = (0..before.len()).collect();
+        order.swap(first, second);
+        result.commands.push(vec!["native-avi".into(), "reorder-streams".into(), temp_file.clone()]);
+        self.note(&format!("Executing:\tnative-avi reorder-streams {temp_file}"));
+        if !self.config.dryrun {
+            match crate::avi::reorder_streams_in_place(Path::new(&temp_file), &order) {
+                Ok(()) => {
+                    let rewritten = Media::new(&temp_file, media.container);
+                    self.verify_layout(&mut result, &rewritten, &expected, "native")?;
+                }
+                Err(error) => result.error(format!("could not reorder the streams: {}", strerror(&error))),
+            }
         }
         self.replace_file(&mut result, &temp_file, &media.path)?;
         Ok(result.finish())
@@ -2237,6 +2521,14 @@ impl Mau {
         if media.container == Container::Mp4 {
             return worker.add_to_mp4(media, result, &specs, &all);
         }
+        // SubRip files are added to an MKV in this program (the native-mkv feature, see ebml_edit)
+        if cfg!(feature = "native-mkv") && specs.iter().all(|spec| is_srt(&spec.file)) {
+            return worker.add_srt_natively(media, result, &specs, &all);
+        }
+        // the tools for the other subtitle files (the native build needs none for SubRip)
+        if cfg!(feature = "native-mkv") {
+            worker.require(Container::Mkv.write_tools())?;
+        }
         let temp_file = format!("{}{TEMP_MARK}", media.path);
         // SPIKE: with mkvmerge missing, ffmpeg copies the file and adds each subtitle file as a stream
         let with_ffmpeg = worker.find("mkvmerge").is_none();
@@ -2308,6 +2600,67 @@ impl Mau {
             worker.verify_layout(&mut result, &rewritten, &expected, "mkvmerge")?;
         }
         worker.replace_file(&mut result, &temp_file, &media.path)?;
+        Ok(result.finish())
+    }
+
+    /// Add SubRip files to an MKV in this program: the cues are read here and written to a copy (see
+    /// `ebml_edit::add_subtitle_tracks`), which is read back before it replaces the file.
+    fn add_srt_natively(&self, media: &mut Media, mut result: Outcome, specs: &[SubSpec], all: &[Track]) -> Res<Outcome> {
+        let mut expected = all.to_vec();
+        let mut number = all.iter().filter(|t| t.kind == Kind::Subtitles).count();
+        let mut new_tracks = Vec::new();
+        for spec in specs {
+            number += 1;
+            let new = Track {
+                id: expected.len() as i64,
+                kind: Kind::Subtitles,
+                number,
+                codec: String::new(),
+                language: spec.lang.clone(),
+                default: false,
+                forced: spec.forced,
+                name: spec.name.clone(),
+                channels: 0,
+            };
+            let file_name = Path::new(&spec.file).file_name().map(|n| n.to_string_lossy().into_owned());
+            result.changes.push(format!(
+                "added {} ({}) from {}",
+                new.label(),
+                new.language,
+                file_name.unwrap_or_else(|| spec.file.clone())
+            ));
+            // a dry run does not open the file (an online subtitle's placeholder is not there), as the mkvmerge path does not
+            if !self.config.dryrun {
+                match crate::ebml_subs::read_srt(Path::new(&spec.file)) {
+                    Ok(cues) => new_tracks.push(crate::ebml_edit::NewSubtitleTrack {
+                        language: spec.lang.clone(),
+                        name: spec.name.clone(),
+                        forced: spec.forced,
+                        cues,
+                    }),
+                    Err(error) => {
+                        result.error(format!("could not read {}: {}", spec.file, strerror(&error)));
+                        return Ok(result);
+                    }
+                }
+            }
+            expected.push(new);
+        }
+        result.data = layout_data(all, &expected);
+        let temp_file = format!("{}{TEMP_MARK}", media.path);
+        result.commands.push(vec!["native-mkv".into(), "add-subtitles".into(), temp_file.clone()]);
+        self.note(&format!("Executing:\tnative-mkv add-subtitles {temp_file}"));
+        self.pend(&temp_file);
+        if !self.config.dryrun {
+            if let Err(error) = crate::ebml_edit::add_subtitle_tracks(Path::new(&media.path), Path::new(&temp_file), &new_tracks) {
+                result.error(format!("could not add the subtitles: {}", strerror(&error)));
+            }
+            if result.status != Status::Error {
+                let rewritten = Media::new(&temp_file, media.container);
+                self.verify_layout(&mut result, &rewritten, &expected, "native")?;
+            }
+        }
+        self.replace_file(&mut result, &temp_file, &media.path)?;
         Ok(result.finish())
     }
 
@@ -2452,28 +2805,37 @@ impl Mau {
             ));
         }
         let temp_file = temp_path(&out_text);
-        // SPIKE: with mkvextract missing, ffmpeg copies the track out in its own format
-        let cmd = if media.container == Container::Mkv && self.find("mkvextract").is_some() {
-            args(&["mkvextract", "tracks", &media.path, &format!("{}:{temp_file}", track.id)])
-        } else if media.container == Container::Mkv {
-            let mut cmd = vec!["ffmpeg".to_string()];
-            cmd.extend(args(crate::model::FFMPEG_QUIET));
-            cmd.extend(args(&["-i", &media.path, "-map", &format!("0:s:{}", track.number - 1), "-c", "copy", &temp_file]));
-            cmd
-        } else {
-            let mut cmd = vec!["ffmpeg".to_string()];
-            cmd.extend(args(crate::model::FFMPEG_QUIET));
-            cmd.extend(args(&["-i", &media.path, "-map", &format!("0:s:{}", track.number - 1)]));
-            cmd.extend(args(&["-c:s", "srt", &temp_file]));
-            cmd
-        };
         result.changes.push(format!("extracted {} ({}) to {out_text}", track.label(), track.language));
         self.pend(&temp_file);
-        let done = self.apply(&mut result, cmd, &[0, 1])?;
+        // a text track of an MKV is written in this program (the native-mkv feature, see ebml_subs)
+        let native = cfg!(feature = "native-mkv")
+            && media.container == Container::Mkv
+            && matches!(track.codec.as_str(), "subrip" | "ass");
+        let done = if native {
+            result.commands.push(vec!["native-mkv".into(), "extract-subtitles".into(), temp_file.clone()]);
+            self.note(&format!("Executing:\tnative-mkv extract-subtitles {temp_file}"));
+            if self.config.dryrun {
+                true
+            } else {
+                let track_number = track.id as u64 + 1;
+                if let Err(error) = crate::ebml_subs::write_subtitles(Path::new(&media.path), track_number, extension, Path::new(&temp_file)) {
+                    result.error(format!("could not extract the subtitles: {}", strerror(&error)));
+                }
+                result.status != Status::Error
+            }
+        } else {
+            let cmd = self.extract_command(media, &track, &temp_file);
+            self.apply(&mut result, cmd, &[0, 1])?
+        };
         if done && !self.config.dryrun {
             let made = fs::metadata(&temp_file).map(|m| m.len() > 0).unwrap_or(false);
             if !made {
-                result.error(format!("{} wrote nothing", if media.container == Container::Mkv { "mkvextract" } else { "ffmpeg" }));
+                let message = if native {
+                    "the track has no subtitles to write".to_string()
+                } else {
+                    format!("{} wrote nothing", if media.container == Container::Mkv { "mkvextract" } else { "ffmpeg" })
+                };
+                result.error(message);
             } else if let Err(error) = fs::rename(&temp_file, &out) {
                 result.error(format!("could not write {out_text}: {}", strerror(&error)));
             }
@@ -2486,6 +2848,25 @@ impl Mau {
         Ok(result)
     }
 
+    /// The command that writes a subtitle track to `temp_file` with mkvextract, or with ffmpeg when mkvextract
+    /// is missing (or the file is not an MKV).
+    fn extract_command(&self, media: &Media, track: &Track, temp_file: &str) -> Vec<String> {
+        // SPIKE: with mkvextract missing, ffmpeg copies the track out in its own format
+        if media.container == Container::Mkv && self.find("mkvextract").is_some() {
+            args(&["mkvextract", "tracks", &media.path, &format!("{}:{temp_file}", track.id)])
+        } else if media.container == Container::Mkv {
+            let mut cmd = vec!["ffmpeg".to_string()];
+            cmd.extend(args(crate::model::FFMPEG_QUIET));
+            cmd.extend(args(&["-i", &media.path, "-map", &format!("0:s:{}", track.number - 1), "-c", "copy", temp_file]));
+            cmd
+        } else {
+            let mut cmd = vec!["ffmpeg".to_string()];
+            cmd.extend(args(crate::model::FFMPEG_QUIET));
+            cmd.extend(args(&["-i", &media.path, "-map", &format!("0:s:{}", track.number - 1)]));
+            cmd.extend(args(&["-c:s", "srt", temp_file]));
+            cmd
+        }
+    }
     fn do_preserve(&self, media: &mut Media) -> Res<Outcome> {
         let result = self.result(media, "preserve");
         if media.container == Container::Avi {
@@ -2545,14 +2926,7 @@ impl Mau {
             self.note(&format!("Skipping {path}: not a supported media file"));
             return Ok(None);
         };
-        let tools = if task.name == "search" {
-            // only curl is needed, and that is checked when the request is made
-            &[][..]
-        } else if matches!(task.name.as_str(), "info" | "get" | "extract" | "detect") {
-            container.read_tools()
-        } else {
-            container.write_tools()
-        };
+        let tools = tools_for(&task.name, container);
         self.require(tools)?;
         let mut media = Media::new(path, container);
         let outcome = self.dispatch(task, &mut media);

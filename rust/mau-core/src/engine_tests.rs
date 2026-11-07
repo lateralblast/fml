@@ -758,3 +758,34 @@ fn the_model_task_in_a_dry_run_downloads_nothing() {
     assert!(heard.lock().unwrap().iter().any(|line| line.starts_with("would download the whisper.cpp model")));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn an_mkv_needs_only_the_tools_its_action_uses() {
+    // the actions this program does itself need no tool (native-mkv), the others still need ffmpeg
+    assert_eq!(tools_for("info", Container::Mp4), ["mediainfo"]);
+    if cfg!(feature = "native-mp4") {
+        // the languages, default flags and order are changed in place; a name or forced flag checks for ffmpeg itself
+        assert_eq!(tools_for("set", Container::Mp4), ["mediainfo"]);
+    } else {
+        assert_eq!(tools_for("set", Container::Mp4), Container::Mp4.write_tools());
+    }
+    if cfg!(feature = "native-avi") {
+        assert_eq!(tools_for("swap", Container::Avi), ["mediainfo"], "an AVI swap is made here");
+    }
+    if cfg!(feature = "native-mkv") {
+        for task in ["info", "get", "set", "delete", "preserve"] {
+            assert!(tools_for(task, Container::Mkv).is_empty(), "{task} on an MKV needs no tool");
+        }
+        assert!(tools_for("extract", Container::Mkv).is_empty(), "SubRip and SubStationAlpha are written in this program");
+        if cfg!(all(feature = "native-detect", target_os = "macos")) {
+            assert!(tools_for("detect", Container::Mkv).is_empty(), "the clips of an MKV are made here on macOS");
+        } else {
+            assert_eq!(tools_for("detect", Container::Mkv), ["ffmpeg"]);
+        }
+        // SubRip files are added here; other subtitle files check their tools when they are added (see add_subtitles)
+        assert!(tools_for("add", Container::Mkv).is_empty());
+    } else {
+        assert_eq!(tools_for("info", Container::Mkv), ["ffmpeg"]);
+        assert_eq!(tools_for("set", Container::Mkv), Container::Mkv.write_tools());
+    }
+}

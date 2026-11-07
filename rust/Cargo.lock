@@ -1865,6 +1865,8 @@ name = "mau-gui"
 version = "1.6.7"
 dependencies = [
  "mau-core",
+ "objc2",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "tauri",

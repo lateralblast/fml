@@ -13,6 +13,12 @@
 mod detect;
 pub use detect::{model_path, whisper_path, MODEL_BYTES};
 mod engine;
+pub mod audio_decode;
+pub mod avi;
+pub mod clip;
+pub mod ebml;
+pub mod ebml_edit;
+pub mod ebml_subs;
 pub mod languages;
 mod install;
 mod language_table;

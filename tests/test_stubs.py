@@ -14,6 +14,8 @@ import pytest
 from conftest import (
     MAU_BIN,
     MP4_HEADER,
+    NATIVE_MKV,
+    NATIVE_MP4,
     NO_MKVTOOLNIX,
     Ran,
     Stubs,
@@ -198,6 +200,7 @@ def test_mkvmerge_errors_fail_the_file(run: Callable[..., Ran], fake_mkv: Path,
     assert leftovers(fake_mkv.parent) == []
 
 
+@pytest.mark.skipif(NATIVE_MP4, reason="fake MP4 file: the native MP4 edit reads the real file (the stub ffmpeg is not run)")
 def test_an_mp4_flag_that_ffmpeg_ignores_is_caught(run: Callable[..., Ran], fake_mp4: Path,
                                                    stubs: Stubs) -> None:
     stubs.set(mi=[mi_track("Audio", 1, "it", True), mi_track("Audio", 2, "en", False)])
@@ -206,6 +209,7 @@ def test_an_mp4_flag_that_ffmpeg_ignores_is_caught(run: Callable[..., Ran], fake
     assert fake_mp4.read_bytes() == MP4_HEADER and leftovers(fake_mp4.parent) == []
 
 
+@pytest.mark.skipif(NATIVE_MP4, reason="fake MP4 file: the native MP4 edit reads the real file (the stub ffmpeg is not run)")
 def test_an_mp4_edit_that_ffmpeg_applies_is_accepted(run: Callable[..., Ran], fake_mp4: Path,
                                                      stubs: Stubs) -> None:
     stubs.set(mi=[mi_track("Audio", 1, "it", True), mi_track("Audio", 2, "en", False)],
@@ -215,6 +219,7 @@ def test_an_mp4_edit_that_ffmpeg_applies_is_accepted(run: Callable[..., Ran], fa
     assert leftovers(fake_mp4.parent) == []
 
 
+@pytest.mark.skipif(NATIVE_MP4, reason="fake MP4 file: the native MP4 edit reads the real file (the stub ffmpeg is not run)")
 def test_a_failing_ffmpeg_is_reported(run: Callable[..., Ran], fake_mp4: Path,
                                       stubs: Stubs) -> None:
     stubs.set(mi=[mi_track("Audio", 1, "it", True), mi_track("Audio", 2, "en", False)],
@@ -467,9 +472,11 @@ def test_install_on_another_system_says_so(run: Callable[..., Ran], no_tools: Pa
 
 def test_an_action_names_the_commands_it_needs(run: Callable[..., Ran], fake_mkv: Path,
                                                fake_mp4: Path, no_tools: Path) -> None:
-    mkv = run("--set", "lang", "--default", "English", "-i", fake_mkv)
-    missing = "mkvmerge, mkvpropedit" if not NO_MKVTOOLNIX else "mediainfo, ffmpeg"
-    assert mkv.code == 1 and f"command not found: {missing}" in mkv.err
+    # with the native MKV build an MKV edit needs no tool at all (so it is not refused for a missing one)
+    if not NATIVE_MKV:
+        mkv = run("--set", "lang", "--default", "English", "-i", fake_mkv)
+        missing = "mkvmerge, mkvpropedit" if not NO_MKVTOOLNIX else "mediainfo, ffmpeg"
+        assert mkv.code == 1 and f"command not found: {missing}" in mkv.err
     mp4 = run("--get", "lang", "-i", fake_mp4)
     assert mp4.code == 1 and "command not found: mediainfo" in mp4.err
     assert "mkvmerge" not in mp4.err  # only what an MP4 read needs
@@ -493,6 +500,7 @@ def mi_named(kind: str, order: int, language: str, default: bool, title: str) ->
     return track
 
 
+@pytest.mark.skipif(NATIVE_MP4, reason="fake MP4 file: the native MP4 edit reads the real file (the stub ffmpeg is not run)")
 def test_an_mp4_that_loses_a_track_name_is_caught(run: Callable[..., Ran], fake_mp4: Path,
                                                   stubs: Stubs) -> None:
     """The flags are right in the new file, but the name has gone: not replaced."""
@@ -505,6 +513,7 @@ def test_an_mp4_that_loses_a_track_name_is_caught(run: Callable[..., Ran], fake_
     assert fake_mp4.read_bytes() == MP4_HEADER
 
 
+@pytest.mark.skipif(NATIVE_MP4, reason="fake MP4 file: the native MP4 edit reads the real file (the stub ffmpeg is not run)")
 def test_an_mp4_that_keeps_its_names_is_accepted(run: Callable[..., Ran], fake_mp4: Path,
                                                  stubs: Stubs) -> None:
     stubs.set(mi=[mi_named("Audio", 1, "it", True, "Italiano"),
@@ -514,6 +523,7 @@ def test_an_mp4_that_keeps_its_names_is_accepted(run: Callable[..., Ran], fake_m
     assert run("--set", "lang", "--default", "English", "-i", fake_mp4).code == 0
 
 
+@pytest.mark.skipif(NATIVE_MP4, reason="fake MP4 file: the native MP4 edit reads the real file (the stub ffmpeg is not run)")
 def test_the_ffmpeg_command_writes_the_names_back(run: Callable[..., Ran], fake_mp4: Path,
                                                   stubs: Stubs) -> None:
     stubs.set(mi=[mi_named("Video", 1, "", False, "Film"),

@@ -22,3 +22,8 @@ libc.workspace = true
 [features]
 # the build without mkvtoolnix (see mau-core)
 no-mkvtoolnix = ["mau-core/no-mkvtoolnix"]
+# the MKV tracks are read in this program, not with ffprobe (see mau-core)
+native-mkv = ["mau-core/native-mkv"]
+native-mp4 = ["mau-core/native-mp4"]
+native-avi = ["mau-core/native-avi"]
+native-detect = ["mau-core/native-detect"]

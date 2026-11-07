@@ -13,6 +13,7 @@ from typing import Any, Callable
 import pytest
 from conftest import (
     MAU_BIN,
+    NATIVE_MKV,
     NO_MKVTOOLNIX,
     Ran,
     leftovers,
@@ -221,7 +222,10 @@ def test_move_when_the_track_is_already_first_only_edits_the_flag(run: Callable[
     ran = run("--set", "lang", "--default", "Italian", "--move", "-i", film_mkv, "-F", "json")
     (result,) = json.loads(ran.out)["results"]
     # mkvpropedit edits the flags in place; without mkvtoolnix the flags are a remux with ffmpeg
-    assert result["commands"][0][0] == ("ffmpeg" if NO_MKVTOOLNIX else "mkvpropedit")
+    if NATIVE_MKV:
+        assert result["commands"][0][0] == "native-mkv"
+    else:
+        assert result["commands"][0][0] == ("ffmpeg" if NO_MKVTOOLNIX else "mkvpropedit")
     assert mkv_layout(film_mkv)[:3] == ["a:ita*", "a:eng", "a:fre"]
 
 
@@ -250,7 +254,9 @@ def test_move_with_prefer_and_set_default_by_track(run: Callable[..., Ran], und_
 def test_move_dry_run_shows_the_remux(run: Callable[..., Ran], film_mkv: Path) -> None:
     before = film_mkv.read_bytes()
     ran = run("--set", "lang", "--default", "English", "--move", "-i", film_mkv, "-T", "-v")
-    if NO_MKVTOOLNIX:
+    if NATIVE_MKV:
+        assert "native-mkv reorder-tracks" in ran.err
+    elif NO_MKVTOOLNIX:
         assert "ffmpeg" in ran.err and "-map" in ran.err
     else:
         assert "--track-order 0:0,0:2,0:1,0:3,0:4,0:5,0:6" in ran.err
@@ -446,7 +452,9 @@ def test_a_switch_belongs_to_the_action_before_it(run: Callable[..., Ran], film_
     assert ran.code == 0, ran.err
     # the first plan moves French first (an mkvmerge rewrite); the second only edits flags
     commands = [line for line in ran.err.splitlines() if line.startswith("Executing:")]
-    if NO_MKVTOOLNIX:
+    if NATIVE_MKV:
+        assert any("native-mkv reorder-tracks" in c for c in commands)
+    elif NO_MKVTOOLNIX:
         assert any(c.startswith("Executing:\tffmpeg") and "-map" in c for c in commands)
     else:
         assert any("mkvmerge" in c and "--track-order" in c for c in commands)
@@ -569,7 +577,10 @@ def test_name_and_forced_edits_dry_run_and_json(run: Callable[..., Ran], film_mk
     ran = run("--set", "name", "--track", "1", "--name", "X", "-i", film_mkv, "-T", "-F", "json")
     (result,) = json.loads(ran.out)["results"]
     assert result["changes"] == ['audio track 1 (ita): name "Italian" -> "X"']
-    assert ("title=X" if NO_MKVTOOLNIX else "name=X") in result["commands"][0]
+    if NATIVE_MKV:
+        assert result["commands"][0][0] == "native-mkv"
+    else:
+        assert ("title=X" if NO_MKVTOOLNIX else "name=X") in result["commands"][0]
     assert film_mkv.read_bytes() == before
 
 

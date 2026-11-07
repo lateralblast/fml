@@ -2,7 +2,11 @@
 """Copy command-line tools, and every library they load that is not part of macOS, into one folder
 that can be moved about: the tools go in OUT/bin and the libraries in OUT/lib.
 
-  usage: bundle_tools.py OUT TOOL [TOOL ...]
+  usage: bundle_tools.py [--plugins DIR] OUT TOOL [TOOL ...]
+
+--plugins DIR copies the shared objects in DIR (whisper.cpp's ggml backends) into OUT/bin, beside the tools: ggml
+looks for its backends in the folder of the program that runs (it does not read GGML_BACKEND_DIR), and the
+libraries they load are rewritten in the same way as the tools'.
 
 Each reference to a library that is not in /usr/lib or /System is rewritten (install_name_tool)
 to a path relative to the copy: a tool refers to @loader_path/../lib/<name>, a library to
@@ -87,6 +91,10 @@ def bundle(
 
 
 def main(argv: list[str]) -> None:
+    plugins = None
+    if len(argv) > 2 and argv[1] == "--plugins":
+        plugins = Path(argv[2])
+        argv = argv[:1] + argv[3:]
     if len(argv) < 3:
         raise SystemExit(__doc__)
     out = Path(argv[1])
@@ -95,6 +103,15 @@ def main(argv: list[str]) -> None:
     (out / "lib").mkdir(parents=True, exist_ok=True)
     bundled: dict[str, str] = {}
     sources: list[str] = []
+    if plugins is not None:
+        for plugin in sorted(plugins.glob("*.so")):
+            real = plugin.resolve()
+            target = out / "bin" / plugin.name
+            shutil.copy2(real, target)
+            target.chmod(0o755)
+            bundle(out, real, target, "@loader_path/../lib/", bundled)
+            sources.append(str(real))
+            print(f"  bin/{plugin.name} (from {real})")
     for tool in tools:
         real = tool.resolve()
         target = out / "bin" / tool.name

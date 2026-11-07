@@ -63,10 +63,11 @@ impl Container {
         }
     }
 
-    /// The commands needed to read a file of this kind.
+    /// The commands needed to read a file of this kind (for `info` and `get`).
     pub fn read_tools(self) -> &'static [&'static str] {
         match self {
-            // an MKV is read with ffprobe, which comes with ffmpeg
+            // an MKV's tracks are read in this program with the native-mkv feature, else ffprobe (from ffmpeg)
+            Container::Mkv if cfg!(feature = "native-mkv") => &[],
             Container::Mkv => &["ffmpeg"],
             _ => &["mediainfo"],
         }

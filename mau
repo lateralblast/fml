@@ -3,6 +3,8 @@
 # Uses the release build of the Rust version if there is one, else the debug build.
 # Before running, the build is brought up to date with cargo (a no-op when it already is).
 # With --gui the app (the program rust/target/<profile>/mau) is brought up to date too.
+# With --gui --sandboxed the sandboxed app that build.sh --sandboxed made is opened instead
+# (rust/target-nomkv/release/bundle/macos/mau.app); it is not rebuilt here.
 # MAU_NO_BUILD=1 (or FML_NO_BUILD=1, its name before the rename) skips the check and runs whatever is built.
 # Build by hand with: (cd rust && cargo build --release && cargo build -p mau-gui --release)
 here=$(cd "$(dirname "$0")" && pwd)
@@ -50,19 +52,49 @@ ensure() {
 }
 
 want_app=0
+sandboxed=0
 for arg in "$@"; do
-  if [ "$arg" = "--gui" ]; then
-    want_app=1
-  fi
+  case "$arg" in
+    --gui) want_app=1 ;;
+    --sandboxed) sandboxed=1 ;;
+  esac
 done
+# --sandboxed (with --gui) opens the sandboxed app that build.sh --sandboxed makes, not the one built here. The
+# two options are taken out of the arguments, so the app gets only what --gui allows (--enable search).
+if [ "$sandboxed" = 1 ]; then
+  if [ "$want_app" != 1 ]; then
+    echo "mau: --sandboxed opens the sandboxed app, so it goes with --gui" >&2
+    exit 1
+  fi
+  i=$#
+  while [ "$i" -gt 0 ]; do
+    arg=$1
+    shift
+    i=$((i - 1))
+    case "$arg" in
+      --gui|--sandboxed) ;;
+      *) set -- "$@" "$arg" ;;
+    esac
+  done
+fi
 
 if [ -z "${MAU_NO_BUILD:-$FML_NO_BUILD}" ]; then
   # shellcheck disable=SC2086 # $flag is empty or one word
   ensure "$rust/target/$profile/mau-cli" $flag -p mau-cli
-  if [ "$want_app" = 1 ]; then
+  if [ "$want_app" = 1 ] && [ "$sandboxed" != 1 ]; then
     # shellcheck disable=SC2086
     ensure "$rust/target/$profile/mau" $flag -p mau-gui
   fi
+fi
+
+if [ "$sandboxed" = 1 ]; then
+  # build.sh --sandboxed leaves the app here (its tools are in its Resources)
+  app="$rust/target-nomkv/release/bundle/macos/mau.app"
+  if [ ! -d "$app" ]; then
+    echo "mau: there is no sandboxed app yet: build it with ./build.sh --target mac --sandboxed --nonotarize" >&2
+    exit 1
+  fi
+  exec open "$app" ${1:+--args "$@"}
 fi
 
 bin="$rust/target/$profile/mau-cli"

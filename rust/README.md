@@ -97,6 +97,17 @@ check them by hand before relying on them.
 - `--info` shows codec names as ffprobe gives them (`aac`, `mpeg4`, `subrip`); `fml.py` shows mkvmerge's
   (`AAC`, `MPEG-4p2`, `SubRip/SRT`) for an MKV. The Rust names are kept: they are the ones used elsewhere
   (for MP4 and AVI, and for JSON). `fml.py` is archived and keeps its output.
+- In a build with `native-mp4`, an MP4's languages, default flags and track order are changed in place (the
+  `trak` boxes are moved within `moov`, and nothing else moves). The file is not rewritten, so the index is not
+  moved to the front of the file as ffmpeg's rewrite moves it: playback is the same, but a file that streams
+  from a web server may start more slowly. Names, forced flags and removals still use ffmpeg.
+- In a build with `native-avi`, the audio streams of an AVI are put in order in place (`--swap`): the stream
+  lists are reordered and the stream numbers in the chunks and the index are renamed, and nothing changes
+  size. An AVI with an OpenDML index (`indx`) is refused, where the ffmpeg path would swap it. Removing streams
+  still uses ffmpeg.
+- In a build with `native-detect` on macOS, the clips of an MKV for `--detect` are decoded with Apple's
+  AudioToolbox, not ffmpeg: the sound is close to ffmpeg's (correlation 0.95 to 0.99 on the files checked), and
+  the languages found were the same. The clip length of a file with no `Duration` in its header is one clip.
 - In the build without mkvtoolnix (`--features no-mkvtoolnix`), a global `TITLE` tag is written
   by ffmpeg as the file's Title element instead, so its value survives but is not a tag. ffmpeg's
   Matroska muxer cannot write a global tag. Attachments and chapters are kept. Accepted for now

@@ -11,7 +11,8 @@
 #                                                                 installed), and names its .dmg with -sandboxed-lgpl. It is the LGPL
 #                                                                 build: no mkvtoolnix (which is GPL), and ffmpeg and ffprobe built from
 #                                                                 source as LGPL-only tools (packaging/ffmpeg/build-lgpl.sh, into
-#                                                                 rust/target/lgpl-ffmpeg). The MKV work is done with ffmpeg.
+#                                                                 rust/target/lgpl-ffmpeg). The MKV, MP4 and AVI edits are done in the
+#                                                                 app (the native-* features), and ffmpeg does the rest (APPSTORE.md).
 #                                                                 --sandboxed --with-mkvtoolnix is the GPL build: it also carries
 #                                                                 mkvmerge, mkvpropedit and mkvextract (mkvtoolnix, GPL) and Homebrew's
 #                                                                 ffmpeg (GPL), and names its .dmg with -sandboxed.
@@ -332,14 +333,22 @@ sandbox_stage() {
     fi
     found+=("$path")
   done
+  plugins=""
   if path=$(command -v whisper-cli); then
     found+=("$path")
+    # whisper.cpp's backends are plugins in Homebrew's ggml (libexec); they are bundled beside whisper-cli (bundle_tools.py)
+    plugins=$(brew --prefix ggml 2>/dev/null)/libexec
+    [ -d "$plugins" ] || { echo "no whisper.cpp backends in $plugins: the sandboxed app will find no devices" >&2; plugins=""; }
   else
     echo "whisper-cli not found: the sandboxed app will not detect languages (brew install whisper-cpp bundles it)" >&2
   fi
   rm -rf "$tools"
   echo "== bundling the tools =="
-  python3 "$root/packaging/mac/bundle_tools.py" "$tools" "${found[@]}"
+  if [ -n "$plugins" ]; then
+    python3 "$root/packaging/mac/bundle_tools.py" --plugins "$plugins" "$tools" "${found[@]}"
+  else
+    python3 "$root/packaging/mac/bundle_tools.py" "$tools" "${found[@]}"
+  fi
   # the licences of the packages the tools come from, with NOTICE.txt (collect_notices.py), for the app's Resources
   python3 "$root/packaging/mac/collect_notices.py" "$tools/licences" "$tools/sources.txt"
   rm -f "$tools/sources.txt"
@@ -388,7 +397,9 @@ build_target() {
   host=$(uname -s)
   case "$target" in deb|rpm) package="$target"; target=linux ;; esac
   case "$target" in
-    mac|macos)   want=Darwin; bundles=dmg ;;
+    mac|macos)   want=Darwin; bundles=dmg
+                 # the sandboxed app is kept (Tauri deletes it after the disk image): mau --gui --sandboxed opens it
+                 if [ "$sandboxed" = 1 ]; then bundles=app,dmg; fi ;;
     linux)       want=Linux;  bundles=$(native_package) ;;
     windows|win) want=MINGW;  bundles=nsis ;;
     *) echo "unknown target: $target (mac, linux, deb, rpm, windows)" >&2; exit 1 ;;
@@ -464,7 +475,9 @@ build_target() {
   if [ "$nomkv" = 1 ]; then
     tdir="$root/rust/target-nomkv"
     export CARGO_TARGET_DIR="$tdir"
-    feature_args=(--features no-mkvtoolnix)
+    # the native features do the MKV, MP4 and AVI edits, the MKV subtitles and the clips for --detect in the app
+    # (see APPSTORE.md); ffmpeg is still bundled for what they do not yet do
+    feature_args=(--features "no-mkvtoolnix native-mkv native-mp4 native-avi native-detect")
     suffix="-no-mkvtoolnix"
   fi
   if [ "$lgpl" = 1 ]; then suffix="-lgpl"; fi

@@ -21,3 +21,8 @@ libc.workspace = true
 [features]
 # the build without mkvtoolnix: MKV work is done with ffmpeg (for the App Store build)
 no-mkvtoolnix = []
+# read an MKV's tracks from its header in this program (see ebml.rs), not with ffprobe
+native-mkv = []
+native-mp4 = []
+native-avi = []
+native-detect = []

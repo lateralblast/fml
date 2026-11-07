@@ -42,6 +42,7 @@
         <label>Only <input id="include" type="text" placeholder="*.mkv, Season 1/*" size="20"></label>
         <label>Skip <input id="exclude" type="text" placeholder="Extras, *.sample.*" size="20"></label>
         <button id="rescan" type="button" class="quiet">Rescan</button>
+        <button id="forget-folders" type="button" class="quiet" hidden title="Stop remembering the folders you chose">Forget folders…</button>
       </div>
       <p id="source" class="muted">Nothing chosen yet. MKV, MP4 (M4V, MOV) and AVI files are supported. You can also drop a folder or files on this window.</p>
       <div id="files-wrap" class="table-wrap" hidden>
@@ -246,6 +247,17 @@
     </form>
   </dialog>
 
+  <dialog id="forget-dialog">
+    <form method="dialog">
+      <h3>Forget the remembered folders?</h3>
+      <p id="forget-text"></p>
+      <p class="muted">A change that needs one of these folders will ask for it again. The access the app already has lasts until it quits.</p>
+      <div class="row end">
+        <button value="cancel" type="submit">Cancel</button>
+        <button value="forget" type="submit" class="primary">Forget</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="confirm">
     <form method="dialog">
       <h3 id="confirm-title">Apply the changes?</h3>

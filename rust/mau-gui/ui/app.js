@@ -620,12 +620,62 @@ async function renameFile(event) {
   }
 }
 
+// The folder of a file path (the part before the last separator).
+function parentFolder(path) {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut > 0 ? path.slice(0, cut) : path;
+}
+
+// Keep access to a folder the user chose, across launches (the sandboxed app; a no-op elsewhere).
+async function rememberFolder(folder) {
+  try {
+    await invoke('remember_folder', { path: folder });
+  } catch (error) {
+    $('info-status').textContent = `The folder could not be remembered: ${error}`;
+  }
+  await refreshForget();
+}
+
+// The folders the app remembers: the button shows only when there are some.
+async function refreshForget() {
+  const folders = await invoke('remembered_folders').catch(() => []);
+  $('forget-folders').hidden = folders.length === 0;
+  return folders;
+}
+
+async function forgetFolders() {
+  const folders = await refreshForget();
+  $('forget-text').textContent = folders.join(', ');
+  const dialog = $('forget-dialog');
+  dialog.returnValue = '';
+  const answer = await new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'forget'), { once: true });
+    dialog.showModal();
+  });
+  if (!answer) return;
+  try {
+    await invoke('forget_folders');
+    $('source').textContent = 'The remembered folders are forgotten. A change that needs one asks for it again.';
+  } catch (error) {
+    $('source').textContent = String(error);
+  }
+  await refreshForget();
+}
+
+// A change can fail because the sandbox does not let the app write beside the file (its copy is made there): that
+// is a permission error, and the folder has to be allowed (the picker grants it).
+function isPermissionError(message) {
+  return /not permitted|Permission denied/i.test(message || '');
+}
+
 // Run one change on the file in the dialog, after asking, then read the file again so the
-// dialog and the list show what it is now.
-async function changeFile(request, question) {
+// dialog and the list show what it is now. If the sandbox refuses the folder, the folder is asked for
+// once and the change is run again.
+async function changeFile(request, question, folderAllowed = false) {
   const file = info.file;
-  if (!(await confirmApply(question))) return null;
+  if (!folderAllowed && !(await confirmApply(question))) return null;
   let done = null;
+  let needsFolder = false;
   info.busy = true; setBusy(true); renderOrder();
   $('info-status').textContent = 'Working…';
   try {
@@ -634,22 +684,40 @@ async function changeFile(request, question) {
       backup: $('backup').checked, force: $('force').checked,
       log: $('use-log').checked ? $('log').value.trim() : '', ...request } });
     const r = summary.results[0];
-    const lines = r && r.changes.length ? r.changes.join('; ') : (r && r.message) || '';
-    const stopped = summary.code === 130 ? 'Stopped. ' : '';
-    $('info-status').textContent = r ? `${stopped}${statusLabel(r)}${lines ? `: ${lines}` : ''}`
-      : (stopped || 'Nothing was done.');
-    done = r;
-    const scanned = await invoke('scan', { request: { kind: 'audio', paths: [file.path] } });
-    const fresh = scanned.results.find((x) => x.action === 'info' && x.data);
-    if (fresh) {
-      file.tracks = fresh.data.tracks; file.container = fresh.data.container;
-      resetOrder(file);
-      renderFiles();
+    if (r && r.status === 'error' && !folderAllowed && isPermissionError(r.message)) {
+      needsFolder = true;
+    } else {
+      // on an error the message is the reason (the changes listed are the ones that were not made)
+      const detail = r && r.status === 'error' && r.message ? r.message
+        : (r && r.changes.length ? r.changes.join('; ') : (r && r.message) || '');
+      const stopped = summary.code === 130 ? 'Stopped. ' : '';
+      $('info-status').textContent = r ? `${stopped}${statusLabel(r)}${detail ? `: ${detail}` : ''}`
+        : (stopped || 'Nothing was done.');
+      done = r;
+      const scanned = await invoke('scan', { request: { kind: 'audio', paths: [file.path] } });
+      const fresh = scanned.results.find((x) => x.action === 'info' && x.data);
+      if (fresh) {
+        file.tracks = fresh.data.tracks; file.container = fresh.data.container;
+        resetOrder(file);
+        renderFiles();
+      }
     }
   } catch (error) {
     $('info-status').textContent = String(error);
   } finally {
     info.busy = false; setBusy(false); renderOrder();
+  }
+  if (needsFolder) {
+    $('info-status').textContent = 'The app needs access to the folder of this file to make the change: choose it.';
+    const folder = await open({ directory: true, multiple: false, defaultPath: parentFolder(file.path),
+      title: 'Allow changes in this folder' });
+    if (!folder) {
+      $('info-status').textContent = 'Not changed: the folder was not allowed.';
+      return null;
+    }
+    // kept for the next launch too (the app remembers the folder's bookmark)
+    await rememberFolder(folder);
+    return changeFile(request, question, true);
   }
   return done;
 }
@@ -909,6 +977,7 @@ async function scan() {
 async function addFolder() {
   const chosen = await open({ directory: true, multiple: false });
   if (!chosen) return;
+  await rememberFolder(chosen);
   state.dir = chosen; state.paths = []; state.removed.clear();
   await scan();
 }
@@ -1391,5 +1460,7 @@ $('sub-search-open').addEventListener('click', openSubSearch);
 $('sub-search-go').addEventListener('click', searchSubtitles);
 $('sub-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); searchSubtitles(); } });
 $('sub-save').addEventListener('click', saveAccount);
+$('forget-folders').addEventListener('click', forgetFolders);
+refreshForget();
 
 start().catch((error) => { $('source').textContent = `Could not start: ${error}`; });

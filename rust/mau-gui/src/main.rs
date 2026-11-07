@@ -9,6 +9,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+mod folders;
+
 use mau_core::languages::resolve_language;
 use mau_core::util::which;
 use mau_core::{
@@ -230,6 +232,30 @@ async fn run(app: AppHandle, request: Request) -> Result<Summary, String> {
     tauri::async_runtime::spawn_blocking(move || execute(&app, request, true))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Remember a folder the user chose, so the app can change its files again after a restart (see folders.rs).
+#[tauri::command]
+fn remember_folder(app: AppHandle, path: String) -> Result<(), String> {
+    let store = folders::store_in(tauri::Manager::path(&app).app_data_dir().ok())
+        .ok_or_else(|| "no folder for the app's data".to_string())?;
+    folders::remember(&path, &store)
+}
+
+/// The folders remembered for the sandbox (see folders.rs).
+#[tauri::command]
+fn remembered_folders(app: AppHandle) -> Vec<String> {
+    folders::store_in(tauri::Manager::path(&app).app_data_dir().ok())
+        .map(|store| folders::list(&store))
+        .unwrap_or_default()
+}
+
+/// Forget the remembered folders: the next change that needs one asks for it again.
+#[tauri::command]
+fn forget_folders(app: AppHandle) -> Result<(), String> {
+    let store = folders::store_in(tauri::Manager::path(&app).app_data_dir().ok())
+        .ok_or_else(|| "no folder for the app's data".to_string())?;
+    folders::forget(&store)
 }
 
 /// Stop the run that is going: the running tool is ended and temporary files removed.
@@ -641,7 +667,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             scan, run, cancel, app_info, languages, about_text, show_about, open_link, file_details, rename_file, match_subtitle_files, classify_dropped,
             subtitle_settings, save_subtitle_settings, subtitle_guess, search_subtitles, fetch_subtitle,
-            forget_subtitle, dev_report
+            forget_subtitle, dev_report, remember_folder, remembered_folders, forget_folders
         ])
         .on_menu_event(|app, event| {
             if event.id().as_ref() == "about" {
@@ -649,6 +675,10 @@ fn main() {
             }
         })
         .setup(|app| {
+            // the folders chosen before are open to the app again (macOS, the sandbox; see folders.rs)
+            if let Some(store) = folders::store_in(tauri::Manager::path(app).app_data_dir().ok()) {
+                folders::restore(&store);
+            }
             #[cfg(target_os = "macos")]
             app.set_menu(app_menu(app.handle())?)?;
             // Debug builds only: MAU_GUI_SCRIPT names a script to run in the window, so the

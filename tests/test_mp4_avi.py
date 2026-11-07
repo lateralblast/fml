@@ -13,6 +13,8 @@ from typing import Callable
 import pytest
 from conftest import (
     MAU_BIN,
+    NATIVE_AVI,
+    NATIVE_MP4,
     Ran,
     audio_streams,
     leftovers,
@@ -106,6 +108,7 @@ def test_permissions_and_times_are_kept(run: Callable[..., Ran], film_mp4: Path)
     assert stat.S_IMODE(info.st_mode) == 0o640 and int(info.st_mtime) == 1_600_000_000
 
 
+@pytest.mark.skipif(NATIVE_MP4, reason="the native MP4 edit changes the tracks in place and does not move the index to the front (see APPSTORE.md)")
 def test_the_index_is_moved_to_the_front(run: Callable[..., Ran], film_mp4: Path) -> None:
     assert top_level_boxes(film_mp4).index("moov") > top_level_boxes(film_mp4).index("mdat")
     run("--set", "lang", "--default", "English", "-i", film_mp4)
@@ -373,14 +376,17 @@ def test_dry_run_changes_nothing_and_shows_the_command(run: Callable[..., Ran],
     before = film_mp4.read_bytes()
     ran = run("--set", "lang", "--default", "English", "--move", "-i", film_mp4, "-T", "-v")
     assert ran.out.startswith("[dry-run]")
-    assert "-map 0:a:1 -map 0:a:0 -map 0:a:2" in ran.err
+    if NATIVE_MP4:
+        assert "native-mp4 edit-in-place" in ran.err
+    else:
+        assert "-map 0:a:1 -map 0:a:0 -map 0:a:2" in ran.err
     assert film_mp4.read_bytes() == before and leftovers(film_mp4.parent) == []
 
 
 def test_json_lists_the_ffmpeg_command(run: Callable[..., Ran], film_mp4: Path) -> None:
     ran = run("--set", "lang", "--default", "English", "-i", film_mp4, "-T", "-F", "json")
     (result,) = json.loads(ran.out)["results"]
-    assert result["commands"][0][0] == "ffmpeg" and result["status"] == "changed"
+    assert result["commands"][0][0] == ("native-mp4" if NATIVE_MP4 else "ffmpeg") and result["status"] == "changed"
 
 
 # AVI -------------------------------------------------------------------------
@@ -448,7 +454,8 @@ def test_avi_last_audio_track_is_protected(run: Callable[..., Ran], three_avi: P
 def test_avi_dry_run(run: Callable[..., Ran], three_avi: Path) -> None:
     before = three_avi.read_bytes()
     ran = run("--swap", "lang", "-i", three_avi, "-T", "-v")
-    assert ran.out.startswith("[dry-run]") and "-map 0:a:1 -map 0:a:0" in ran.err
+    assert ran.out.startswith("[dry-run]")
+    assert ("native-avi reorder-streams" if NATIVE_AVI else "-map 0:a:1 -map 0:a:0") in ran.err
     assert three_avi.read_bytes() == before and leftovers(three_avi.parent) == []
 
 
